@@ -45,12 +45,42 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         return () => resizeObserver.disconnect();
     }, []);
 
-    // Draw Waveform
+    // Initialize Layers (Run once)
+    useEffect(() => {
+        if (!svgRef.current) return;
+        const svg = d3.select(svgRef.current);
+        
+        // Setup Defs and Layers if they don't exist
+        if (svg.select("#defs-layer").empty()) {
+            const defs = svg.append("defs").attr("id", "defs-layer");
+            
+            defs.append("linearGradient")
+                .attr("id", "waveform-gradient")
+                .attr("x1", "0%").attr("y1", "0%")
+                .attr("x2", "100%").attr("y2", "0%") 
+                .selectAll("stop")
+                .data([
+                    {offset: "0%", color: "#00f6ff"},
+                    {offset: "100%", color: "#ff00aa"}
+                ])
+                .enter().append("stop")
+                .attr("offset", d => d.offset)
+                .attr("stop-color", d => d.color);
+
+            // Layer order determines z-index
+            svg.append("g").attr("id", "waveform-layer");
+            svg.append("g").attr("id", "slices-layer");
+            svg.append("g").attr("id", "playback-layer");
+        }
+    }, []);
+
+    // 1. Draw Waveform (Heavy Computation)
     useEffect(() => {
         if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
 
         const svg = d3.select(svgRef.current);
-        svg.selectAll("*").remove(); // Clear previous waveform
+        const layer = svg.select("#waveform-layer");
+        layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
         const height = 128; // Fixed height matching Tailwind h-32
@@ -62,7 +92,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         const downsampledData: number[] = [];
         for (let i = 0; i < totalWidth; i++) {
             let max = 0;
-            // Optimize loop: limit sampling if zoom is very high to avoid performance hits
             const step = Math.max(1, Math.floor(samples));
             for (let j = 0; j < step; j++) {
                 const val = channelData[Math.floor(i * samples) + j];
@@ -72,8 +101,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         }
 
         const x = d3.scaleLinear().domain([0, downsampledData.length]).range([0, totalWidth]);
-        // y scale not strictly needed for area, but good for calculations if needed
-
+        
         const area = d3.area()
             .x((d: any, i: number) => x(i))
             .y0(height / 2)
@@ -84,33 +112,27 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             .y0(height / 2)
             .y1((d: any) => height/2 - (d * height/2));
             
-        // Defs for gradient
-        const defs = svg.append("defs");
-        defs.append("linearGradient")
-            .attr("id", "waveform-gradient")
-            .attr("x1", "0%").attr("y1", "0%")
-            .attr("x2", "100%").attr("y2", "0%") // Horizontal gradient looks better for waveform
-            .selectAll("stop")
-            .data([
-                {offset: "0%", color: "#00f6ff"},
-                {offset: "100%", color: "#ff00aa"}
-            ])
-            .enter().append("stop")
-            .attr("offset", d => d.offset)
-            .attr("stop-color", d => d.color);
-
-        // Render Waveform Paths
-        svg.append('path')
+        layer.append('path')
             .datum(downsampledData)
             .attr('d', area)
             .attr('fill', 'url(#waveform-gradient)');
 
-        svg.append('path')
+        layer.append('path')
             .datum(downsampledData)
             .attr('d', areaNegative)
             .attr('fill', 'url(#waveform-gradient)');
         
-        // Draw Slices
+    }, [audioBuffer, containerWidth, zoom]); // Only redraw waveform if buffer/zoom changes
+
+    // 2. Draw Slices Overlay (Medium Computation)
+    useEffect(() => {
+        if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
+        const svg = d3.select(svgRef.current);
+        const layer = svg.select("#slices-layer");
+        layer.selectAll("*").remove();
+
+        const totalWidth = containerWidth * zoom;
+        const height = 128;
         const duration = audioBuffer.duration;
         
         if (slices.length > 0) {
@@ -119,7 +141,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 const w = (slice.duration / duration) * totalWidth;
                 
                 // Group for slice
-                const g = svg.append('g')
+                const g = layer.append('g')
                     .attr('class', 'slice-group')
                     .attr('cursor', 'pointer');
 
@@ -129,7 +151,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr('y', 0)
                     .attr('width', w)
                     .attr('height', height)
-                    .attr('fill', index === selectedSliceIndex ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.0)')
+                    .attr('fill', index === selectedSliceIndex ? 'rgba(255, 255, 255, 0.15)' : 'transparent')
                     .attr('stroke', index === selectedSliceIndex ? '#ffffff' : 'rgba(255,255,255,0.2)')
                     .attr('stroke-width', index === selectedSliceIndex ? 2 : 1)
                     .attr('stroke-dasharray', index === selectedSliceIndex ? 'none' : '4,2');
@@ -151,41 +173,44 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         .text(slice.id);
                 }
             });
+        }
+    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect]);
 
-            // Highlight Currently Playing Slice (from Sequencer)
-            if (sequencer.isPlaying && sequencer.currentStep !== -1) {
-                const currentStepData = sequencer.steps[sequencer.currentStep];
-                if (currentStepData && currentStepData.active) {
-                    const activeSlice = slices[currentStepData.sliceIndex % slices.length];
-                    if (activeSlice) {
-                        const startX = (activeSlice.offset / duration) * totalWidth;
-                        const endX = ((activeSlice.offset + activeSlice.duration) / duration) * totalWidth;
-                        
-                        svg.append('rect')
-                            .attr('x', startX)
-                            .attr('y', 0)
-                            .attr('width', Math.max(1, endX - startX))
-                            .attr('height', height)
-                            .attr('fill', 'rgba(0, 246, 255, 0.3)') // Cyan highlight for playback
-                            .attr('pointer-events', 'none');
-                    }
+    // 3. Draw Playback Highlight (Fast Update)
+    useEffect(() => {
+        if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
+        const svg = d3.select(svgRef.current);
+        const layer = svg.select("#playback-layer");
+        layer.selectAll("*").remove();
+
+        const totalWidth = containerWidth * zoom;
+        const height = 128;
+        const duration = audioBuffer.duration;
+
+        if (sequencer.isPlaying && sequencer.currentStep !== -1) {
+            const currentStepData = sequencer.steps[sequencer.currentStep];
+            if (currentStepData && currentStepData.active) {
+                const activeSlice = slices[currentStepData.sliceIndex % slices.length];
+                if (activeSlice) {
+                    const startX = (activeSlice.offset / duration) * totalWidth;
+                    const endX = ((activeSlice.offset + activeSlice.duration) / duration) * totalWidth;
+                    const width = Math.max(1, endX - startX);
+                    
+                    // Highlight Rect
+                    layer.append('rect')
+                        .attr('x', startX)
+                        .attr('y', 0)
+                        .attr('width', width)
+                        .attr('height', height)
+                        .attr('fill', 'rgba(0, 246, 255, 0.3)') // Cyan highlight
+                        .attr('stroke', '#00f6ff')
+                        .attr('stroke-width', 2)
+                        .attr('pointer-events', 'none');
                 }
             }
         }
+    }, [sequencer.currentStep, sequencer.isPlaying, slices, audioBuffer, containerWidth, zoom, sequencer.steps]);
 
-        // Global click to scrub if not clicking a slice
-        /*
-        svg.on('click', (event: MouseEvent) => {
-             // Use D3 to get coordinates relative to SVG
-             const [mouseX] = d3.pointer(event);
-             const position = mouseX / totalWidth;
-             onScrub(position);
-        });
-        */
-       // Note: Scrubbing conflicts with Slice selection slightly unless we are careful. 
-       // For now, clicking a slice selects it. We can add a scrub bar at top if needed.
-
-    }, [audioBuffer, containerWidth, zoom, slices, sequencer.currentStep, sequencer.isPlaying, selectedSliceIndex, onSliceSelect]); // Removed direct dependency on sequencer.steps to avoid redraw on non-visual changes
 
     return (
         <div className="space-y-2">

@@ -1,8 +1,9 @@
-
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep } from '../types';
+import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset } from '../types';
 import { detectBPM } from '../utils/bpmDetector';
+import { classifySlice } from '../utils/audioAnalysis';
+import { audioBufferToWav, blobToBase64, base64ToBlob } from '../utils/audioHelpers';
 
 declare const Tone: any; // Using Tone.js from CDN
 
@@ -14,28 +15,115 @@ const initialParams: AllParams = {
   bpm: 120,
   attack: 0.005, // Very sharp attack by default
   release: 0.1,  // Short release
-  reverb: { decay: 1.5, wet: 0 },
-  delay: { delayTime: 0.5, feedback: 0.3, wet: 0 },
+  reverb: { decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
+  delay: { delayTime: 0.5, feedback: 0.3, wet: 0, isSynced: false, syncValue: '8n' },
   filter: { frequency: 20000, q: 1, type: 'lowpass' },
   distortion: { amount: 0, wet: 0 },
-  bitCrusher: { bits: 4, wet: 0 },
+  tapeSaturation: { drive: 0, tone: 20000, wet: 0 },
+  bitCrusher: { bits: 8, wet: 0 },
+  glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
 };
 
-const generateDefaultSteps = (count: number): any[] => {
+const generateDefaultSteps = (count: number): SequencerStep[] => {
   return Array(count).fill(0).map((_, i) => ({
     active: i % 2 === 0, // More active steps by default
-    sliceIndex: i // Map steps to slices sequentially
+    sliceIndex: i, // Map steps to slices sequentially
+    ratchet: 1
   }));
+};
+
+// Transient Detection Algorithm
+const findTransients = (audioBuffer: AudioBuffer, startTime: number, endTime: number): number[] => {
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const startSample = Math.floor(startTime * sampleRate);
+    const endSample = Math.min(channelData.length, Math.floor(endTime * sampleRate));
+    
+    // Analysis window (~10ms)
+    const windowSize = 512; 
+    const stepSize = 128; // 75% overlap for better time resolution
+    const minDistanceTime = 0.05; // Minimum 50ms between slices to avoid granular stutter on long kicks
+    
+    const transients: number[] = [];
+    let lastTransientTime = -100;
+    
+    let prevEnergy = 0;
+    
+    for (let i = startSample; i < endSample - windowSize; i += stepSize) {
+        let currentEnergy = 0;
+        // Calculate RMS
+        for (let j = 0; j < windowSize; j++) {
+            const sample = channelData[i + j];
+            currentEnergy += sample * sample;
+        }
+        currentEnergy = Math.sqrt(currentEnergy / windowSize);
+        
+        // Onset Detection Logic:
+        if (currentEnergy > 0.01 && currentEnergy > prevEnergy * 1.6) {
+             const time = i / sampleRate;
+             if (time - lastTransientTime > minDistanceTime) {
+                 const adjustedTime = Math.max(startTime, time - 0.005);
+                 transients.push(adjustedTime);
+                 lastTransientTime = adjustedTime;
+             }
+        }
+        prevEnergy = Math.max(currentEnergy, 0.005); 
+    }
+    
+    if (transients.length === 0) {
+        transients.push(startTime);
+    } else if (transients[0] - startTime > 0.1) {
+        transients.unshift(startTime);
+    }
+
+    return transients;
+};
+
+const generateTransientSlices = (buffer: any, bpm: number, startTime: number = 0, endTime: number | null = null): Slice[] => {
+    const audioBuffer = buffer.get(); // Get raw AudioBuffer from Tone.Buffer
+    const end = endTime !== null ? endTime : audioBuffer.duration;
+    const duration = end - startTime;
+    
+    if (duration <= 0) return [];
+
+    let slicePoints = findTransients(audioBuffer, startTime, end);
+    
+    const maxSlices = 32;
+    if (slicePoints.length > maxSlices) {
+        slicePoints = slicePoints.slice(0, maxSlices);
+    }
+
+    const newSlices: Slice[] = [];
+    for (let i = 0; i < slicePoints.length; i++) {
+        const currentStart = slicePoints[i];
+        const nextStart = (i < slicePoints.length - 1) ? slicePoints[i+1] : end;
+        let sliceDur = nextStart - currentStart;
+        
+        if (sliceDur < 0.01 && newSlices.length > 0) {
+            newSlices[newSlices.length - 1].duration += sliceDur;
+        } else {
+            const type = classifySlice(audioBuffer, currentStart, sliceDur);
+            newSlices.push({
+                id: i,
+                offset: currentStart,
+                duration: sliceDur,
+                isActive: true,
+                type: type,
+                level: 1.0
+            });
+        }
+    }
+    return newSlices;
 };
 
 export const useAudioEngine = () => {
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [audioBuffer, setAudioBuffer] = useState<any>(null); // Tone.AudioBuffer
+  const [audioBuffer, setAudioBuffer] = useState<any>(null);
   const [params, setParams] = useState<AllParams>(initialParams);
+  const [sampleName, setSampleName] = useState<string>('Default');
   
-  // Slicer & Sequencer State
   const [slices, setSlices] = useState<Slice[]>([]);
   const [selectedSliceIndex, setSelectedSliceIndex] = useState<number | null>(null);
   
@@ -44,34 +132,57 @@ export const useAudioEngine = () => {
     stepCount: 16,
     mode: 'forward',
     currentStep: -1,
-    isPlaying: false
+    isPlaying: false,
+    editMode: 'trigger'
   });
 
-  // Refs
-  const sequenceRef = useRef<any>(null); // Tone.Sequence
-  const sequencerRef = useRef(sequencer); // Ref to hold latest sequencer state for callback
-  const previousParams = useRef<{ grainSize: number; playbackRate: number }>({ grainSize: 0.2, playbackRate: 1 });
-  const player = useRef<any>(null); // Tone.GrainPlayer
+  const sequenceRef = useRef<any>(null);
+  const sequencerRef = useRef(sequencer);
+  const paramsRef = useRef(params); // Ref for real-time access in callbacks
+  const player = useRef<any>(null);
   const effects = useRef({
     reverb: null as any, 
     delay: null as any, 
     filter: null as any, 
     distortion: null as any,
     bitCrusher: null as any,
+    tapeSaturation: null as any,
+    tapeFilter: null as any,
   });
+  
+  // Performance state for DJ FX
+  const stutterRef = useRef<{active: boolean, interval: any, subdivision: string}>({ active: false, interval: null, subdivision: '16n' });
+  const reverseRef = useRef(false);
 
-  // Keep sequencerRef in sync with state
+  // Safe Parameter Setter Helper
+  const setToneParam = (target: any, param: string, value: number, rampTime?: number) => {
+      if (!target || target[param] === undefined) return;
+      
+      // Check if it's a Signal (has .value and it's not just a property named value)
+      if (target[param] && typeof target[param] === 'object' && 'value' in target[param]) {
+          if (rampTime && typeof target[param].rampTo === 'function') {
+               target[param].rampTo(value, rampTime);
+          } else {
+               target[param].value = value;
+          }
+      } else {
+          // It's a primitive or we are forcing assignment
+          target[param] = value;
+      }
+  };
+
   useEffect(() => {
     sequencerRef.current = sequencer;
   }, [sequencer]);
 
   useEffect(() => {
-    // Initialize Audio Engine
+      paramsRef.current = params;
+  }, [params]);
+
+  useEffect(() => {
     const setupAudio = async () => {
       try {
           Tone.Transport.bpm.value = params.bpm;
-
-          // Chain: Player -> BitCrusher -> Distortion -> Filter -> Delay -> Reverb -> Out
           
           effects.current.reverb = new Tone.Reverb({
             decay: params.reverb.decay,
@@ -90,13 +201,25 @@ export const useAudioEngine = () => {
             type: params.filter.type,
           }).connect(effects.current.delay);
 
-          effects.current.distortion = new Tone.Distortion(params.distortion.amount).connect(effects.current.filter);
+          effects.current.bitCrusher = new Tone.BitCrusher({
+              bits: params.bitCrusher.bits,
+              wet: params.bitCrusher.wet
+          }).connect(effects.current.filter);
+
+          effects.current.distortion = new Tone.Distortion(params.distortion.amount).connect(effects.current.bitCrusher);
           effects.current.distortion.wet.value = params.distortion.wet;
 
-          effects.current.bitCrusher = new Tone.BitCrusher({
-            bits: params.bitCrusher.bits,
-            wet: params.bitCrusher.wet
+          effects.current.tapeFilter = new Tone.Filter({
+              frequency: params.tapeSaturation.tone,
+              type: 'lowpass',
+              Q: 0.5
           }).connect(effects.current.distortion);
+
+          effects.current.tapeSaturation = new Tone.Distortion({
+            distortion: params.tapeSaturation.drive,
+            oversample: '4x',
+            wet: params.tapeSaturation.wet
+          }).connect(effects.current.tapeFilter);
 
           setIsReady(true);
       } catch (e) {
@@ -104,9 +227,7 @@ export const useAudioEngine = () => {
           setIsReady(true);
       }
     };
-
     setupAudio();
-
     return () => {
       player.current?.dispose();
       sequenceRef.current?.dispose();
@@ -117,178 +238,240 @@ export const useAudioEngine = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-create sequence when step count changes or audio loads
-  // Note: We do NOT include 'sequencer' in deps to avoid re-creating on every step update
-  useEffect(() => {
-    if (sequenceRef.current) {
-      sequenceRef.current.dispose();
-    }
+  // Parameter Update Logic
+  const updateParams = (newParams: Partial<AllParams>) => {
+    setParams(prev => {
+        const updated = { ...prev, ...newParams };
+        const efx = effects.current;
 
+        if (newParams.bpm) {
+            Tone.Transport.bpm.value = newParams.bpm;
+        }
+        
+        if (player.current && !player.current.disposed) {
+            if (updated.grainSize !== undefined) player.current.grainSize = updated.grainSize;
+            if (updated.overlap !== undefined) player.current.overlap = updated.overlap;
+            
+            // Use setToneParam for safety against crashes
+            if (updated.playbackRate !== undefined && !reverseRef.current) {
+                setToneParam(player.current, 'playbackRate', updated.playbackRate);
+            }
+            
+            if (updated.detune !== undefined) {
+                setToneParam(player.current, 'detune', updated.detune);
+            }
+            
+            if (updated.attack !== undefined) player.current.fadeIn = updated.attack;
+            if (updated.release !== undefined) player.current.fadeOut = updated.release;
+        }
+        
+        // Effects Updates
+        if (efx.reverb && updated.reverb) {
+             const rev = updated.reverb;
+             let decay = rev.decay;
+             if (rev.isSynced) {
+                 try {
+                    decay = Tone.Time(rev.syncValue).toSeconds();
+                 } catch(e) {
+                     console.warn("Invalid sync value", rev.syncValue);
+                 }
+             }
+             // Decay is usually a property, not signal
+             efx.reverb.decay = Math.max(0.1, Math.min(decay, 10));
+             setToneParam(efx.reverb, 'wet', rev.wet); 
+        }
+
+        if (efx.delay && updated.delay) {
+             const del = updated.delay;
+             if (del.isSynced) {
+                setToneParam(efx.delay, 'delayTime', Tone.Time(del.syncValue).toSeconds());
+             } else {
+                setToneParam(efx.delay, 'delayTime', del.delayTime);
+             }
+             setToneParam(efx.delay, 'feedback', del.feedback);
+             setToneParam(efx.delay, 'wet', del.wet);
+        }
+
+        if (updated.filter && efx.filter) {
+             setToneParam(efx.filter, 'frequency', updated.filter.frequency);
+             setToneParam(efx.filter, 'Q', updated.filter.q);
+             efx.filter.type = updated.filter.type;
+        }
+
+        if (updated.distortion && efx.distortion) {
+             efx.distortion.distortion = updated.distortion.amount;
+             setToneParam(efx.distortion, 'wet', updated.distortion.wet);
+        }
+
+        if (updated.bitCrusher && efx.bitCrusher) {
+            // Direct assignment for number property
+            efx.bitCrusher.bits = updated.bitCrusher.bits;
+            setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.wet);
+        }
+
+        if (updated.tapeSaturation) {
+            if (efx.tapeSaturation) {
+                efx.tapeSaturation.distortion = updated.tapeSaturation.drive;
+                setToneParam(efx.tapeSaturation, 'wet', updated.tapeSaturation.wet);
+            }
+            if (efx.tapeFilter) {
+                setToneParam(efx.tapeFilter, 'frequency', updated.tapeSaturation.tone);
+            }
+        }
+
+        return updated;
+    });
+  };
+
+
+  // Sequencer Loop
+  useEffect(() => {
+    if (sequenceRef.current) sequenceRef.current.dispose();
     if (!audioBuffer) return;
 
-    // Create an array of indices [0, 1, 2... N] to drive the sequence
     const indices = Array.from({ length: sequencer.stepCount }, (_, i) => i);
 
     sequenceRef.current = new Tone.Sequence((time: number, index: number) => {
         const currentSeq = sequencerRef.current;
+        const currentParams = paramsRef.current;
         
-        // Determine actual step based on mode
         let actualStepIndex = index;
         const length = currentSeq.stepCount;
 
         switch (currentSeq.mode) {
-            case 'backward':
-                actualStepIndex = length - 1 - index;
-                break;
-            case 'random':
-                actualStepIndex = Math.floor(Math.random() * length);
-                break;
-            case 'pendulum':
-                 // Simple pendulum logic if needed, currently behaves linear for simplicity
-                 break;
+            case 'backward': actualStepIndex = length - 1 - index; break;
+            case 'random': actualStepIndex = Math.floor(Math.random() * length); break;
+            case 'pendulum': /* To implement if needed */ break;
         }
 
-        // Safety check
         if (actualStepIndex < 0 || actualStepIndex >= currentSeq.steps.length) return;
 
-        // Update UI for current step (draw callback)
         Tone.Draw.schedule(() => {
             setSequencer(prev => ({ ...prev, currentStep: actualStepIndex }));
         }, time);
 
         const stepData = currentSeq.steps[actualStepIndex];
         
-        if (stepData.active && player.current) {
+        if (stepData.active && player.current && !player.current.disposed && slices.length > 0) {
              const slice = slices[stepData.sliceIndex % slices.length];
-             if (slice) {
-                 // Ensure loop is off for discrete slices
-                 player.current.loop = false;
+             if (slice && slice.isActive) {
                  
-                 // Play the specific slice
-                 // Use stop/start to handle re-triggering monophonically
-                 player.current.stop(time);
-                 player.current.start(time, slice.offset, slice.duration);
+                 // 1. Glitch Chaos Logic
+                 let playbackRate = currentParams.playbackRate;
+                 let reverse = reverseRef.current;
+                 let detune = currentParams.detune;
+                 
+                 // If Chaos is active
+                 if (currentParams.glitch.chaos > 0 && Math.random() < currentParams.glitch.chaos) {
+                     const roll = Math.random();
+                     
+                     if (currentParams.glitch.allowReverse && roll < 0.3) {
+                         reverse = !reverse;
+                     } else if (currentParams.glitch.allowOctaveJump && roll < 0.6) {
+                         // Jump up or down an octave
+                         detune += (Math.random() > 0.5 ? 1200 : -1200);
+                     } else {
+                         // Slight time stretch varitation
+                         playbackRate *= (0.8 + Math.random() * 0.4);
+                     }
+                 }
+
+                 // Apply Glitch Props safely
+                 setToneParam(player.current, 'playbackRate', playbackRate);
+                 player.current.reverse = reverse;
+                 setToneParam(player.current, 'detune', detune);
+
+                 const levelDb = slice.level <= 0 ? -Infinity : 20 * Math.log10(slice.level);
+                 setToneParam(player.current, 'volume', levelDb); 
+
+                 // 2. Ratchet Logic (Retriggers)
+                 const repeats = stepData.ratchet || 1;
+                 const stepDuration = Tone.Time("16n").toSeconds();
+                 const retriggerInterval = stepDuration / repeats;
+
+                 for(let i = 0; i < repeats; i++) {
+                     const triggerTime = time + (i * retriggerInterval);
+                     player.current.stop(triggerTime);
+                     player.current.start(triggerTime, slice.offset, slice.duration / repeats); 
+                 }
              }
         }
 
     }, indices, "16n").start(0);
 
-    // Only start transport if we are playing
-    if (isPlaying) {
-        if (Tone.Transport.state !== 'started') Tone.Transport.start();
-    }
+    if (isPlaying && Tone.Transport.state !== 'started') Tone.Transport.start();
 
     return () => sequenceRef.current?.dispose();
   }, [sequencer.stepCount, slices, audioBuffer, isPlaying]);
 
 
-  const loadAudioFile = useCallback(async (audioFile: File | string) => {
+  const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false) => {
     setIsLoading(true);
     if (player.current) {
       player.current.stop();
       player.current.dispose();
+      player.current = null;
     }
     
     try {
       const url = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
       
+      let filename = 'Default';
+      if (audioFile instanceof File) filename = audioFile.name;
+      else if (typeof audioFile === 'string') filename = audioFile.split('/').pop()?.split('?')[0] || 'Default';
+      setSampleName(filename);
+
       const bufferPromise = new Promise<any>((resolve, reject) => {
-          const buff = new Tone.Buffer(
-              url,
-              () => resolve(buff),
-              (err: any) => reject(err)
-          );
+          const buff = new Tone.Buffer(url, () => resolve(buff), (err: any) => reject(err));
       });
 
-      const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Audio loading timed out")), 10000)
-      );
-
-      const buffer = await Promise.race([bufferPromise, timeoutPromise]) as any;
+      const buffer = await Promise.race([bufferPromise, new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 10000))]) as any;
       const rawBuffer = buffer.get();
-      const detectedBpm = await detectBPM(rawBuffer);
-
-      const beatDuration = 60 / detectedBpm;
-      const sixteenthNote = beatDuration / 4;
-
-      // Generate Random Slices
-      const newSlices: Slice[] = [];
-      const totalDuration = buffer.duration;
       
-      let currentOffset = 0;
-      let id = 0;
-      
-      // Max 32 slices to keep UI manageable, but fill the buffer
-      while (currentOffset < totalDuration - 0.05 && id < 32) {
-          // Random subdivision: 
-          // 50% chance 16th note
-          // 30% chance 8th note (2x 16th)
-          // 20% chance Quarter note (4x 16th)
-          const rand = Math.random();
-          let mult = 1; 
-          if (rand > 0.8) mult = 4; // Quarter
-          else if (rand > 0.5) mult = 2; // Eighth
-          
-          let dur = sixteenthNote * mult;
-          
-          // Clamp to end of file
-          if (currentOffset + dur > totalDuration) {
-              dur = totalDuration - currentOffset;
+      if (!preserveSettings) {
+          let detectedBpm = await detectBPM(rawBuffer);
+          // Simple heuristic for BPM in filename
+          if (filename) {
+             const match = filename.match(/(\d{2,3})bpm/i);
+             if (match) detectedBpm = parseInt(match[1]);
           }
-          
-          newSlices.push({
-              id: id,
-              offset: currentOffset,
-              duration: dur
+
+          const beatDuration = 60 / detectedBpm;
+          const newSlices = generateTransientSlices(buffer, detectedBpm, 0, buffer.duration);
+          setSlices(newSlices);
+          setSelectedSliceIndex(0);
+
+          setSequencer(prev => {
+            const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
+                ...step,
+                sliceIndex: i % (newSlices.length || 1),
+                ratchet: 1
+            }));
+            return { ...prev, steps: newSteps, currentStep: -1 };
           });
-          
-          currentOffset += dur;
-          id++;
+
+          updateParams({ 
+              bpm: detectedBpm,
+              grainSize: beatDuration / 4,
+              overlap: beatDuration / 8,
+              delay: { ...params.delay, delayTime: beatDuration * 0.75 }
+          });
       }
 
-      setSlices(newSlices);
-      setSelectedSliceIndex(0);
-
-      // Reset Sequencer Pattern when new file loads
-      // Map the new random slices to the 16 steps
-      setSequencer(prev => {
-         const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
-             ...step,
-             sliceIndex: i % newSlices.length
-         }));
-         return {
-            ...prev,
-            steps: newSteps,
-            currentStep: -1
-         };
-      });
-
-      setParams(prev => {
-          const newParams = { 
-              ...prev, 
-              bpm: detectedBpm,
-              grainSize: sixteenthNote, // Smaller grains for tighter sound
-              overlap: sixteenthNote / 2,
-              delay: { ...prev.delay, delayTime: beatDuration * 0.75 }
-          };
-          Tone.Transport.bpm.value = detectedBpm;
-          if (effects.current.delay) effects.current.delay.delayTime.value = beatDuration * 0.75;
-          return newParams;
-      });
-
+      const currentParams = preserveSettings ? params : { grainSize: 0.2, overlap: 0.1, playbackRate: 1, detune: 0, attack: 0.01, release: 0.1 };
+      
       player.current = new Tone.GrainPlayer({
         url: buffer,
         loop: false, 
-        grainSize: sixteenthNote,
-        overlap: sixteenthNote / 2,
-        playbackRate: params.playbackRate,
-        detune: params.detune,
-        fadeIn: params.attack,
-        fadeOut: params.release
-      }).connect(effects.current.bitCrusher);
+        grainSize: currentParams.grainSize || 0.2,
+        overlap: currentParams.overlap || 0.1,
+        playbackRate: currentParams.playbackRate || 1,
+        detune: currentParams.detune || 0,
+        fadeIn: currentParams.attack || 0.01,
+        fadeOut: currentParams.release || 0.1
+      }).connect(effects.current.tapeSaturation);
 
       setAudioBuffer(buffer);
-      
       if (isPlaying) {
         await Tone.start();
         Tone.Transport.start();
@@ -300,188 +483,219 @@ export const useAudioEngine = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [isPlaying, params.playbackRate, params.detune, params.attack, params.release]);
+  }, [isPlaying, params]); 
 
-  // Toggle Play/Stop
   const togglePlay = useCallback(async () => {
     if (!player.current) return;
     if (Tone.context.state !== 'running') await Tone.start();
 
     if (isPlaying) {
-      // Stop
       Tone.Transport.stop();
-      // Ensure we stop the player too
       player.current.stop();
       setIsPlaying(false);
       setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
     } else {
-      // Start
       Tone.Transport.start();
       setIsPlaying(true);
       setSequencer(prev => ({ ...prev, isPlaying: true }));
     }
   }, [isPlaying]);
 
-  // Sequencer Controls
-  const updateSequencerStep = (index: number, changes: Partial<SequencerStep>) => {
-      setSequencer(prev => {
-          const newSteps = [...prev.steps];
-          newSteps[index] = { ...newSteps[index], ...changes };
-          return { ...prev, steps: newSteps };
-      });
+  // --- Slicing & Editing ---
+
+  const sliceRegion = (start: number, end: number) => {
+    if (!audioBuffer) return;
+    const id = slices.length > 0 ? Math.max(...slices.map(s => s.id)) + 1 : 0;
+    const newSlice: Slice = {
+        id,
+        offset: start,
+        duration: end - start,
+        isActive: true,
+        type: classifySlice(audioBuffer.get(), start, end - start),
+        level: 1.0
+    };
+    setSlices(prev => [...prev, newSlice]);
+    setSelectedSliceIndex(slices.length);
   };
 
-  const setSequencerMode = (mode: SequencerMode) => {
-      setSequencer(prev => ({ ...prev, mode }));
-  };
+  const autoSlice = () => {
+    if (!audioBuffer) return;
+    const newSlices = generateTransientSlices(audioBuffer, params.bpm, 0, audioBuffer.duration);
+    setSlices(newSlices);
+    setSelectedSliceIndex(0);
 
-  const setSequencerStepCount = (count: 8 | 16 | 32) => {
-      setSequencer(prev => {
-          // Regenerate steps array if size changes
-          const currentSteps = prev.steps;
-          let newSteps = [...currentSteps];
-          if (count > currentSteps.length) {
-              // Add more
-              const added = Array(count - currentSteps.length).fill(0).map((_, i) => ({
-                  active: false,
-                  sliceIndex: (currentSteps.length + i) % slices.length
-              }));
-              newSteps = [...newSteps, ...added];
-          } else {
-              // Trim
-              newSteps = newSteps.slice(0, count);
-          }
-          return { ...prev, stepCount: count, steps: newSteps };
-      });
-  };
-
-  const randomizePattern = () => {
-      setSequencer(prev => {
-          const newSteps = prev.steps.map(step => ({
-              active: Math.random() > 0.4,
-              sliceIndex: Math.floor(Math.random() * slices.length)
-          }));
-          return { ...prev, steps: newSteps };
-      });
-  };
-  
-  const selectSlice = (index: number) => {
-      if (index < 0 || index >= slices.length) return;
-      setSelectedSliceIndex(index);
-      
-      // Preview slice
-      if (player.current && audioBuffer && !isPlaying) {
-          const slice = slices[index];
-          if (Tone.context.state !== 'running') Tone.start();
-          
-          player.current.loop = false;
-          player.current.stop();
-          player.current.start(Tone.now(), slice.offset, slice.duration);
-      }
-  };
-
-  // Standard Parameter Updates
-  const updateParams = useCallback((newParams: Partial<AllParams>) => {
-    setParams(prev => {
-        const updated = { ...prev, ...newParams };
-        if (updated.bpm !== prev.bpm) Tone.Transport.bpm.rampTo(updated.bpm, 0.1);
-        
-        if (player.current) {
-            if (updated.grainSize !== prev.grainSize) player.current.grainSize = updated.grainSize;
-            if (updated.overlap !== prev.overlap) player.current.overlap = updated.overlap;
-            if (updated.detune !== prev.detune) player.current.detune = updated.detune;
-            if (updated.playbackRate !== prev.playbackRate) player.current.playbackRate = updated.playbackRate;
-            
-            // Update Attack/Release (FadeIn/FadeOut)
-            if (updated.attack !== prev.attack) player.current.fadeIn = updated.attack;
-            if (updated.release !== prev.release) player.current.fadeOut = updated.release;
-        }
-        // Effects... (Keep existing logic)
-        if (effects.current.reverb) {
-            if(updated.reverb.decay !== prev.reverb.decay) effects.current.reverb.decay = updated.reverb.decay;
-            if(updated.reverb.wet !== prev.reverb.wet) effects.current.reverb.wet.value = updated.reverb.wet;
-        }
-        if (effects.current.delay) {
-            if(updated.delay.delayTime !== prev.delay.delayTime) effects.current.delay.delayTime.value = updated.delay.delayTime;
-            if(updated.delay.feedback !== prev.delay.feedback) effects.current.delay.feedback.value = updated.delay.feedback;
-            if(updated.delay.wet !== prev.delay.wet) effects.current.delay.wet.value = updated.delay.wet;
-        }
-        if (effects.current.filter) {
-            if(updated.filter.frequency !== prev.filter.frequency) effects.current.filter.frequency.rampTo(updated.filter.frequency, 0.1);
-            if(updated.filter.q !== prev.filter.q) effects.current.filter.Q.value = updated.filter.q;
-            if(updated.filter.type !== prev.filter.type) effects.current.filter.type = updated.filter.type;
-        }
-        if (effects.current.distortion) {
-            if(updated.distortion.amount !== prev.distortion.amount) effects.current.distortion.distortion = updated.distortion.amount;
-            if(updated.distortion.wet !== prev.distortion.wet) effects.current.distortion.wet.value = updated.distortion.wet;
-        }
-        if (effects.current.bitCrusher) {
-            if(updated.bitCrusher.bits !== prev.bitCrusher.bits) effects.current.bitCrusher.bits = updated.bitCrusher.bits;
-            if(updated.bitCrusher.wet !== prev.bitCrusher.wet) effects.current.bitCrusher.wet.value = updated.bitCrusher.wet;
-        }
-        return updated;
+    setSequencer(prev => {
+        const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
+            ...step,
+            sliceIndex: i % (newSlices.length || 1),
+            ratchet: 1
+        }));
+        return { ...prev, steps: newSteps, currentStep: -1 };
     });
-  }, []);
+  };
+
+  const updateSlice = (index: number, changes: Partial<Slice>) => {
+      setSlices(prev => {
+          const newSlices = [...prev];
+          newSlices[index] = { ...newSlices[index], ...changes };
+          return newSlices;
+      });
+  };
+
+  const selectSlice = (index: number) => setSelectedSliceIndex(index);
   
-  const scrub = (position: number) => {
-    if (player.current && audioBuffer) {
-        const newStartTime = position * audioBuffer.duration;
-        player.current.stop();
-        player.current.start(undefined, newStartTime);
-    }
+  const toggleSliceActive = (index: number) => {
+     updateSlice(index, { isActive: !slices[index].isActive });
   };
 
-  // DJ FX
-  const triggerStutter = (subdivision: '4n' | '8n' | '16n' | '32n', active: boolean) => {
-      if (!player.current) return;
-      if (active) {
-          const seconds = Tone.Time(subdivision).toSeconds();
-          previousParams.current.grainSize = player.current.grainSize;
-          player.current.grainSize = seconds;
-          player.current.overlap = 0.001; 
-      } else {
-          player.current.grainSize = previousParams.current.grainSize;
-          player.current.overlap = params.overlap;
+  const scrub = (pos: number) => {
+  };
+
+  // --- DJ Actions ---
+  const djActions = {
+      triggerStutter: (subdivision: '4n'|'8n'|'16n'|'32n', active: boolean) => {
+          if (active) {
+               stutterRef.current = { active: true, interval: null, subdivision };
+               Tone.Transport.bpm.rampTo(params.bpm * 2, 0.1); 
+          } else {
+               stutterRef.current.active = false;
+               Tone.Transport.bpm.rampTo(params.bpm, 0.2);
+          }
+      },
+      triggerTapeStop: (active: boolean) => {
+           if (!player.current) return;
+           if (active) {
+               setToneParam(player.current, 'playbackRate', 0.01, 0.5);
+           } else {
+               setToneParam(player.current, 'playbackRate', params.playbackRate, 0.5);
+           }
+      },
+      triggerReverse: () => {
+           if (!player.current) return;
+           reverseRef.current = !reverseRef.current;
+           player.current.reverse = reverseRef.current;
       }
   };
 
-  const triggerTapeStop = (active: boolean) => {
-      if (!player.current) return;
-      if (active) {
-          previousParams.current.playbackRate = player.current.playbackRate;
-          player.current.playbackRate = 0.01; 
-      } else {
-          player.current.playbackRate = previousParams.current.playbackRate;
+  // --- Generator ---
+
+  const generateAiBeat = (complexity: number) => {
+      if (slices.length === 0) return;
+      const activeSlices = slices.filter(s => s.isActive);
+      const pool = activeSlices.length > 0 ? activeSlices : slices;
+
+      const kicks = pool.filter(s => s.type === 'kick');
+      const snares = pool.filter(s => s.type === 'snare');
+      const hats = pool.filter(s => s.type === 'hihat');
+      
+      const getSlice = (arr: Slice[], fb: Slice[]) => (arr.length > 0 ? arr[Math.floor(Math.random() * arr.length)].id : (fb.length > 0 ? fb[Math.floor(Math.random() * fb.length)].id : 0));
+
+      const newSteps = Array(sequencer.steps.length).fill(0).map((_, i) => {
+          const stepNum = i % 16; 
+          let active = false;
+          let sliceId = 0;
+          let ratchet = 1;
+
+          if (complexity < 0.3) {
+              // House
+              if (stepNum % 4 === 0) { active = true; sliceId = getSlice(kicks, pool); }
+              else if (stepNum % 4 === 2) { active = true; sliceId = getSlice(hats, pool); }
+              if (stepNum === 4 || stepNum === 12) { active = true; sliceId = getSlice(snares, kicks); }
+          } else if (complexity < 0.7) {
+              // Breakbeat / Hip Hop
+              if (stepNum === 0 || stepNum === 10) { active = true; sliceId = getSlice(kicks, pool); }
+              if (stepNum === 4 || stepNum === 12) { active = true; sliceId = getSlice(snares, pool); }
+              if (stepNum % 2 === 0 && !active) { 
+                  if(Math.random()>0.5) { active = true; sliceId = getSlice(hats, pool); } 
+              }
+              // Trap Rolls
+              if (active && Math.random() < 0.2 && complexity > 0.5) {
+                  ratchet = Math.random() > 0.5 ? 2 : 3;
+              }
+          } else {
+              // Glitch
+              if (Math.random() > 0.3) { active = true; sliceId = getSlice(pool, pool); }
+              if (active && Math.random() > 0.5) ratchet = Math.floor(Math.random() * 3) + 1; // 1 to 3
+          }
+          
+          if (Math.random() < complexity * 0.3) active = !active;
+
+          return { active, sliceIndex: active ? sliceId : 0, ratchet };
+      });
+
+      setSequencer(prev => ({ ...prev, steps: newSteps }));
+  };
+
+  // --- Preset Management ---
+
+  const exportPreset = async (name: string): Promise<string> => {
+      if (!audioBuffer) throw new Error("No audio loaded");
+      const wavBlob = audioBufferToWav(audioBuffer.get());
+      const base64Audio = await blobToBase64(wavBlob);
+      
+      const preset: Preset = {
+          id: crypto.randomUUID(),
+          name,
+          date: Date.now(),
+          params,
+          sequencer: {
+              steps: sequencer.steps,
+              stepCount: sequencer.stepCount,
+              mode: sequencer.mode
+          },
+          slices,
+          sampleName,
+          audioData: base64Audio
+      };
+      return JSON.stringify(preset);
+  };
+
+  const importPreset = async (jsonString: string) => {
+      try {
+          const preset: Preset = JSON.parse(jsonString);
+          
+          if (preset.audioData) {
+              const blob = base64ToBlob(preset.audioData);
+              const url = URL.createObjectURL(blob);
+              await loadAudioFile(url, true);
+          }
+
+          setParams(preset.params);
+          setSequencer(prev => ({
+              ...prev,
+              steps: preset.sequencer.steps,
+              stepCount: preset.sequencer.stepCount,
+              mode: preset.sequencer.mode,
+              currentStep: -1,
+              isPlaying: false
+          }));
+          setSlices(preset.slices);
+          setSampleName(preset.sampleName || 'Imported Preset');
+
+          updateParams(preset.params);
+          
+      } catch (e) {
+          console.error("Import failed", e);
+          alert("Failed to import preset. Invalid file.");
       }
   };
 
-  const triggerReverse = () => {
-      if (!player.current) return;
-      player.current.reverse = !player.current.reverse;
-  };
-
-  return { 
-      isReady, 
-      isPlaying, 
-      isLoading, 
-      audioBuffer, 
-      params, 
-      sequencer,
-      slices,
-      selectedSliceIndex,
-      loadAudioFile, 
-      togglePlay, 
-      updateParams, 
-      scrub,
-      updateSequencerStep,
-      setSequencerMode,
-      setSequencerStepCount,
-      randomizePattern,
-      selectSlice,
-      djActions: {
-          triggerStutter,
-          triggerTapeStop,
-          triggerReverse
-      }
+  return {
+    isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex,
+    loadAudioFile, togglePlay, updateParams, scrub,
+    updateSequencerStep: (idx, chg) => setSequencer(p => { const s = [...p.steps]; s[idx] = {...s[idx], ...chg}; return {...p, steps: s}}),
+    setSequencerMode: (m) => setSequencer(p => ({...p, mode: m})),
+    setSequencerStepCount: (c) => setSequencer(p => {
+        let newSteps = [...p.steps];
+        if (c > newSteps.length) newSteps = [...newSteps, ...Array(c - newSteps.length).fill(0).map((_,i) => ({active:false, sliceIndex:0, ratchet: 1}))];
+        else newSteps = newSteps.slice(0, c);
+        return {...p, stepCount: c, steps: newSteps};
+    }),
+    setSequencerEditMode: (m: 'trigger' | 'ratchet') => setSequencer(p => ({...p, editMode: m})),
+    randomizePattern: () => generateAiBeat(Math.random()), 
+    generateAiBeat,
+    selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice,
+    djActions,
+    exportPreset, importPreset
   };
 };

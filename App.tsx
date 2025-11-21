@@ -7,6 +7,8 @@ import FileLoader from './components/FileLoader';
 import WaveformDisplay from './components/WaveformDisplay';
 import ControlPanel from './components/ControlPanel';
 import Sequencer from './components/Sequencer';
+import Tooltip from './components/Tooltip';
+import PresetManager from './components/PresetManager';
 
 const App: React.FC = () => {
     const { 
@@ -25,9 +27,17 @@ const App: React.FC = () => {
         updateSequencerStep,
         setSequencerMode,
         setSequencerStepCount,
+        setSequencerEditMode,
         randomizePattern,
+        generateAiBeat,
         selectSlice,
-        djActions
+        toggleSliceActive,
+        updateSlice,
+        sliceRegion,
+        autoSlice,
+        djActions,
+        exportPreset,
+        importPreset
     } = useAudioEngine();
     
     const defaultSampleUrl = 'https://tonejs.github.io/audio/berklee/gong_channel.mp3';
@@ -41,7 +51,8 @@ const App: React.FC = () => {
       param: P,
       value: AllParams[E][P]
     ) => {
-      const newEffectParams = { ...params[effect], [param]: value };
+      const currentEffectParams = params[effect] || {} as any;
+      const newEffectParams = { ...currentEffectParams, [param]: value };
       updateParams({ [effect]: newEffectParams } as Partial<AllParams>);
     };
 
@@ -62,15 +73,22 @@ const App: React.FC = () => {
                                     onDefaultLoad={() => loadAudioFile(defaultSampleUrl)}
                                     isLoading={isLoading}
                                 />
+                                <PresetManager 
+                                    onExport={exportPreset}
+                                    onImport={importPreset}
+                                    disabled={!audioBuffer || isLoading}
+                                />
                                 <div className="flex justify-center">
-                                    <button
-                                        onClick={togglePlay}
-                                        disabled={!audioBuffer || isLoading}
-                                        className={`px-10 py-4 text-xl font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100
-                                            ${isPlaying ? 'bg-plasma-pink text-white shadow-lg shadow-plasma-pink/30' : 'bg-hyper-cyan text-deep-space shadow-lg shadow-hyper-cyan/30'}`}
-                                    >
-                                        {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
-                                    </button>
+                                    <Tooltip text="Start or stop the sequencer" position="bottom">
+                                        <button
+                                            onClick={togglePlay}
+                                            disabled={!audioBuffer || isLoading}
+                                            className={`px-10 py-4 text-xl font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100
+                                                ${isPlaying ? 'bg-plasma-pink text-white shadow-lg shadow-plasma-pink/30' : 'bg-hyper-cyan text-deep-space shadow-lg shadow-hyper-cyan/30'}`}
+                                        >
+                                            {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             </div>
                             <div className="lg:col-span-8 space-y-4">
@@ -79,10 +97,13 @@ const App: React.FC = () => {
                                     onScrub={scrub} 
                                     isPlaying={isPlaying} 
                                     playerRef={null} 
-                                    slices={slices}
+                                    slices={slices} 
                                     sequencer={sequencer}
                                     selectedSliceIndex={selectedSliceIndex}
                                     onSliceSelect={selectSlice}
+                                    onSliceToggle={toggleSliceActive}
+                                    onRegionSlice={sliceRegion}
+                                    onAutoSlice={autoSlice}
                                />
                                <Sequencer 
                                     sequencer={sequencer}
@@ -90,6 +111,7 @@ const App: React.FC = () => {
                                     onModeChange={setSequencerMode}
                                     onStepCountChange={setSequencerStepCount}
                                     onRandomize={randomizePattern}
+                                    onEditModeToggle={setSequencerEditMode}
                                     disabled={!audioBuffer || isLoading}
                                     selectedSliceIndex={selectedSliceIndex}
                                />
@@ -102,6 +124,10 @@ const App: React.FC = () => {
                                 onEffectParamChange={handleEffectParamChange}
                                 disabled={!audioBuffer || isLoading} 
                                 djActions={djActions}
+                                generateAiBeat={generateAiBeat}
+                                slices={slices}
+                                selectedSliceIndex={selectedSliceIndex}
+                                onSliceUpdate={updateSlice}
                               />
                             </div>
                         </div>

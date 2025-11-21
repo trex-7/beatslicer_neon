@@ -1,6 +1,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import type { Slice, SequencerState } from '../types';
+import Tooltip from './Tooltip';
 
 declare const d3: any; // Using d3 from CDN
 
@@ -13,6 +14,8 @@ interface WaveformDisplayProps {
     sequencer: SequencerState;
     selectedSliceIndex: number | null;
     onSliceSelect: (index: number) => void;
+    onSliceToggle: (index: number) => void;
+    onRegionSlice: (start: number, end: number) => void;
 }
 
 const WaveformDisplay: React.FC<WaveformDisplayProps> = ({ 
@@ -23,12 +26,18 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     slices, 
     sequencer, 
     selectedSliceIndex,
-    onSliceSelect 
+    onSliceSelect,
+    onSliceToggle,
+    onRegionSlice
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
     const [zoom, setZoom] = useState(1);
     const [containerWidth, setContainerWidth] = useState(0);
+
+    // Drag Selection State
+    const [dragStart, setDragStart] = useState<number | null>(null);
+    const [dragCurrent, setDragCurrent] = useState<number | null>(null);
 
     // Handle container resize
     useEffect(() => {
@@ -44,6 +53,61 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
 
         return () => resizeObserver.disconnect();
     }, []);
+
+    // Drag Logic
+    useEffect(() => {
+        const handleWindowMouseMove = (e: MouseEvent) => {
+            if (dragStart !== null && svgRef.current) {
+                 const rect = svgRef.current.getBoundingClientRect();
+                 // Calculate X relative to SVG content
+                 let x = e.clientX - rect.left;
+                 // Clamp to visible width
+                 x = Math.max(0, Math.min(x, rect.width));
+                 setDragCurrent(x);
+            }
+        };
+
+        const handleWindowMouseUp = (e: MouseEvent) => {
+             if (dragStart !== null && svgRef.current && audioBuffer) {
+                 const rect = svgRef.current.getBoundingClientRect();
+                 let currentX = e.clientX - rect.left;
+                 currentX = Math.max(0, Math.min(currentX, rect.width));
+                 
+                 const startX = Math.min(dragStart, currentX);
+                 const endX = Math.max(dragStart, currentX);
+                 
+                 // Only trigger slice if drag distance is significant (> 5px)
+                 // This prevents accidental slices when clicking to select existing slices
+                 if (endX - startX > 5) {
+                     const totalWidth = rect.width; 
+                     const startTime = (startX / totalWidth) * audioBuffer.duration;
+                     const endTime = (endX / totalWidth) * audioBuffer.duration;
+                     onRegionSlice(startTime, endTime);
+                 }
+                 
+                 setDragStart(null);
+                 setDragCurrent(null);
+             }
+        };
+
+        if (dragStart !== null) {
+            window.addEventListener('mousemove', handleWindowMouseMove);
+            window.addEventListener('mouseup', handleWindowMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('mouseup', handleWindowMouseUp);
+        };
+    }, [dragStart, audioBuffer, onRegionSlice]);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (!audioBuffer) return;
+        // Only start drag if we clicked directly on the SVG (not a child that stopped propagation)
+        const rect = svgRef.current!.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        setDragStart(x);
+        setDragCurrent(x);
+    };
 
     // Initialize Layers (Run once)
     useEffect(() => {
@@ -66,11 +130,23 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 .enter().append("stop")
                 .attr("offset", d => d.offset)
                 .attr("stop-color", d => d.color);
+            
+            // Pattern for disabled slices
+            defs.append("pattern")
+                .attr("id", "disabled-pattern")
+                .attr("patternUnits", "userSpaceOnUse")
+                .attr("width", 10)
+                .attr("height", 10)
+                .append("path")
+                .attr("d", "M-1,1 l2,-2 M0,10 l10,-10 M9,11 l2,-2")
+                .attr("stroke", "#ff00aa")
+                .attr("stroke-width", 1);
 
             // Layer order determines z-index
             svg.append("g").attr("id", "waveform-layer");
             svg.append("g").attr("id", "slices-layer");
             svg.append("g").attr("id", "playback-layer");
+            svg.append("g").attr("id", "selection-layer"); // Add selection layer on top
         }
     }, []);
 
@@ -146,35 +222,98 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr('cursor', 'pointer');
 
                 // Background for selection/hover detection
+                let fill = 'transparent';
+                if (!slice.isActive) {
+                     fill = 'url(#disabled-pattern)';
+                } else if (index === selectedSliceIndex) {
+                     fill = 'rgba(255, 255, 255, 0.15)';
+                }
+                
+                // Overlay for disabled state to darken it
+                if (!slice.isActive) {
+                     g.append('rect')
+                        .attr('x', xPos)
+                        .attr('y', 0)
+                        .attr('width', w)
+                        .attr('height', height)
+                        .attr('fill', 'rgba(0,0,0,0.5)');
+                }
+
                 g.append('rect')
                     .attr('x', xPos)
                     .attr('y', 0)
                     .attr('width', w)
                     .attr('height', height)
-                    .attr('fill', index === selectedSliceIndex ? 'rgba(255, 255, 255, 0.15)' : 'transparent')
-                    .attr('stroke', index === selectedSliceIndex ? '#ffffff' : 'rgba(255,255,255,0.2)')
+                    .attr('fill', fill)
+                    .attr('stroke', index === selectedSliceIndex ? '#ffffff' : (slice.isActive ? 'rgba(255,255,255,0.2)' : '#ff00aa'))
                     .attr('stroke-width', index === selectedSliceIndex ? 2 : 1)
                     .attr('stroke-dasharray', index === selectedSliceIndex ? 'none' : '4,2');
+                
+                // Red X for inactive
+                if (!slice.isActive) {
+                     g.append('line')
+                        .attr('x1', xPos)
+                        .attr('y1', 0)
+                        .attr('x2', xPos + w)
+                        .attr('y2', height)
+                        .attr('stroke', '#ff00aa')
+                        .attr('stroke-width', 1)
+                        .attr('pointer-events', 'none');
+                     
+                     g.append('line')
+                        .attr('x1', xPos)
+                        .attr('y1', height)
+                        .attr('x2', xPos + w)
+                        .attr('y2', 0)
+                        .attr('stroke', '#ff00aa')
+                        .attr('stroke-width', 1)
+                        .attr('pointer-events', 'none');
+                }
 
                 // Click to select
                 g.on('click', (e: Event) => {
-                    e.stopPropagation();
+                    e.stopPropagation(); 
                     onSliceSelect(index);
                 });
+                
+                // Double click to toggle active state
+                g.on('dblclick', (e: Event) => {
+                    e.stopPropagation();
+                    onSliceToggle(index);
+                });
 
-                // Slice ID Label
-                if (w > 20) { 
+                // Slice ID and Type Label
+                if (w > 15) {
+                    // ID
                     g.append('text')
                         .attr('x', xPos + 4)
                         .attr('y', 15)
-                        .attr('fill', index === selectedSliceIndex ? '#fff' : 'rgba(255,255,255,0.5)')
+                        .attr('fill', !slice.isActive ? '#ff00aa' : (index === selectedSliceIndex ? '#fff' : 'rgba(255,255,255,0.5)'))
                         .attr('font-size', '10px')
                         .attr('font-weight', 'bold')
-                        .text(slice.id);
+                        .text(slice.id)
+                        .style('text-decoration', !slice.isActive ? 'line-through' : 'none');
+                    
+                    // Type (K, S, H, P)
+                    let typeLabel = 'P';
+                    let typeColor = '#ffffff';
+                    if (slice.type === 'kick') { typeLabel = 'K'; typeColor = '#ef4444'; }
+                    else if (slice.type === 'snare') { typeLabel = 'S'; typeColor = '#eab308'; }
+                    else if (slice.type === 'hihat') { typeLabel = 'H'; typeColor = '#00f6ff'; }
+                    
+                    if (w > 25 && slice.isActive) {
+                        g.append('text')
+                            .attr('x', xPos + 4)
+                            .attr('y', height - 8)
+                            .attr('fill', typeColor)
+                            .attr('font-size', '9px')
+                            .attr('font-weight', 'bold')
+                            .text(typeLabel);
+                    }
                 }
             });
         }
-    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect]);
+    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle]);
 
     // 3. Draw Playback Highlight (Fast Update)
     useEffect(() => {
@@ -211,24 +350,55 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         }
     }, [sequencer.currentStep, sequencer.isPlaying, slices, audioBuffer, containerWidth, zoom, sequencer.steps]);
 
+    // 4. Draw Selection Overlay
+    useEffect(() => {
+        if (!svgRef.current) return;
+        const svg = d3.select(svgRef.current);
+        const layer = svg.select("#selection-layer");
+        layer.selectAll("*").remove();
+        
+        if (dragStart !== null && dragCurrent !== null) {
+            const start = Math.min(dragStart, dragCurrent);
+            const width = Math.abs(dragCurrent - dragStart);
+            
+            if (width > 0) {
+                layer.append("rect")
+                    .attr("x", start)
+                    .attr("y", 0)
+                    .attr("width", width)
+                    .attr("height", 128)
+                    .attr("fill", "rgba(255, 255, 255, 0.2)")
+                    .attr("stroke", "white")
+                    .attr("stroke-width", 1)
+                    .attr("stroke-dasharray", "4,2");
+            }
+        }
+    }, [dragStart, dragCurrent]);
+
 
     return (
         <div className="space-y-2">
             {/* Zoom Controls */}
             <div className="flex justify-between items-center text-xs text-star-dust/70 uppercase tracking-widest">
-                <span>Waveform</span>
+                 <Tooltip text="Drag on waveform to slice a region. Click slices to select. Double-click to mute.">
+                    <span className="cursor-help border-b border-dotted border-star-dust/30">Waveform Interaction</span>
+                </Tooltip>
                 <div className="flex items-center gap-2">
                     <span>Zoom</span>
-                    <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">-</button>
+                    <Tooltip text="Zoom Out">
+                        <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">-</button>
+                    </Tooltip>
                     <span className="w-8 text-center">{Math.round(zoom * 100)}%</span>
-                    <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">+</button>
+                    <Tooltip text="Zoom In">
+                        <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">+</button>
+                    </Tooltip>
                 </div>
             </div>
 
             {/* Scrollable Container */}
             <div 
                 ref={containerRef} 
-                className="w-full h-32 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
+                className="w-full h-32 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
             >
                 {!audioBuffer && (
                     <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
@@ -240,10 +410,15 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     width={containerWidth * zoom} 
                     height="100%" 
                     style={{ minWidth: '100%' }}
+                    onMouseDown={handleMouseDown}
                 />
             </div>
-             <div className="text-[10px] text-center text-star-dust/40 mt-1">
-                Click a slice to select it (White). Assign selected slice to Sequencer pads below.
+             <div className="text-[10px] text-center text-star-dust/40 mt-1 flex justify-center gap-4 flex-wrap">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>Kick</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span>Snare</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400"></span>Hat</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white"></span>Perc</span>
+                <span className="ml-2 text-plasma-pink font-bold">Double-click to disable</span>
             </div>
         </div>
     );

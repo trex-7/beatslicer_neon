@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { AllParams, Slice, NoteSubdivision } from '../types';
 import Slider from './Slider';
@@ -12,7 +13,7 @@ interface ControlPanelProps {
     djActions: {
         triggerStutter: (subdivision: '4n' | '8n' | '16n' | '32n', active: boolean) => void;
         triggerTapeStop: (active: boolean) => void;
-        triggerReverse: () => void;
+        triggerReverse: (active: boolean) => void;
     };
     generateAiBeat: (complexity: number) => void;
     slices: Slice[];
@@ -63,15 +64,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                         <h3 className="text-2xl font-bold text-white flex items-center gap-2">
                             <span className="text-plasma-pink">●</span> Live Performance
-                            <InfoIcon text="Real-time DJ FX. Trigger stutters, tape stops, and reverse playback to remix on the fly." />
+                            <InfoIcon text="Real-time DJ FX. Press and hold to freeze the sequencer step and apply effects. Release to resume sequence." />
                         </h3>
                         <div className="w-full md:w-auto bg-nebula-blue/40 p-3 rounded-lg border border-white/10">
                             <Slider label="Master BPM" min={60} max={200} step={1} value={params.bpm} onChange={(v) => onParamChange('bpm', v)} disabled={disabled} unit="BPM" tooltip="Sets the global tempo for the sequencer and sync effects" defaultValue={120} />
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                        <Tooltip text="Simulate a vinyl tape stop effect">
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                        <Tooltip text="Hold to freeze step and apply Tape Stop effect">
                             <button 
                                 onMouseDown={() => djActions.triggerTapeStop(true)} 
                                 onMouseUp={() => djActions.triggerTapeStop(false)}
@@ -84,16 +85,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 STOP
                             </button>
                         </Tooltip>
-                        <Tooltip text="Toggle reverse playback of the granular engine">
+                        <Tooltip text="Hold to freeze step and play in Reverse">
                             <button 
-                                onClick={() => djActions.triggerReverse()}
+                                onMouseDown={() => djActions.triggerReverse(true)} 
+                                onMouseUp={() => djActions.triggerReverse(false)}
+                                onMouseLeave={() => djActions.triggerReverse(false)}
+                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerReverse(true); }}
+                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerReverse(false); }}
                                 disabled={disabled}
                                 className="w-full h-20 text-sm bg-gradient-to-br from-yellow-700 to-yellow-500 rounded-lg font-bold text-white shadow-md active:scale-95 active:brightness-125 transition-all border-b-4 border-yellow-900 active:border-b-0 active:mt-1"
                             >
                                 REV
                             </button>
                         </Tooltip>
-                        <Tooltip text="Repeat 1/4 note segment">
+                        <Tooltip text="Freeze and stutter at 1/4 note rate">
                             <button 
                                 onMouseDown={() => djActions.triggerStutter('4n', true)}
                                 onMouseUp={() => djActions.triggerStutter('4n', false)}
@@ -106,7 +111,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 1/4
                             </button>
                         </Tooltip>
-                        <Tooltip text="Repeat 1/8 note segment">
+                        <Tooltip text="Freeze and stutter at 1/8 note rate">
                             <button 
                                 onMouseDown={() => djActions.triggerStutter('8n', true)}
                                 onMouseUp={() => djActions.triggerStutter('8n', false)}
@@ -119,7 +124,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 1/8
                             </button>
                         </Tooltip>
-                        <Tooltip text="Repeat 1/16 note segment">
+                        <Tooltip text="Freeze and stutter at 1/16 note rate">
                             <button 
                                 onMouseDown={() => djActions.triggerStutter('16n', true)}
                                 onMouseUp={() => djActions.triggerStutter('16n', false)}
@@ -130,6 +135,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 className="w-full h-20 text-xs bg-nebula-blue hover:bg-hyper-cyan/20 rounded-lg font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
                             >
                                 1/16
+                            </button>
+                        </Tooltip>
+                         <Tooltip text="Freeze and stutter at 1/32 note rate">
+                            <button 
+                                onMouseDown={() => djActions.triggerStutter('32n', true)}
+                                onMouseUp={() => djActions.triggerStutter('32n', false)}
+                                onMouseLeave={() => djActions.triggerStutter('32n', false)}
+                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('32n', true); }}
+                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('32n', false); }}
+                                disabled={disabled}
+                                className="w-full h-20 text-xs bg-nebula-blue hover:bg-hyper-cyan/20 rounded-lg font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
+                            >
+                                1/32
                             </button>
                         </Tooltip>
                     </div>

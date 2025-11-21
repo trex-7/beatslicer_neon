@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset } from '../types';
@@ -138,7 +139,7 @@ export const useAudioEngine = () => {
 
   const sequenceRef = useRef<any>(null);
   const sequencerRef = useRef(sequencer);
-  const paramsRef = useRef(params); // Ref for real-time access in callbacks
+  const paramsRef = useRef(params); 
   const player = useRef<any>(null);
   const effects = useRef({
     reverb: null as any, 
@@ -151,7 +152,9 @@ export const useAudioEngine = () => {
   });
   
   // Performance state for DJ FX
-  const stutterRef = useRef<{active: boolean, interval: any, subdivision: string}>({ active: false, interval: null, subdivision: '16n' });
+  const djLoopRef = useRef<any>(null);
+  const isDjModeRef = useRef(false);
+  const lastPlayedSliceRef = useRef<Slice | null>(null);
   const reverseRef = useRef(false);
 
   // Safe Parameter Setter Helper
@@ -231,6 +234,7 @@ export const useAudioEngine = () => {
     return () => {
       player.current?.dispose();
       sequenceRef.current?.dispose();
+      if (djLoopRef.current) djLoopRef.current.dispose();
       Object.values(effects.current).forEach((effect: any) => effect?.dispose());
       Tone.Transport.stop();
       Tone.Transport.cancel();
@@ -253,12 +257,13 @@ export const useAudioEngine = () => {
             if (updated.overlap !== undefined) player.current.overlap = updated.overlap;
             
             // Use setToneParam for safety against crashes
-            if (updated.playbackRate !== undefined && !reverseRef.current) {
-                setToneParam(player.current, 'playbackRate', updated.playbackRate);
-            }
-            
-            if (updated.detune !== undefined) {
-                setToneParam(player.current, 'detune', updated.detune);
+            if (!isDjModeRef.current) {
+                if (updated.playbackRate !== undefined) {
+                    setToneParam(player.current, 'playbackRate', updated.playbackRate);
+                }
+                if (updated.detune !== undefined) {
+                    setToneParam(player.current, 'detune', updated.detune);
+                }
             }
             
             if (updated.attack !== undefined) player.current.fadeIn = updated.attack;
@@ -276,7 +281,6 @@ export const useAudioEngine = () => {
                      console.warn("Invalid sync value", rev.syncValue);
                  }
              }
-             // Decay is usually a property, not signal
              efx.reverb.decay = Math.max(0.1, Math.min(decay, 10));
              setToneParam(efx.reverb, 'wet', rev.wet); 
         }
@@ -304,8 +308,8 @@ export const useAudioEngine = () => {
         }
 
         if (updated.bitCrusher && efx.bitCrusher) {
-            // Direct assignment for number property
-            efx.bitCrusher.bits = updated.bitCrusher.bits;
+            // FIXED: Use setToneParam because bits is a Signal object. Direct assignment breaks it.
+            setToneParam(efx.bitCrusher, 'bits', updated.bitCrusher.bits);
             setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.wet);
         }
 
@@ -352,31 +356,40 @@ export const useAudioEngine = () => {
 
         const stepData = currentSeq.steps[actualStepIndex];
         
+        // Logic to determine current slice
+        if (stepData.active && slices.length > 0) {
+             const slice = slices[stepData.sliceIndex % slices.length];
+             if (slice && slice.isActive) {
+                 // Update tracking ref for DJ effects to the most recent active slice
+                 lastPlayedSliceRef.current = slice;
+             }
+        }
+
+        // Playback logic
         if (stepData.active && player.current && !player.current.disposed && slices.length > 0) {
              const slice = slices[stepData.sliceIndex % slices.length];
              if (slice && slice.isActive) {
                  
+                 // Freeze Logic: If DJ mode is active, skip the sequencer trigger
+                 if (isDjModeRef.current) return;
+
                  // 1. Glitch Chaos Logic
                  let playbackRate = currentParams.playbackRate;
                  let reverse = reverseRef.current;
                  let detune = currentParams.detune;
                  
-                 // If Chaos is active
                  if (currentParams.glitch.chaos > 0 && Math.random() < currentParams.glitch.chaos) {
                      const roll = Math.random();
-                     
                      if (currentParams.glitch.allowReverse && roll < 0.3) {
                          reverse = !reverse;
                      } else if (currentParams.glitch.allowOctaveJump && roll < 0.6) {
-                         // Jump up or down an octave
                          detune += (Math.random() > 0.5 ? 1200 : -1200);
                      } else {
-                         // Slight time stretch varitation
                          playbackRate *= (0.8 + Math.random() * 0.4);
                      }
                  }
 
-                 // Apply Glitch Props safely
+                 // Apply Params
                  setToneParam(player.current, 'playbackRate', playbackRate);
                  player.current.reverse = reverse;
                  setToneParam(player.current, 'detune', detune);
@@ -430,7 +443,6 @@ export const useAudioEngine = () => {
       
       if (!preserveSettings) {
           let detectedBpm = await detectBPM(rawBuffer);
-          // Simple heuristic for BPM in filename
           if (filename) {
              const match = filename.match(/(\d{2,3})bpm/i);
              if (match) detectedBpm = parseInt(match[1]);
@@ -440,6 +452,8 @@ export const useAudioEngine = () => {
           const newSlices = generateTransientSlices(buffer, detectedBpm, 0, buffer.duration);
           setSlices(newSlices);
           setSelectedSliceIndex(0);
+          // Set initial last played slice to the first one so DJ buttons work immediately
+          if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
           setSequencer(prev => {
             const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
@@ -494,6 +508,11 @@ export const useAudioEngine = () => {
       player.current.stop();
       setIsPlaying(false);
       setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
+      
+      // Reset DJ State
+      isDjModeRef.current = false;
+      if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
+
     } else {
       Tone.Transport.start();
       setIsPlaying(true);
@@ -523,6 +542,7 @@ export const useAudioEngine = () => {
     const newSlices = generateTransientSlices(audioBuffer, params.bpm, 0, audioBuffer.duration);
     setSlices(newSlices);
     setSelectedSliceIndex(0);
+    if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
     setSequencer(prev => {
         const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
@@ -555,25 +575,96 @@ export const useAudioEngine = () => {
   const djActions = {
       triggerStutter: (subdivision: '4n'|'8n'|'16n'|'32n', active: boolean) => {
           if (active) {
-               stutterRef.current = { active: true, interval: null, subdivision };
-               Tone.Transport.bpm.rampTo(params.bpm * 2, 0.1); 
+               isDjModeRef.current = true;
+               if (djLoopRef.current) { djLoopRef.current.dispose(); }
+               
+               // Fallback to first slice if nothing played yet
+               const slice = lastPlayedSliceRef.current || slices[0];
+
+               if (slice && player.current) {
+                   // FIXED: Stop immediately to clear previous sound so stutter attacks clearly
+                   player.current.stop(); 
+                   
+                   setToneParam(player.current, 'playbackRate', params.playbackRate);
+                   player.current.reverse = false;
+
+                   // FIXED: Start immediately without Tone.now() to avoid sync issues
+                   djLoopRef.current = new Tone.Loop((time: number) => {
+                       player.current.stop(time);
+                       player.current.start(time, slice.offset, slice.duration);
+                   }, subdivision).start(); 
+               }
           } else {
-               stutterRef.current.active = false;
-               Tone.Transport.bpm.rampTo(params.bpm, 0.2);
+               isDjModeRef.current = false;
+               if (djLoopRef.current) {
+                   djLoopRef.current.dispose();
+                   djLoopRef.current = null;
+               }
+               // Reset Params
+               if (player.current) {
+                    setToneParam(player.current, 'playbackRate', params.playbackRate);
+                    player.current.reverse = false;
+               }
           }
       },
       triggerTapeStop: (active: boolean) => {
            if (!player.current) return;
            if (active) {
-               setToneParam(player.current, 'playbackRate', 0.01, 0.5);
+               isDjModeRef.current = true;
+               if (djLoopRef.current) { djLoopRef.current.dispose(); }
+
+               const slice = lastPlayedSliceRef.current || slices[0];
+               
+               if (slice) {
+                   // FIXED: Stop immediately
+                   player.current.stop();
+
+                   // Ramp down rate for the stop effect
+                   setToneParam(player.current, 'playbackRate', 0.001, 0.8);
+                   
+                   // We must keep triggering the slice so the ramp is audible
+                   // Loop it at 1/4 notes while it slows down
+                   // FIXED: Start loop immediately
+                   djLoopRef.current = new Tone.Loop((time: number) => {
+                       player.current.stop(time);
+                       player.current.start(time, slice.offset, slice.duration);
+                   }, "4n").start();
+               }
            } else {
-               setToneParam(player.current, 'playbackRate', params.playbackRate, 0.5);
+               isDjModeRef.current = false;
+               if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
+               // Restore rate
+               setToneParam(player.current, 'playbackRate', params.playbackRate, 0.2);
            }
       },
-      triggerReverse: () => {
+      triggerReverse: (active: boolean) => {
            if (!player.current) return;
-           reverseRef.current = !reverseRef.current;
-           player.current.reverse = reverseRef.current;
+           if (active) {
+               isDjModeRef.current = true;
+               player.current.reverse = true;
+               
+               if (djLoopRef.current) { djLoopRef.current.dispose(); }
+               
+               const slice = lastPlayedSliceRef.current || slices[0];
+               if (slice) {
+                   // FIXED: Stop immediately
+                   player.current.stop();
+                   
+                   // FIXED: Start loop immediately
+                   djLoopRef.current = new Tone.Loop((time: number) => {
+                       player.current.stop(time);
+                       player.current.start(time, slice.offset, slice.duration);
+                   }, "8n").start();
+               }
+
+           } else {
+               isDjModeRef.current = false;
+               player.current.reverse = false;
+               if (djLoopRef.current) {
+                   djLoopRef.current.dispose();
+                   djLoopRef.current = null;
+               }
+           }
       }
   };
 
@@ -671,6 +762,7 @@ export const useAudioEngine = () => {
           }));
           setSlices(preset.slices);
           setSampleName(preset.sampleName || 'Imported Preset');
+          if (preset.slices.length > 0) lastPlayedSliceRef.current = preset.slices[0];
 
           updateParams(preset.params);
           

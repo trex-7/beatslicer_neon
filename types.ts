@@ -57,7 +57,7 @@ export interface AllParams extends GranularSynthParams, EffectParams {
     glitch: GlitchParams;
 }
 
-export type SliceType = 'kick' | 'snare' | 'hihat' | 'perc';
+export type SliceType = 'kick' | 'snare' | 'hihat' | 'perc' | 'bass' | 'vocal' | 'melodic';
 
 export interface Slice {
   id: number;
@@ -66,6 +66,9 @@ export interface Slice {
   isActive: boolean; // Used in sequencer randomization
   type: SliceType;
   level: number; // Linear gain 0.0 to 2.0 (default 1.0)
+  reverse?: boolean; // Play slice in reverse
+  fadeIn?: number; // Override global attack
+  fadeOut?: number; // Override global release
 }
 
 export type SequencerMode = 'forward' | 'backward' | 'pendulum' | 'random';

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
@@ -37,10 +36,16 @@ const App: React.FC = () => {
         autoSlice,
         djActions,
         exportPreset,
-        importPreset
+        importPreset,
+        togglePreviewOriginal,
+        isPreviewPlaying,
+        playSliceRaw,
+        toggleSliceLoop,
+        sliceLoopState
     } = useAudioEngine();
     
-    const defaultSampleUrl = 'https://tonejs.github.io/audio/berklee/gong_channel.mp3';
+    // Updated default URL to a reliable Tone.js sample
+    const defaultSampleUrl = 'https://tonejs.github.io/audio/loop/FWDL.mp3';
 
     const handleParamChange = <K extends keyof AllParams>(key: K, value: AllParams[K]) => {
       updateParams({ [key]: value } as Partial<AllParams>);
@@ -57,82 +62,99 @@ const App: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-deep-space font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
-            <div className="w-full max-w-7xl mx-auto">
+        <div className="min-h-screen bg-deep-space font-sans flex flex-col items-center p-2 sm:p-4 lg:p-6">
+            <div className="w-full max-w-[1920px] mx-auto space-y-4">
                 <Header />
-                <main className="mt-6 bg-nebula-blue/30 rounded-xl shadow-2xl shadow-black/30 ring-1 ring-white/10 p-4 sm:p-6 lg:p-8">
-                    {!isReady ? (
-                        <div className="flex justify-center items-center h-96">
-                            <p className="text-xl animate-pulse">Initializing Audio Engine...</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                            <div className="lg:col-span-4 space-y-6">
+                
+                {!isReady ? (
+                    <div className="flex justify-center items-center h-96 bg-nebula-blue/30 rounded-xl">
+                        <p className="text-xl animate-pulse text-hyper-cyan">Initializing Audio Engine...</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* Top Utility Bar */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-nebula-blue/20 p-2 rounded-xl border border-white/5">
+                            <div className="lg:col-span-4">
                                 <FileLoader
                                     onFileLoad={loadAudioFile}
                                     onDefaultLoad={() => loadAudioFile(defaultSampleUrl)}
                                     isLoading={isLoading}
+                                    onPreviewToggle={togglePreviewOriginal}
+                                    isPreviewing={isPreviewPlaying}
                                 />
+                            </div>
+                            <div className="lg:col-span-4 flex justify-center">
+                                <Tooltip text="Start or stop the sequencer" position="bottom">
+                                    <button
+                                        onClick={togglePlay}
+                                        disabled={!audioBuffer || isLoading}
+                                        className={`w-full max-w-[200px] py-2 text-lg font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100
+                                            ${isPlaying ? 'bg-plasma-pink text-white shadow-lg shadow-plasma-pink/30' : 'bg-hyper-cyan text-deep-space shadow-lg shadow-hyper-cyan/30'}`}
+                                    >
+                                        {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
+                                    </button>
+                                </Tooltip>
+                            </div>
+                            <div className="lg:col-span-4">
                                 <PresetManager 
                                     onExport={exportPreset}
                                     onImport={importPreset}
                                     disabled={!audioBuffer || isLoading}
                                 />
-                                <div className="flex justify-center">
-                                    <Tooltip text="Start or stop the sequencer" position="bottom">
-                                        <button
-                                            onClick={togglePlay}
-                                            disabled={!audioBuffer || isLoading}
-                                            className={`px-10 py-4 text-xl font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100
-                                                ${isPlaying ? 'bg-plasma-pink text-white shadow-lg shadow-plasma-pink/30' : 'bg-hyper-cyan text-deep-space shadow-lg shadow-hyper-cyan/30'}`}
-                                        >
-                                            {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
-                                        </button>
-                                    </Tooltip>
-                                </div>
-                            </div>
-                            <div className="lg:col-span-8 space-y-4">
-                               <WaveformDisplay 
-                                    audioBuffer={audioBuffer} 
-                                    onScrub={scrub} 
-                                    isPlaying={isPlaying} 
-                                    playerRef={null} 
-                                    slices={slices} 
-                                    sequencer={sequencer}
-                                    selectedSliceIndex={selectedSliceIndex}
-                                    onSliceSelect={selectSlice}
-                                    onSliceToggle={toggleSliceActive}
-                                    onRegionSlice={sliceRegion}
-                                    onAutoSlice={autoSlice}
-                               />
-                               <Sequencer 
-                                    sequencer={sequencer}
-                                    onStepChange={updateSequencerStep}
-                                    onModeChange={setSequencerMode}
-                                    onStepCountChange={setSequencerStepCount}
-                                    onRandomize={randomizePattern}
-                                    onEditModeToggle={setSequencerEditMode}
-                                    disabled={!audioBuffer || isLoading}
-                                    selectedSliceIndex={selectedSliceIndex}
-                               />
-                            </div>
-                            
-                            <div className="lg:col-span-12">
-                              <ControlPanel 
-                                params={params} 
-                                onParamChange={handleParamChange}
-                                onEffectParamChange={handleEffectParamChange}
-                                disabled={!audioBuffer || isLoading} 
-                                djActions={djActions}
-                                generateAiBeat={generateAiBeat}
-                                slices={slices}
-                                selectedSliceIndex={selectedSliceIndex}
-                                onSliceUpdate={updateSlice}
-                              />
                             </div>
                         </div>
-                    )}
-                </main>
+
+                        {/* Full Width Waveform */}
+                        <div className="w-full">
+                           <WaveformDisplay 
+                                audioBuffer={audioBuffer} 
+                                onScrub={scrub} 
+                                isPlaying={isPlaying} 
+                                playerRef={null} 
+                                slices={slices} 
+                                sequencer={sequencer}
+                                selectedSliceIndex={selectedSliceIndex}
+                                onSliceSelect={selectSlice}
+                                onSliceToggle={toggleSliceActive}
+                                onRegionSlice={sliceRegion}
+                                onAutoSlice={autoSlice}
+                           />
+                        </div>
+
+                        {/* Sequencer */}
+                        <div className="w-full">
+                           <Sequencer 
+                                sequencer={sequencer}
+                                onStepChange={updateSequencerStep}
+                                onModeChange={setSequencerMode}
+                                onStepCountChange={setSequencerStepCount}
+                                onRandomize={randomizePattern}
+                                onEditModeToggle={setSequencerEditMode}
+                                disabled={!audioBuffer || isLoading}
+                                selectedSliceIndex={selectedSliceIndex}
+                           />
+                        </div>
+                        
+                        {/* Control Panel */}
+                        <div className="w-full">
+                          <ControlPanel 
+                            params={params} 
+                            onParamChange={handleParamChange}
+                            onEffectParamChange={handleEffectParamChange}
+                            disabled={!audioBuffer || isLoading} 
+                            djActions={djActions}
+                            generateAiBeat={generateAiBeat}
+                            slices={slices}
+                            selectedSliceIndex={selectedSliceIndex}
+                            onSliceUpdate={updateSlice}
+                            onPlaySlice={playSliceRaw}
+                            onLoopSlice={toggleSliceLoop}
+                            sliceLoopState={sliceLoopState}
+                            audioBuffer={audioBuffer}
+                          />
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );

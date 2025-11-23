@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import type { Slice, SequencerState } from '../types';
 import Tooltip from './Tooltip';
@@ -16,6 +15,7 @@ interface WaveformDisplayProps {
     onSliceSelect: (index: number) => void;
     onSliceToggle: (index: number) => void;
     onRegionSlice: (start: number, end: number) => void;
+    onAutoSlice?: () => void;
 }
 
 const WaveformDisplay: React.FC<WaveformDisplayProps> = ({ 
@@ -159,7 +159,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 128; // Fixed height matching Tailwind h-32
+        const height = 192; // Match the new h-48 (12rem * 16 = 192px)
 
         const channelData = audioBuffer.getChannelData(0);
         const samples = Math.floor(channelData.length / totalWidth);
@@ -208,7 +208,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 128;
+        const height = 192; // Match h-48
         const duration = audioBuffer.duration;
         
         if (slices.length > 0) {
@@ -294,12 +294,15 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         .text(slice.id)
                         .style('text-decoration', !slice.isActive ? 'line-through' : 'none');
                     
-                    // Type (K, S, H, P)
+                    // Type (K, S, H, P, B, V, M)
                     let typeLabel = 'P';
                     let typeColor = '#ffffff';
                     if (slice.type === 'kick') { typeLabel = 'K'; typeColor = '#ef4444'; }
                     else if (slice.type === 'snare') { typeLabel = 'S'; typeColor = '#eab308'; }
                     else if (slice.type === 'hihat') { typeLabel = 'H'; typeColor = '#00f6ff'; }
+                    else if (slice.type === 'bass') { typeLabel = 'B'; typeColor = '#a855f7'; }
+                    else if (slice.type === 'vocal') { typeLabel = 'V'; typeColor = '#ec4899'; }
+                    else if (slice.type === 'melodic') { typeLabel = 'M'; typeColor = '#22c55e'; }
                     
                     if (w > 25 && slice.isActive) {
                         g.append('text')
@@ -323,7 +326,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 128;
+        const height = 192; // Match h-48
         const duration = audioBuffer.duration;
 
         if (sequencer.isPlaying && sequencer.currentStep !== -1) {
@@ -366,7 +369,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr("x", start)
                     .attr("y", 0)
                     .attr("width", width)
-                    .attr("height", 128)
+                    .attr("height", 192) // Match h-48
                     .attr("fill", "rgba(255, 255, 255, 0.2)")
                     .attr("stroke", "white")
                     .attr("stroke-width", 1)
@@ -377,34 +380,20 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
 
 
     return (
-        <div className="space-y-2">
-            {/* Zoom Controls */}
-            <div className="flex justify-between items-center text-xs text-star-dust/70 uppercase tracking-widest">
-                 <Tooltip text="Drag on waveform to slice a region. Click slices to select. Double-click to mute.">
-                    <span className="cursor-help border-b border-dotted border-star-dust/30">Waveform Interaction</span>
-                </Tooltip>
-                <div className="flex items-center gap-2">
-                    <span>Zoom</span>
-                    <Tooltip text="Zoom Out">
-                        <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">-</button>
-                    </Tooltip>
-                    <span className="w-8 text-center">{Math.round(zoom * 100)}%</span>
-                    <Tooltip text="Zoom In">
-                        <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/20">+</button>
-                    </Tooltip>
-                </div>
-            </div>
-
+        <div className="space-y-1">
             {/* Scrollable Container */}
             <div 
                 ref={containerRef} 
-                className="w-full h-32 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
+                className="w-full h-48 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair group"
             >
                 {!audioBuffer && (
                     <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
                         <p>Load a sample to see waveform</p>
                     </div>
                 )}
+                <div className="absolute top-2 right-2 text-[10px] text-white/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-deep-space/80 px-2 py-1 rounded border border-white/5">
+                    Drag to re-slice region
+                </div>
                 <svg 
                     ref={svgRef} 
                     width={containerWidth * zoom} 
@@ -413,12 +402,24 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     onMouseDown={handleMouseDown}
                 />
             </div>
-             <div className="text-[10px] text-center text-star-dust/40 mt-1 flex justify-center gap-4 flex-wrap">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>Kick</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span>Snare</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400"></span>Hat</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white"></span>Perc</span>
-                <span className="ml-2 text-plasma-pink font-bold">Double-click to disable</span>
+             
+             {/* Controls Bar Below Waveform */}
+             <div className="flex justify-between items-center text-[10px] text-star-dust/50 px-1 overflow-x-auto">
+                 <div className="flex gap-3 flex-wrap">
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>Kick</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>Snare</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>Hat</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Bass</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-pink-500"></span>Vox</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>Mel</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white"></span>Perc</span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    <span className="uppercase tracking-widest">Zoom</span>
+                    <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-5 h-5 flex items-center justify-center bg-white/10 rounded hover:bg-white/20">-</button>
+                    <span className="w-8 text-center">{Math.round(zoom * 100)}%</span>
+                    <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-5 h-5 flex items-center justify-center bg-white/10 rounded hover:bg-white/20">+</button>
+                </div>
             </div>
         </div>
     );

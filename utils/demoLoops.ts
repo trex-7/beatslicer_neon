@@ -3,51 +3,87 @@ import type { DemoKit } from '../types';
 
 export interface DemoLoop {
     name: string;
-    url: string; // Can be a web URL or a "data:audio/mp3;base64,..." string
+    url: string; 
 }
 
+// Updated with Google Drive Direct Link
+// ID extracted from: https://drive.google.com/file/d/1XXMMntYiC7AwcQikURuBcFw9JXMj0MdG/view?usp=drive_link
 export const DEMO_LOOPS: DemoLoop[] = [
-    { 
-        name: "Funky House 124bpm", 
-        url: "https://tonejs.github.io/audio/loop/FWDL.mp3" 
-    },
-    { 
-        name: "Liquid DnB 170bpm", 
-        url: "https://tonejs.github.io/audio/loop/breakbeat.mp3" 
-    },
-    { 
-        name: "Dubstep Wobble 140bpm", 
-        url: "https://tonejs.github.io/audio/loop/2step.mp3" 
-    },
     {
-        name: "Glitch Perc 100bpm",
-        url: "https://tonejs.github.io/audio/loop/perc.mp3"
+        name: "Demo Loop (Google Drive)",
+        url: "https://drive.google.com/uc?export=download&id=1XXMMntYiC7AwcQikURuBcFw9JXMj0MdG"
     }
 ];
 
 export const DEMO_KITS: DemoKit[] = [
     {
-        name: "808 Kit",
+        name: "Drive Kit 1",
         samples: [
-            { name: "Kick", url: "https://tonejs.github.io/audio/drum-samples/808/kick.mp3", type: 'kick' },
-            { name: "Snare", url: "https://tonejs.github.io/audio/drum-samples/808/snare.mp3", type: 'snare' },
-            { name: "Clap", url: "https://tonejs.github.io/audio/drum-samples/808/clap.mp3", type: 'snare' },
-            { name: "HiHat Closed", url: "https://tonejs.github.io/audio/drum-samples/808/closed_hh.mp3", type: 'hihat' },
-            { name: "HiHat Open", url: "https://tonejs.github.io/audio/drum-samples/808/open_hh.mp3", type: 'hihat' },
-            { name: "Tom High", url: "https://tonejs.github.io/audio/drum-samples/808/hightom.mp3", type: 'perc' },
-            { name: "Tom Low", url: "https://tonejs.github.io/audio/drum-samples/808/lowtom.mp3", type: 'perc' },
-            { name: "Cowbell", url: "https://tonejs.github.io/audio/drum-samples/CR78/cowbell.mp3", type: 'perc' }
-        ]
-    },
-    {
-        name: "Acoustic Kit",
-        samples: [
-            { name: "Kick", url: "https://tonejs.github.io/audio/drum-samples/Salamander/kick.mp3", type: 'kick' },
-            { name: "Snare", url: "https://tonejs.github.io/audio/drum-samples/Salamander/snare.mp3", type: 'snare' },
-            { name: "HiHat Closed", url: "https://tonejs.github.io/audio/drum-samples/Salamander/hihat.mp3", type: 'hihat' },
-            { name: "HiHat Open", url: "https://tonejs.github.io/audio/drum-samples/Salamander/open_hihat.mp3", type: 'hihat' },
-            { name: "Tom 1", url: "https://tonejs.github.io/audio/drum-samples/Salamander/tom1.mp3", type: 'perc' },
-            { name: "Tom 2", url: "https://tonejs.github.io/audio/drum-samples/Salamander/tom2.mp3", type: 'perc' }
+            { name: "Sample 1 (Kick)", url: "https://drive.google.com/uc?export=download&id=1iptAmb-lnHkBJUFAuNpQZuU0_0Qu_7in", type: 'kick' },
+            { name: "Sample 2 (Snare)", url: "https://drive.google.com/uc?export=download&id=1SViBm6xibJ8riQLNA8CiobgZDUP-t4XH", type: 'snare' },
+            { name: "Sample 3 (Hat)", url: "https://drive.google.com/uc?export=download&id=1_9LUdAdtODrAxZSWDy0xpPecUAIZbPN_", type: 'hihat' },
+            { name: "Sample 4 (Perc)", url: "https://drive.google.com/uc?export=download&id=1sR6Djrrg_Y3L8wGwk2jwVXxYmQaH3Arj", type: 'perc' },
+            { name: "Sample 5 (Perc)", url: "https://drive.google.com/uc?export=download&id=1K3SspfUmAFEpuSnLb_OBpSwpAC-ue2A7", type: 'perc' },
+            { name: "Sample 6 (Perc)", url: "https://drive.google.com/uc?export=download&id=1HvYm7CNFYgq4zhlFmi4iJLz16hoXVc76", type: 'perc' },
+            { name: "Sample 7 (Perc)", url: "https://drive.google.com/uc?export=download&id=1W_C_n6CiI9wYz-kPDl7h-gbxcgroboLL", type: 'perc' }
         ]
     }
 ];
+
+// Configuration for external library
+// This assumes your library.json is at the root of your public audio folder
+export const LIBRARY_INDEX_URL = './audio/library.json';
+
+interface LibraryManifest {
+    loops?: DemoLoop[];
+    kits?: DemoKit[];
+}
+
+function resolveUrl(base: string, path: string): string {
+    if (path.startsWith('http') || path.startsWith('//') || path.startsWith('data:')) return path;
+    
+    // Clean up base path: ensure no trailing slash
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    
+    // Clean up path: remove leading slash or ./
+    let cleanPath = path;
+    if (cleanPath.startsWith('/')) cleanPath = cleanPath.substring(1);
+    if (cleanPath.startsWith('./')) cleanPath = cleanPath.substring(2);
+    
+    return `${cleanBase}/${cleanPath}`;
+}
+
+export async function fetchAudioLibrary(): Promise<LibraryManifest | null> {
+    try {
+        const response = await fetch(LIBRARY_INDEX_URL);
+        if (!response.ok) {
+            // Silently fail if 404 - we just use defaults
+            return null;
+        }
+
+        const data = await response.json();
+        const basePath = LIBRARY_INDEX_URL.substring(0, LIBRARY_INDEX_URL.lastIndexOf('/'));
+
+        // Resolve relative paths in the manifest to full paths based on library location
+        const resolvedLoops = data.loops?.map((loop: any) => ({
+            ...loop,
+            url: resolveUrl(basePath, loop.url)
+        })) || [];
+
+        const resolvedKits = data.kits?.map((kit: any) => ({
+            ...kit,
+            samples: kit.samples.map((sample: any) => ({
+                ...sample,
+                url: resolveUrl(basePath, sample.url)
+            }))
+        })) || [];
+
+        return {
+            loops: resolvedLoops,
+            kits: resolvedKits
+        };
+    } catch (e) {
+        console.warn("Could not load external library manifest:", e);
+        return null;
+    }
+}

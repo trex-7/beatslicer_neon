@@ -1,8 +1,8 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import Tooltip from './Tooltip';
-import { DEMO_LOOPS, DEMO_KITS } from '../utils/demoLoops';
-import type { KitSample } from '../types';
+import { DEMO_LOOPS, DEMO_KITS, fetchAudioLibrary, type DemoLoop } from '../utils/demoLoops';
+import type { KitSample, DemoKit } from '../types';
 
 interface FileLoaderProps {
     onFileLoad: (file: File) => void;
@@ -15,6 +15,22 @@ interface FileLoaderProps {
 
 const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLoad, isLoading, onPreviewToggle, isPreviewing }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [libraryLoops, setLibraryLoops] = useState<DemoLoop[]>([]);
+    const [libraryKits, setLibraryKits] = useState<DemoKit[]>([]);
+    const [libraryLoaded, setLibraryLoaded] = useState(false);
+
+    // Fetch library.json on mount
+    useEffect(() => {
+        const loadLib = async () => {
+            const library = await fetchAudioLibrary();
+            if (library) {
+                setLibraryLoops(library.loops || []);
+                setLibraryKits(library.kits || []);
+                setLibraryLoaded(true);
+            }
+        };
+        loadLib();
+    }, []);
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
@@ -33,7 +49,12 @@ const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLo
         const url = e.target.value;
         if (!url) return;
         
-        const loop = DEMO_LOOPS.find(l => l.url === url);
+        // Check library first
+        let loop = libraryLoops.find(l => l.url === url);
+        if (!loop) {
+             loop = DEMO_LOOPS.find(l => l.url === url);
+        }
+        
         if (loop) {
             onDemoLoad(loop.url, loop.name);
         }
@@ -45,7 +66,11 @@ const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLo
         const name = e.target.value;
         if (!name) return;
         
-        const kit = DEMO_KITS.find(k => k.name === name);
+        let kit = libraryKits.find(k => k.name === name);
+        if (!kit) {
+            kit = DEMO_KITS.find(k => k.name === name);
+        }
+        
         if (kit) {
             onKitLoad(kit.samples, kit.name);
         }
@@ -56,7 +81,7 @@ const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLo
     return (
         <div className="flex items-center gap-3 bg-deep-space/40 p-1.5 rounded-lg border border-white/10 w-full h-full">
             <div className="text-[10px] font-bold text-star-dust/50 uppercase tracking-wider hidden sm:flex items-center px-2 border-r border-white/10 h-full">
-                Source
+                Source {libraryLoaded && <span className="ml-1 text-hyper-cyan">•</span>}
             </div>
             <div className="flex gap-2 flex-1 w-full">
                 <Tooltip text="Upload audio file (Loop) or multiple files (Kit)">
@@ -85,11 +110,22 @@ const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLo
                         defaultValue=""
                     >
                         <option value="" disabled>Load Loop...</option>
-                        {DEMO_LOOPS.map((loop, i) => (
-                            <option key={i} value={loop.url} className="bg-deep-space text-white">
-                                {loop.name}
-                            </option>
-                        ))}
+                        {libraryLoops.length > 0 && (
+                            <optgroup label="Local Library">
+                                {libraryLoops.map((loop, i) => (
+                                    <option key={`lib-loop-${i}`} value={loop.url} className="bg-deep-space text-white">
+                                        {loop.name}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+                        <optgroup label="Online Demos">
+                            {DEMO_LOOPS.map((loop, i) => (
+                                <option key={`loop-${i}`} value={loop.url} className="bg-deep-space text-white">
+                                    {loop.name}
+                                </option>
+                            ))}
+                        </optgroup>
                     </select>
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-hyper-cyan text-[10px]">▼</div>
                 </div>
@@ -102,11 +138,22 @@ const FileLoader: React.FC<FileLoaderProps> = ({ onFileLoad, onKitLoad, onDemoLo
                         defaultValue=""
                     >
                         <option value="" disabled>Load Kit...</option>
-                        {DEMO_KITS.map((kit, i) => (
-                            <option key={i} value={kit.name} className="bg-deep-space text-white">
-                                {kit.name}
-                            </option>
-                        ))}
+                         {libraryKits.length > 0 && (
+                            <optgroup label="Local Library">
+                                {libraryKits.map((kit, i) => (
+                                    <option key={`lib-kit-${i}`} value={kit.name} className="bg-deep-space text-white">
+                                        {kit.name}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+                        <optgroup label="Online Demos">
+                            {DEMO_KITS.map((kit, i) => (
+                                <option key={`kit-${i}`} value={kit.name} className="bg-deep-space text-white">
+                                    {kit.name}
+                                </option>
+                            ))}
+                        </optgroup>
                     </select>
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-plasma-pink text-[10px]">▼</div>
                 </div>

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
@@ -539,9 +540,14 @@ export const useAudioEngine = () => {
         Tone.Transport.start();
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading audio file:", error);
-      alert("Failed to load audio file.");
+      // Try to get explicit error message
+      let msg = error?.message || "Unknown error";
+      if (typeof error === 'object' && error.target) {
+          msg = "Network or Format Error (404/CORs)"; // Native events often lack messages
+      }
+      alert(`Failed to load audio file: ${msg}. The URL might be broken.`);
     } finally {
       setIsLoading(false);
     }
@@ -582,14 +588,22 @@ export const useAudioEngine = () => {
                   else if (lower.includes('hat') || lower.includes('hh')) type = 'hihat';
               }
 
-              // Load buffer
-              const buffer = await new Promise<any>((resolve, reject) => {
-                  const b = new Tone.Buffer(url, () => resolve(b), (e: any) => reject(e));
-              });
-              buffers.push({ buffer: buffer.get(), name, type });
+              // Load buffer with detailed error tracking
+              try {
+                  const buffer = await new Promise<any>((resolve, reject) => {
+                      const b = new Tone.Buffer(url, () => resolve(b), (e: any) => reject(e));
+                  });
+                  buffers.push({ buffer: buffer.get(), name, type });
+              } catch (e: any) {
+                  // Tone.Buffer errors are often just Event objects
+                  console.warn(`Skipped loading sample: ${name} - ${e?.message || "Network Error"}`);
+                  // Continue trying to load other samples instead of failing completely
+              }
           }
 
-          if (buffers.length === 0) throw new Error("No valid audio files found");
+          if (buffers.length === 0) {
+              throw new Error("No valid audio files found in this kit. Check your file paths or network connection.");
+          }
 
           // 2. Stitch Buffers
           // We add 0.1s padding between samples to prevent granule bleeding
@@ -673,9 +687,9 @@ export const useAudioEngine = () => {
             if (Tone.Transport.state !== 'started') Tone.Transport.start();
           }
 
-      } catch (error) {
+      } catch (error: any) {
           console.error("Error loading construction kit", error);
-          alert("Failed to load kit.");
+          alert(`Failed to load kit: ${error.message || "Unknown error"}.`);
       } finally {
           setIsLoading(false);
       }

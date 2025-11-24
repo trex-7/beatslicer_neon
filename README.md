@@ -1,46 +1,56 @@
+
 # Granular Synth FX
 
-## Hosting on GitHub Pages
+## Deployment & Hosting
 
-This application is configured to be deployed to GitHub Pages.
+This application is configured for deployment on GitHub Pages or any static web host.
 
-### 1. Setting up Audio Files
+### Using the External Library
 
-To host your own loop library:
+To make your own folders and files appear in the application pulldowns automatically:
 
-1.  Create a folder named `public` in the root of your project if it doesn't exist.
-2.  Create a subfolder: `public/audio`.
-3.  Add your `.mp3` or `.wav` files there.
-4.  Update `utils/demoLoops.ts` to point to these files relative to the base URL:
+1.  **Structure your audio files** in a folder named `audio` in your public web root.
+2.  **Create a `library.json` file** inside the `audio` folder.
+3.  **Populate `library.json`** with the following structure:
 
-```typescript
-export const DEMO_LOOPS: DemoLoop[] = [
-    { 
-        name: "My Custom Loop 120bpm", 
-        // Files in 'public/' are served at the root './'
-        url: "./audio/my-custom-loop.mp3" 
+```json
+{
+  "loops": [
+    {
+      "name": "My Cool Loop 120bpm",
+      "url": "loops/cool_loop.mp3"
     },
-    // ...
-];
+    {
+      "name": "Ambient Texture",
+      "url": "loops/ambient.wav"
+    }
+  ],
+  "kits": [
+    {
+      "name": "My Drum Kit",
+      "samples": [
+        { "name": "Kick", "url": "kits/mykit/kick.wav", "type": "kick" },
+        { "name": "Snare", "url": "kits/mykit/snare.wav", "type": "snare" },
+        { "name": "Hat", "url": "kits/mykit/hat.wav", "type": "hihat" }
+      ]
+    }
+  ]
+}
 ```
 
-### 2. Deploying
+The application will automatically fetch this file from `./audio/library.json` on startup. If found, your files will appear at the top of the "Load Loop" and "Load Kit" dropdowns.
 
-1.  Push your code to a GitHub repository.
-2.  Go to your repository **Settings** > **Pages**.
-3.  Under **Build and deployment**, select **Source** as `GitHub Actions`.
-4.  If you are using a standard Vite build, you can use the `static-web-apps-deploy` action or simply build the project locally (`npm run build`) and commit the `dist` folder to a `gh-pages` branch.
+### Directory Example
 
-**Easiest Method (gh-pages package):**
-
-1.  `npm install gh-pages --save-dev`
-2.  Add this to `package.json` scripts:
-    ```json
-    "scripts": {
-      "predeploy": "npm run build",
-      "deploy": "gh-pages -d dist"
-    }
-    ```
-3.  Run `npm run deploy`.
-
-The `vite.config.ts` file has been configured with `base: './'` to ensure all assets load correctly regardless of the repository name.
+```
+/ (public root)
+  index.html
+  /audio
+     library.json
+     /loops
+        cool_loop.mp3
+     /kits
+        /mykit
+           kick.wav
+           ...
+```

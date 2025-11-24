@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import type { AllParams, Slice, NoteSubdivision, SliceType } from '../types';
+import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
 import EffectSection from './EffectSection';
 import Tooltip from './Tooltip';
@@ -9,7 +9,7 @@ import SliceWaveformEditor from './SliceWaveformEditor';
 interface ControlPanelProps {
     params: AllParams;
     onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
-    onEffectParamChange: <E extends keyof AllParams, P extends keyof AllParams[E]>(effect: E, param: P, value: AllParams[E][P]) => void;
+    onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
     disabled: boolean;
     djActions: {
         triggerStutter: (subdivision: '4n' | '8n' | '16n' | '32n', active: boolean) => void;

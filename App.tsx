@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
@@ -19,7 +20,8 @@ const App: React.FC = () => {
         sequencer,
         slices,
         selectedSliceIndex,
-        loadAudioFile, 
+        loadAudioFile,
+        loadConstructionKit,
         togglePlay, 
         updateParams, 
         scrub,
@@ -37,6 +39,7 @@ const App: React.FC = () => {
         djActions,
         exportPreset,
         importPreset,
+        loadPreset,
         togglePreviewOriginal,
         isPreviewPlaying,
         playSliceRaw,
@@ -44,9 +47,6 @@ const App: React.FC = () => {
         sliceLoopState
     } = useAudioEngine();
     
-    // Updated default URL to a reliable Tone.js sample
-    const defaultSampleUrl = 'https://tonejs.github.io/audio/loop/FWDL.mp3';
-
     const handleParamChange = <K extends keyof AllParams>(key: K, value: AllParams[K]) => {
       updateParams({ [key]: value } as Partial<AllParams>);
     };
@@ -59,6 +59,12 @@ const App: React.FC = () => {
       const currentEffectParams = params[effect] || {} as any;
       const newEffectParams = { ...currentEffectParams, [param]: value };
       updateParams({ [effect]: newEffectParams } as Partial<AllParams>);
+    };
+
+    const handleDemoLoad = (url: string, name: string) => {
+        // Pass name explicitly as 3rd arg to ensure BPM is detected from the label
+        // e.g. "Funky House 124bpm" -> 124 BPM
+        loadAudioFile(url, false, name);
     };
 
     return (
@@ -77,7 +83,8 @@ const App: React.FC = () => {
                             <div className="lg:col-span-4">
                                 <FileLoader
                                     onFileLoad={loadAudioFile}
-                                    onDefaultLoad={() => loadAudioFile(defaultSampleUrl)}
+                                    onKitLoad={loadConstructionKit}
+                                    onDemoLoad={handleDemoLoad}
                                     isLoading={isLoading}
                                     onPreviewToggle={togglePreviewOriginal}
                                     isPreviewing={isPreviewPlaying}
@@ -99,6 +106,7 @@ const App: React.FC = () => {
                                 <PresetManager 
                                     onExport={exportPreset}
                                     onImport={importPreset}
+                                    onLoadPreset={loadPreset}
                                     disabled={!audioBuffer || isLoading}
                                 />
                             </div>

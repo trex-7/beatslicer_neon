@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType } from '../types';
 import Slider from './Slider';
@@ -34,6 +35,7 @@ const subdivisionOptions: { value: NoteSubdivision; label: string }[] = [
     { value: '8n', label: '1/8' },
     { value: '8t', label: '1/8 Trip' },
     { value: '16n', label: '1/16' },
+    { value: '32n', label: '1/32' },
 ];
 
 const InfoIcon = ({ text }: { text: string }) => (
@@ -81,8 +83,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             onSliceUpdate(selectedSliceIndex, { duration: newDuration });
         }
     };
-    
-    const sliceTypes: SliceType[] = ['kick', 'snare', 'hihat', 'perc', 'bass', 'vocal', 'melodic'];
 
     return (
         <div className="space-y-6">
@@ -285,8 +285,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                             />
 
                             {/* Type & Reverse */}
-                            <div className="grid grid-cols-4 gap-1">
-                                {sliceTypes.map((t) => (
+                            <div className="grid grid-cols-5 gap-1">
+                                {(['kick', 'snare', 'hihat', 'perc'] as SliceType[]).map((t) => (
                                     <button
                                         key={t}
                                         onClick={() => updateSliceType(t)}
@@ -312,7 +312,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                             </div>
                             
                             {/* Timing Nudge */}
-                            <div className="grid grid-cols-2 gap-3 mt-1">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div className="flex flex-col gap-1">
                                     <label className="text-[9px] font-bold text-star-dust/70 uppercase">Start</label>
                                     <div className="flex gap-1">
@@ -362,7 +362,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
                      <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                         <span className="text-hyper-cyan">⚡</span> Pattern Gen
-                        <InfoIcon text="Algorithmic sequencer. Use the slider to shift probability from steady rhythms to chaotic patterns." />
+                        <InfoIcon text="Algorithmic sequencer. Use the slider to shift probability from steady House beats to chaotic Glitch patterns." />
                     </h3>
                     <div className="space-y-4">
                         <div className="px-1">
@@ -371,7 +371,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 <span>Dynamic</span>
                                 <span>Chaos</span>
                             </div>
-                            <Tooltip text="Adjust complexity: Left for steady rhythms, Right for chaotic randomization">
+                            <Tooltip text="Adjust complexity: Left for steady patterns, Right for chaotic sequences">
                                 <input 
                                     type="range" 
                                     min="0" 

@@ -294,15 +294,12 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         .text(slice.id)
                         .style('text-decoration', !slice.isActive ? 'line-through' : 'none');
                     
-                    // Type (K, S, H, P, B, V, M)
+                    // Type (K, S, H, P)
                     let typeLabel = 'P';
                     let typeColor = '#ffffff';
                     if (slice.type === 'kick') { typeLabel = 'K'; typeColor = '#ef4444'; }
                     else if (slice.type === 'snare') { typeLabel = 'S'; typeColor = '#eab308'; }
                     else if (slice.type === 'hihat') { typeLabel = 'H'; typeColor = '#00f6ff'; }
-                    else if (slice.type === 'bass') { typeLabel = 'B'; typeColor = '#a855f7'; }
-                    else if (slice.type === 'vocal') { typeLabel = 'V'; typeColor = '#ec4899'; }
-                    else if (slice.type === 'melodic') { typeLabel = 'M'; typeColor = '#22c55e'; }
                     
                     if (w > 25 && slice.isActive) {
                         g.append('text')
@@ -384,16 +381,13 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             {/* Scrollable Container */}
             <div 
                 ref={containerRef} 
-                className="w-full h-48 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair group"
+                className="w-full h-48 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
             >
                 {!audioBuffer && (
                     <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
                         <p>Load a sample to see waveform</p>
                     </div>
                 )}
-                <div className="absolute top-2 right-2 text-[10px] text-white/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-deep-space/80 px-2 py-1 rounded border border-white/5">
-                    Drag to re-slice region
-                </div>
                 <svg 
                     ref={svgRef} 
                     width={containerWidth * zoom} 
@@ -404,17 +398,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             </div>
              
              {/* Controls Bar Below Waveform */}
-             <div className="flex justify-between items-center text-[10px] text-star-dust/50 px-1 overflow-x-auto">
-                 <div className="flex gap-3 flex-wrap">
+             <div className="flex justify-between items-center text-[10px] text-star-dust/50 px-1">
+                 <div className="flex gap-4">
                     <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>Kick</span>
                     <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>Snare</span>
                     <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>Hat</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Bass</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-pink-500"></span>Vox</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>Mel</span>
                     <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white"></span>Perc</span>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                <div className="flex items-center gap-2">
                     <span className="uppercase tracking-widest">Zoom</span>
                     <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-5 h-5 flex items-center justify-center bg-white/10 rounded hover:bg-white/20">-</button>
                     <span className="w-8 text-center">{Math.round(zoom * 100)}%</span>

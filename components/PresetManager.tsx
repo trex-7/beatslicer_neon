@@ -1,13 +1,15 @@
 import React, { useState, useRef } from 'react';
 import Tooltip from './Tooltip';
+import { FACTORY_PRESETS } from '../utils/factoryPresets';
 
 interface PresetManagerProps {
     onExport: (name: string) => Promise<string>;
     onImport: (json: string) => Promise<void>;
     disabled: boolean;
+    onLoadPreset?: (preset: any) => void; // New prop for loading direct objects
 }
 
-const PresetManager: React.FC<PresetManagerProps> = ({ onExport, onImport, disabled }) => {
+const PresetManager: React.FC<PresetManagerProps> = ({ onExport, onImport, disabled, onLoadPreset }) => {
     const [presetName, setPresetName] = useState("My Groove");
     const [isProcessing, setIsProcessing] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,12 +50,42 @@ const PresetManager: React.FC<PresetManagerProps> = ({ onExport, onImport, disab
         }
     };
 
+    const handleFactorySelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const id = e.target.value;
+        if (!id) return;
+        const preset = FACTORY_PRESETS.find(p => p.id === id);
+        if (preset && onLoadPreset) {
+            onLoadPreset(preset);
+            // Reset selector so we can re-select if needed
+            e.target.value = ""; 
+        }
+    };
+
     return (
-        <div className="flex items-center gap-3 bg-deep-space/40 p-1.5 rounded-lg border border-white/10 w-full h-full">
+        <div className="flex flex-col sm:flex-row items-center gap-3 bg-deep-space/40 p-1.5 rounded-lg border border-white/10 w-full h-full">
             <div className="text-[10px] font-bold text-star-dust/50 uppercase tracking-wider hidden sm:flex items-center px-2 border-r border-white/10 h-full">
                 Preset
             </div>
-            <div className="flex gap-2 flex-1 items-center">
+            
+            <div className="flex gap-2 flex-1 items-center w-full sm:w-auto">
+                 {/* Factory Preset Dropdown */}
+                 {onLoadPreset && (
+                    <div className="relative flex-1 sm:flex-none">
+                         <select 
+                            onChange={handleFactorySelect}
+                            disabled={disabled}
+                            className="w-full sm:w-32 bg-deep-space/50 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none appearance-none cursor-pointer hover:bg-white/5"
+                            defaultValue=""
+                         >
+                            <option value="" disabled>Load Demo Patch...</option>
+                            {FACTORY_PRESETS.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                         </select>
+                         <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-star-dust/50 text-[10px]">▼</div>
+                    </div>
+                 )}
+
                  <input 
                     type="text" 
                     value={presetName}

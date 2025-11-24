@@ -11,7 +11,7 @@ export interface GranularSynthParams {
   release: number;
 }
 
-export type NoteSubdivision = '1m' | '2n' | '4n' | '4t' | '8n' | '8t' | '16n';
+export type NoteSubdivision = '1m' | '2n' | '4n' | '4t' | '8n' | '8t' | '16n' | '32n';
 
 export interface EffectParams {
   reverb: {
@@ -57,7 +57,7 @@ export interface AllParams extends GranularSynthParams, EffectParams {
     glitch: GlitchParams;
 }
 
-export type SliceType = 'kick' | 'snare' | 'hihat' | 'perc' | 'bass' | 'vocal' | 'melodic';
+export type SliceType = 'kick' | 'snare' | 'hihat' | 'perc';
 
 export interface Slice {
   id: number;
@@ -97,4 +97,15 @@ export interface Preset {
   slices: Slice[];
   sampleName?: string;
   audioData?: string; // Base64 encoded WAV file
+}
+
+export interface KitSample {
+    name: string;
+    url: string;
+    type?: SliceType;
+}
+
+export interface DemoKit {
+    name: string;
+    samples: KitSample[];
 }

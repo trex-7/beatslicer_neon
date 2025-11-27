@@ -96,7 +96,8 @@ export interface Preset {
   sequencer: Omit<SequencerState, 'isPlaying' | 'currentStep' | 'editMode'>;
   slices: Slice[];
   sampleName?: string;
-  audioData?: string; // Base64 encoded WAV file
+  audioData?: string; // Base64 encoded WAV file (Legacy/Local)
+  sampleUrl?: string; // URL from DB
 }
 
 export interface KitSample {
@@ -108,4 +109,130 @@ export interface KitSample {
 export interface DemoKit {
     name: string;
     samples: KitSample[];
+}
+
+export interface DemoLoop {
+    name: string;
+    url: string; 
+}
+
+// --- Supabase Database Types ---
+
+export interface Database {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          username: string | null;
+          avatar_url: string | null;
+          subscription_tier: 'free' | 'pro' | 'admin';
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username?: string | null;
+          avatar_url?: string | null;
+        };
+        Update: {
+          username?: string | null;
+          avatar_url?: string | null;
+        };
+        Relationships: [];
+      };
+      samples: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          url: string;
+          bpm: number | null;
+          is_public: boolean;
+          is_factory: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          url: string;
+          bpm?: number | null;
+          is_public?: boolean;
+          is_factory?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          title?: string;
+          url?: string;
+          bpm?: number | null;
+          is_public?: boolean;
+          is_factory?: boolean;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "samples_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ];
+      };
+      presets: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          parameters: AllParams;
+          sequencer_data: any;
+          slices_data: Slice[];
+          is_public: boolean;
+          is_factory: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          parameters: AllParams;
+          sequencer_data: any;
+          slices_data: Slice[];
+          is_public?: boolean;
+          is_factory?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          name?: string;
+          parameters?: AllParams;
+          sequencer_data?: any;
+          slices_data?: Slice[];
+          is_public?: boolean;
+          is_factory?: boolean;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "presets_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ];
+      };
+    };
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  };
 }

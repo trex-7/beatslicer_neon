@@ -3,12 +3,11 @@ import React from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
 import Header from './components/Header';
-import FileLoader from './components/FileLoader';
+import LibraryManager from './components/LibraryManager';
 import WaveformDisplay from './components/WaveformDisplay';
 import ControlPanel from './components/ControlPanel';
 import Sequencer from './components/Sequencer';
 import Tooltip from './components/Tooltip';
-import PresetManager from './components/PresetManager';
 
 const App: React.FC = () => {
     const { 
@@ -20,6 +19,7 @@ const App: React.FC = () => {
         sequencer,
         slices,
         selectedSliceIndex,
+        sampleName,
         loadAudioFile,
         loadConstructionKit,
         togglePlay, 
@@ -40,6 +40,7 @@ const App: React.FC = () => {
         exportPreset,
         importPreset,
         loadPreset,
+        getAudioWav,
         togglePreviewOriginal,
         isPreviewPlaying,
         playSliceRaw,
@@ -47,6 +48,9 @@ const App: React.FC = () => {
         sliceLoopState
     } = useAudioEngine();
     
+    // Switched to FWDL.mp3 as a more reliable alternative loop
+    const defaultSampleUrl = 'https://tonejs.github.io/audio/loop/FWDL.mp3';
+
     const handleParamChange = <K extends keyof AllParams>(key: K, value: AllParams[K]) => {
       updateParams({ [key]: value } as Partial<AllParams>);
     };
@@ -62,8 +66,7 @@ const App: React.FC = () => {
     };
 
     const handleDemoLoad = (url: string, name: string) => {
-        // Pass name explicitly as 3rd arg to ensure BPM is detected from the label
-        // e.g. "Funky House 124bpm" -> 124 BPM
+        // Pass name to loadAudioFile for BPM detection hints (to be implemented in audio engine next)
         loadAudioFile(url, false, name);
     };
 
@@ -78,38 +81,34 @@ const App: React.FC = () => {
                     </div>
                 ) : (
                     <>
-                        {/* Top Utility Bar */}
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-nebula-blue/20 p-2 rounded-xl border border-white/5">
-                            <div className="lg:col-span-4">
-                                <FileLoader
-                                    onFileLoad={loadAudioFile}
-                                    onKitLoad={loadConstructionKit}
-                                    onDemoLoad={handleDemoLoad}
-                                    isLoading={isLoading}
-                                    onPreviewToggle={togglePreviewOriginal}
-                                    isPreviewing={isPreviewPlaying}
-                                />
-                            </div>
-                            <div className="lg:col-span-4 flex justify-center">
-                                <Tooltip text="Start or stop the sequencer" position="bottom">
-                                    <button
-                                        onClick={togglePlay}
-                                        disabled={!audioBuffer || isLoading}
-                                        className={`w-full max-w-[200px] py-2 text-lg font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100
-                                            ${isPlaying ? 'bg-plasma-pink text-white shadow-lg shadow-plasma-pink/30' : 'bg-hyper-cyan text-deep-space shadow-lg shadow-hyper-cyan/30'}`}
-                                    >
-                                        {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
-                                    </button>
-                                </Tooltip>
-                            </div>
-                            <div className="lg:col-span-4">
-                                <PresetManager 
-                                    onExport={exportPreset}
-                                    onImport={importPreset}
-                                    onLoadPreset={loadPreset}
+                        {/* Unified Library & IO Manager */}
+                        <div className="w-full">
+                            <LibraryManager 
+                                onFileLoad={loadAudioFile}
+                                onKitLoad={loadConstructionKit}
+                                onDemoLoad={handleDemoLoad}
+                                onExport={exportPreset}
+                                onImport={importPreset}
+                                onLoadPreset={loadPreset}
+                                getAudioWav={getAudioWav}
+                                isLoading={isLoading}
+                                onPreviewToggle={togglePreviewOriginal}
+                                isPreviewing={isPreviewPlaying}
+                                sampleName={sampleName}
+                            />
+                        </div>
+
+                        <div className="flex justify-center py-2">
+                            <Tooltip text="Start or stop the sequencer" position="bottom">
+                                <button
+                                    onClick={togglePlay}
                                     disabled={!audioBuffer || isLoading}
-                                />
-                            </div>
+                                    className={`w-64 py-3 text-xl font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg
+                                        ${isPlaying ? 'bg-plasma-pink text-white shadow-plasma-pink/40' : 'bg-hyper-cyan text-deep-space shadow-hyper-cyan/40'}`}
+                                >
+                                    {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
+                                </button>
+                            </Tooltip>
                         </div>
 
                         {/* Full Width Waveform */}

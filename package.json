@@ -12,7 +12,9 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "@supabase/supabase-js": "2.39.3",
+    "jszip": "3.10.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

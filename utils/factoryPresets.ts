@@ -1,3 +1,4 @@
+
 import type { Preset, AllParams, SequencerState } from '../types';
 
 // Helper to create a base preset structure
@@ -15,18 +16,18 @@ const createPreset = (
     }));
 
     const baseParams: AllParams = {
-        grainSize: 0.1,
-        overlap: 0.05,
+        grainSize: 0.08,  // Updated to match punchy defaults
+        overlap: 0.04,    // Updated
         detune: 0,
         playbackRate: 1,
         bpm: 120,
-        attack: 0.02,
-        release: 0.2,
+        attack: 0.005,    // Updated
+        release: 0.1,     // Updated
         reverb: { decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-        delay: { delayTime: 0.5, feedback: 0.3, wet: 0, isSynced: false, syncValue: '8n' },
+        delay: { delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
         filter: { frequency: 20000, q: 1, type: 'lowpass' },
         distortion: { amount: 0, wet: 0 },
-        tapeSaturation: { drive: 0, tone: 20000, wet: 0 },
+        tapeSaturation: { drive: 0.3, tone: 18000, wet: 0.2 }, // Updated
         bitCrusher: { bits: 8, wet: 0 },
         glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
     };

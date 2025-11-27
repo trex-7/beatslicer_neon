@@ -335,13 +335,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                     label="Fade In" min={0} max={0.2} step={0.001} 
                                     value={currentSlice.fadeIn ?? 0} 
                                     onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} 
-                                    disabled={disabled} unit="s" defaultValue={0}
+                                    disabled={disabled} unit="s" defaultValue={0.005}
                                 />
                                 <Slider 
                                     label="Fade Out" min={0} max={0.5} step={0.001} 
                                     value={currentSlice.fadeOut ?? 0} 
                                     onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} 
-                                    disabled={disabled} unit="s" defaultValue={0}
+                                    disabled={disabled} unit="s" defaultValue={0.01}
                                 />
                             </div>
                              <Slider 
@@ -440,8 +440,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <div className="bg-deep-space/50 p-4 rounded-lg ring-1 ring-white/10 space-y-6">
                 <EffectSection title="Granular Engine" info="Controls how audio is chopped into grains. Size and Overlap determine texture density.">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
-                        <Slider label="Grain Size" min={0.01} max={0.5} step={0.01} value={params.grainSize} onChange={(v) => onParamChange('grainSize', v)} disabled={disabled} unit="s" tooltip="Duration of each audio grain. Smaller = choppy, Larger = smooth" defaultValue={0.1} />
-                        <Slider label="Overlap" min={0.01} max={0.5} step={0.01} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" tooltip="Crossfade duration between grains" defaultValue={0.05} />
+                        <Slider label="Grain Size" min={0.01} max={0.5} step={0.01} value={params.grainSize} onChange={(v) => onParamChange('grainSize', v)} disabled={disabled} unit="s" tooltip="Duration of each audio grain. Smaller = choppy, Larger = smooth" defaultValue={0.08} />
+                        <Slider label="Overlap" min={0.01} max={0.5} step={0.01} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" tooltip="Crossfade duration between grains" defaultValue={0.04} />
                         <Slider label="Detune" min={-1200} max={1200} step={1} value={params.detune} onChange={(v) => onParamChange('detune', v)} disabled={disabled} unit="cnt" tooltip="Pitch shift in cents (100 cents = 1 semitone)" defaultValue={0} />
                         <Slider label="Playback Rate" min={0.1} max={4} step={0.01} value={params.playbackRate} onChange={(v) => onParamChange('playbackRate', v)} disabled={disabled} unit="x" tooltip="Speed of grain playback. 1.0 is normal speed" defaultValue={1.0} />
                         
@@ -455,9 +455,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                          {/* Vintage Tape Saturation */}
                          <div className="space-y-3 p-3 bg-nebula-blue/30 rounded-md border border-white/5">
                             <h4 className="font-bold text-orange-400 text-xs uppercase tracking-wider">Vintage Tape</h4>
-                            <Slider label="Drive" min={0} max={1} step={0.01} value={params.tapeSaturation?.drive ?? 0} onChange={(v) => onEffectParamChange('tapeSaturation', 'drive', v)} disabled={disabled} tooltip="Input gain for tape saturation" defaultValue={0} />
-                            <Slider label="Tone" min={500} max={20000} step={100} value={params.tapeSaturation?.tone ?? 20000} onChange={(v) => onEffectParamChange('tapeSaturation', 'tone', v)} disabled={disabled} unit="Hz" log tooltip="Low-pass cutoff to simulate tape warmth" defaultValue={20000} />
-                            <Slider label="Mix" min={0} max={1} step={0.01} value={params.tapeSaturation?.wet ?? 0} onChange={(v) => onEffectParamChange('tapeSaturation', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for tape effect" defaultValue={0} />
+                            <Slider label="Drive" min={0} max={1} step={0.01} value={params.tapeSaturation?.drive ?? 0} onChange={(v) => onEffectParamChange('tapeSaturation', 'drive', v)} disabled={disabled} tooltip="Input gain for tape saturation" defaultValue={0.3} />
+                            <Slider label="Tone" min={500} max={20000} step={100} value={params.tapeSaturation?.tone ?? 20000} onChange={(v) => onEffectParamChange('tapeSaturation', 'tone', v)} disabled={disabled} unit="Hz" log tooltip="Low-pass cutoff to simulate tape warmth" defaultValue={18000} />
+                            <Slider label="Mix" min={0} max={1} step={0.01} value={params.tapeSaturation?.wet ?? 0} onChange={(v) => onEffectParamChange('tapeSaturation', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for tape effect" defaultValue={0.2} />
                         </div>
 
                         {/* Distortion */}
@@ -510,10 +510,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                      ))}
                                  </select>
                              ) : (
-                                <Slider label="" min={0} max={1} step={0.01} value={params.delay.delayTime} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.5} />
+                                <Slider label="" min={0} max={1} step={0.01} value={params.delay.delayTime} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.375} />
                              )}
 
-                            <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay.feedback} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.3} />
+                            <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay.feedback} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.2} />
                             <Slider label="Mix" min={0} max={1} step={0.01} value={params.delay.wet} onChange={(v) => onEffectParamChange('delay', 'wet', v)} disabled={disabled} tooltip="Volume of delayed signal" defaultValue={0} />
                         </div>
 

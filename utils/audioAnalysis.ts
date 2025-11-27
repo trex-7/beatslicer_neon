@@ -8,9 +8,8 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
     const startIndex = Math.floor(start * sampleRate);
     const endIndex = Math.min(channelData.length, Math.floor((start + duration) * sampleRate));
     
-    // Analyze a chunk of the slice (up to 100ms) to capture the transient character
-    // We don't need the tail for classification usually
-    const analysisLength = Math.min(endIndex - startIndex, Math.floor(sampleRate * 0.15));
+    // Analyze up to 100ms. Kicks/Snares reveal their character in the first 50-100ms.
+    const analysisLength = Math.min(endIndex - startIndex, Math.floor(sampleRate * 0.1));
     
     if (analysisLength <= 0) return 'perc';
 
@@ -18,50 +17,58 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
     let totalEnergy = 0;
     let lowFreqEnergy = 0;
     
-    // Simple IIR Low Pass Filter state
-    // fc ~ 300Hz
-    // alpha ~= 2 * PI * dt * fc ~= 6.28 * (1/44100) * 300 ~= 0.04
-    const alpha = 0.05; 
-    let lpfOutput = 0;
+    // IIR Low Pass Filter tailored for 150Hz split
+    // alpha = 2 * PI * dt * fc 
+    // dt = 1/44100, fc = 150Hz
+    // alpha ~= 6.28 * 0.0000226 * 150 ~= 0.021
+    const alpha = 0.021; 
+    
+    // Initialize filter state with first sample to prevent ramp-up lag
+    let lpfOutput = channelData[startIndex] || 0;
 
     for (let i = 0; i < analysisLength; i++) {
         const sample = channelData[startIndex + i];
         const prevSample = i > 0 ? channelData[startIndex + i - 1] : 0;
         
-        // ZCR
+        // Zero Crossing Rate (High frequency proxy)
         if ((sample >= 0 && prevSample < 0) || (sample < 0 && prevSample >= 0)) {
             zeroCrossings++;
         }
         
-        // Total Energy
+        // Total RMS Energy
         totalEnergy += sample * sample;
         
-        // Low Pass Energy
+        // Low Frequency Energy (< 150Hz)
+        // Simple 1-pole Low Pass
         lpfOutput += alpha * (sample - lpfOutput);
         lowFreqEnergy += lpfOutput * lpfOutput;
     }
 
     const zcrRate = zeroCrossings / analysisLength;
-    const lowRatio = totalEnergy > 0 ? lowFreqEnergy / totalEnergy : 0;
     
-    // Heuristics
-    // 1. High Low Frequency Content -> Kick
-    if (lowRatio > 0.65) {
-        return 'kick';
-    }
+    // Avoid division by zero for silence
+    const lowRatio = totalEnergy > 0.00001 ? lowFreqEnergy / totalEnergy : 0;
     
-    // 2. High Zero Crossing Rate -> HiHat / Noise
-    // Threshold tuned for typical hi-hats
-    if (zcrRate > 0.15) {
+    // --- Classification Logic ---
+
+    // 1. HiHat / Shaker
+    // Characterized by very high frequency content (ZCR) and almost no sub-bass
+    if (zcrRate > 0.3 && lowRatio < 0.1) {
         return 'hihat';
     }
-    
-    // 3. Mid-range energy dominance -> Snare
-    // Often snares have decent low energy (body) but also high noise (snares)
-    // so they fall in between kick and hat in both metrics.
-    if (lowRatio > 0.2 && lowRatio < 0.65) {
-        return 'snare';
+
+    // 2. Kick Drum
+    // Characterized by dominant energy below 150Hz.
+    // Even "clicky" kicks have the majority of their sustain power in the sub.
+    // Threshold set to 0.40 (40% of energy is sub-150Hz)
+    if (lowRatio > 0.40) {
+        return 'kick';
     }
 
-    return 'perc';
+    // 3. Snare Drum (Fallback)
+    // Snares have strong energy (unlike hats) but it's centered around 200-400Hz (body)
+    // and > 2kHz (wires). This means 'lowRatio' will be small (< 0.40),
+    // but 'totalEnergy' is significant.
+    
+    return 'snare';
 }

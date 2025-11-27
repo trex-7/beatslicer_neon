@@ -118,7 +118,8 @@ export const saveCloudPreset = async (
     sequencer: any,
     slices: Slice[],
     userId: string,
-    sampleId?: string
+    sampleId?: string,
+    isFactory: boolean = false
 ): Promise<boolean> => {
     if (!supabase) return false;
 
@@ -130,8 +131,8 @@ export const saveCloudPreset = async (
             sequencer_data: sequencer,
             slices_data: slices,
             sample_id: sampleId, // Link to the audio file
-            is_public: false, // Private by default
-            is_factory: false
+            is_public: isFactory, // Factory presets are public by default
+            is_factory: isFactory
         });
 
         if (error) throw error;
@@ -142,9 +143,24 @@ export const saveCloudPreset = async (
     }
 };
 
+// --- Deletion ---
+
+export const deleteCloudPreset = async (id: string): Promise<boolean> => {
+    if (!supabase) return false;
+    try {
+        const { error } = await supabase.from('presets').delete().eq('id', id);
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error deleting preset:", e);
+        return false;
+    }
+};
+
+
 // --- Storage ---
 
-export const uploadSampleToCloud = async (file: File | Blob, fileName: string, userId: string): Promise<{ publicUrl: string, id: string } | null> => {
+export const uploadSampleToCloud = async (file: File | Blob, fileName: string, userId: string, isFactory: boolean = false): Promise<{ publicUrl: string, id: string } | null> => {
     if (!supabase) return null;
 
     try {
@@ -167,8 +183,8 @@ export const uploadSampleToCloud = async (file: File | Blob, fileName: string, u
             user_id: userId,
             title: fileName,
             url: publicUrl,
-            is_public: false,
-            is_factory: false
+            is_public: isFactory, // Factory samples are public by default
+            is_factory: isFactory
         }).select('id').single();
 
         if (dbError) throw dbError;

@@ -1,4 +1,5 @@
 
+
 import type { Preset, AllParams, SequencerState } from '../types';
 
 // Helper to create a base preset structure
@@ -23,12 +24,22 @@ const createPreset = (
         bpm: 120,
         attack: 0.005,    // Updated
         release: 0.1,     // Updated
-        reverb: { decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-        delay: { delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
-        filter: { frequency: 20000, q: 1, type: 'lowpass' },
-        distortion: { amount: 0, wet: 0 },
-        tapeSaturation: { drive: 0.3, tone: 18000, wet: 0.2 }, // Updated
-        bitCrusher: { bits: 8, wet: 0 },
+        reverb: { isActive: true, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
+        delay: { isActive: true, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
+        filter: { 
+            isActive: true,
+            frequency: 20000, 
+            q: 1, 
+            type: 'lowpass',
+            envDepth: 0,
+            lfoDepth: 0,
+            lfoRate: 1,
+            isSynced: true,
+            syncValue: '4n'
+        },
+        distortion: { isActive: true, amount: 0, wet: 0 },
+        compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
+        bitCrusher: { isActive: true, bits: 8, wet: 0 },
         glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
     };
 
@@ -39,7 +50,7 @@ const createPreset = (
     if (params.delay) mergedParams.delay = { ...baseParams.delay, ...params.delay };
     if (params.filter) mergedParams.filter = { ...baseParams.filter, ...params.filter };
     if (params.distortion) mergedParams.distortion = { ...baseParams.distortion, ...params.distortion };
-    if (params.tapeSaturation) mergedParams.tapeSaturation = { ...baseParams.tapeSaturation, ...params.tapeSaturation };
+    if (params.compressor) mergedParams.compressor = { ...baseParams.compressor, ...params.compressor };
     if (params.bitCrusher) mergedParams.bitCrusher = { ...baseParams.bitCrusher, ...params.bitCrusher };
     if (params.glitch) mergedParams.glitch = { ...baseParams.glitch, ...params.glitch };
 
@@ -75,9 +86,9 @@ export const FACTORY_PRESETS: Preset[] = [
             overlap: 0.02,
             playbackRate: 1.0,
             glitch: { chaos: 0.45, allowReverse: true, allowOctaveJump: true },
-            bitCrusher: { bits: 4, wet: 0.25 },
-            distortion: { amount: 0.4, wet: 0.15 },
-            filter: { frequency: 12000, q: 1, type: 'lowpass' }
+            bitCrusher: { isActive: true, bits: 4, wet: 0.25 },
+            distortion: { isActive: true, amount: 0.4, wet: 0.15 },
+            filter: { isActive: true, frequency: 12000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' }
         },
         { mode: 'random' }
     ),
@@ -91,10 +102,10 @@ export const FACTORY_PRESETS: Preset[] = [
             attack: 0.3,
             release: 0.8,
             detune: 0,
-            reverb: { decay: 5.0, wet: 0.5, isSynced: false, syncValue: '1m' },
-            delay: { delayTime: 0.5, feedback: 0.6, wet: 0.35, isSynced: true, syncValue: '4n' },
-            filter: { frequency: 2500, q: 0.5, type: 'lowpass' },
-            tapeSaturation: { drive: 0.3, tone: 3000, wet: 0.5 }
+            reverb: { isActive: true, decay: 5.0, wet: 0.5, isSynced: false, syncValue: '1m' },
+            delay: { isActive: true, delayTime: 0.5, feedback: 0.6, wet: 0.35, isSynced: true, syncValue: '4n' },
+            filter: { isActive: true, frequency: 2500, q: 0.5, type: 'lowpass', envDepth: 500, lfoDepth: 500, lfoRate: 0.2, isSynced: false, syncValue: '1m' },
+            compressor: { isActive: true, threshold: -30, ratio: 2, attack: 0.1, release: 0.4 }
         },
         { mode: 'pendulum' }
     ),
@@ -106,9 +117,9 @@ export const FACTORY_PRESETS: Preset[] = [
             overlap: 0.01, // Choppy
             playbackRate: 0.9,
             detune: -200, // Down a tone
-            tapeSaturation: { drive: 0.8, tone: 4000, wet: 1.0 },
-            distortion: { amount: 0.8, wet: 0.3 },
-            filter: { frequency: 150, q: 2, type: 'highpass' } // Thin out bottom
+            compressor: { isActive: true, threshold: -20, ratio: 12, attack: 0.001, release: 0.1 },
+            distortion: { isActive: true, amount: 0.8, wet: 0.3 },
+            filter: { isActive: true, frequency: 150, q: 2, type: 'highpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' } // Thin out bottom
         },
         { mode: 'forward' }
     ),
@@ -118,7 +129,7 @@ export const FACTORY_PRESETS: Preset[] = [
         {
             grainSize: 0.025, // Tiny grains
             overlap: 0.02,
-            delay: { delayTime: 0.1, feedback: 0.7, wet: 0.3, isSynced: true, syncValue: '32n' },
+            delay: { isActive: true, delayTime: 0.1, feedback: 0.7, wet: 0.3, isSynced: true, syncValue: '32n' },
             glitch: { chaos: 0.1, allowReverse: true, allowOctaveJump: false }
         },
         { mode: 'forward' }

@@ -1,5 +1,12 @@
 
 
+
+
+
+
+
+
+
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
@@ -16,14 +23,24 @@ const initialParams: AllParams = {
   detune: 0,
   playbackRate: 1,
   bpm: 120,
-  attack: 0.002,    // RESTORED: 2ms Attack for immediate punch
-  release: 0.1,     // RESTORED: 100ms Release for tight tails
-  reverb: { decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-  delay: { delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
-  filter: { frequency: 20000, q: 1, type: 'lowpass' },
-  distortion: { amount: 0, wet: 0 },
-  tapeSaturation: { drive: 0.3, tone: 18000, wet: 0.2 },
-  bitCrusher: { bits: 8, wet: 0 },
+  attack: 0.005,    // Safe default attack (5ms) to prevent clicks
+  release: 0.1,     // 100ms Release for tight tails
+  reverb: { isActive: true, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
+  delay: { isActive: true, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
+  filter: { 
+      isActive: true,
+      frequency: 2000, 
+      q: 1, 
+      type: 'lowpass',
+      envDepth: 0,
+      lfoDepth: 0,
+      lfoRate: 1,
+      isSynced: true,
+      syncValue: '4n'
+  },
+  distortion: { isActive: true, amount: 0, wet: 0 },
+  compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
+  bitCrusher: { isActive: true, bits: 8, wet: 0 },
   glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
 };
 
@@ -35,60 +52,46 @@ const generateDefaultSteps = (count: number): SequencerStep[] => {
   }));
 };
 
-// Zero Crossing Detection Algorithm
-const snapToZeroCrossing = (channelData: Float32Array, index: number, sampleRate: number): number => {
-    // Search window drastically reduced to ~0.5ms to 1ms. 
-    // We only want to snap to the immediate start, not search deep into the transient.
-    const windowSize = 30; // approx 0.6ms at 44.1kHz
-    const len = channelData.length;
-    
-    // Ensure index is within bounds
-    if (index < 0) return 0;
-    if (index >= len) return len - 1;
+// --- IMPROVED TRANSIENT DETECTION ---
 
-    // PREFER BACKWARD SEARCH: Find the silence before the hit
-    for (let i = 0; i < windowSize; i++) {
-        const iNeg = index - i;
-        if (iNeg > 0) {
-            const current = channelData[iNeg];
-            const prev = channelData[iNeg - 1]; 
-            
-            // Crossing from neg to pos or pos to neg
-            if ((current >= 0 && prev < 0) || (current < 0 && prev >= 0)) {
-                return iNeg;
-            }
+// Finds the "valley" or noise floor immediately preceding a peak.
+// This is superior to zero-crossing for preserving transients without clicking.
+const backtrackToSilence = (channelData: Float32Array, peakIndex: number, sampleRate: number): number => {
+    const scanWindow = Math.floor(sampleRate * 0.015); // Look back 15ms max
+    const startIndex = Math.max(0, peakIndex - scanWindow);
+    
+    let lowestAmp = 10.0;
+    let bestIndex = peakIndex;
+
+    // Scan backwards from peak
+    for (let i = peakIndex; i >= startIndex; i--) {
+        const amp = Math.abs(channelData[i]);
+        if (amp < lowestAmp) {
+            lowestAmp = amp;
+            bestIndex = i;
+        }
+        // If we hit effective silence, stop early
+        if (amp < 0.001) {
+            return i;
         }
     }
-
-    // fallback: forward search if backward failed
-    for (let i = 0; i < windowSize; i++) {
-        const iPos = index + i;
-        if (iPos < len - 1) {
-            const current = channelData[iPos];
-            const next = channelData[iPos + 1];
-            if ((current >= 0 && next < 0) || (current < 0 && next >= 0)) {
-                return iPos;
-            }
-        }
-    }
-    
-    return index; // No crossing found, return original
+    return bestIndex;
 };
 
-// Transient Detection Algorithm
+// Detects transients based on energy rise, then backtracks to finding safe cut points
 const findTransients = (audioBuffer: AudioBuffer, startTime: number, endTime: number): number[] => {
     const channelData = audioBuffer.getChannelData(0);
     const sampleRate = audioBuffer.sampleRate;
     const startSample = Math.floor(startTime * sampleRate);
     const endSample = Math.min(channelData.length, Math.floor(endTime * sampleRate));
     
-    // Analysis window (~10ms)
+    // Analysis settings
     const windowSize = 512; 
-    const stepSize = 128; // 75% overlap for better time resolution
-    const minDistanceTime = 0.05; // Minimum 50ms between slices to avoid granular stutter on long kicks
+    const stepSize = 128; 
+    const minDistance = Math.floor(sampleRate * 0.06); // 60ms min distance between slices
     
     const transients: number[] = [];
-    let lastTransientTime = -100;
+    let lastTransientSample = -minDistance;
     
     let prevEnergy = 0;
     
@@ -101,18 +104,26 @@ const findTransients = (audioBuffer: AudioBuffer, startTime: number, endTime: nu
         }
         currentEnergy = Math.sqrt(currentEnergy / windowSize);
         
-        // Onset Detection Logic:
-        if (currentEnergy > 0.01 && currentEnergy > prevEnergy * 1.6) {
-             const time = i / sampleRate;
-             if (time - lastTransientTime > minDistanceTime) {
-                 const adjustedTime = Math.max(startTime, time - 0.005);
-                 transients.push(adjustedTime);
-                 lastTransientTime = adjustedTime;
+        // Dynamic Threshold: Look for sharp rise in energy
+        // We use a lower threshold but enforce the backtrack logic to find the real start
+        if (currentEnergy > 0.015 && currentEnergy > prevEnergy * 1.4) {
+             // Check distance constraint
+             if (i - lastTransientSample > minDistance) {
+                 // Found a peak area. Now backtrack to find the "breath" before the hit.
+                 const preciseStart = backtrackToSilence(channelData, i, sampleRate);
+                 
+                 const time = preciseStart / sampleRate;
+                 // Ensure we are within bounds requested
+                 if (time >= startTime) {
+                     transients.push(time);
+                     lastTransientSample = preciseStart;
+                 }
              }
         }
         prevEnergy = Math.max(currentEnergy, 0.005); 
     }
     
+    // Always include the very start if missed and significant enough
     if (transients.length === 0) {
         transients.push(startTime);
     } else if (transients[0] - startTime > 0.1) {
@@ -122,7 +133,6 @@ const findTransients = (audioBuffer: AudioBuffer, startTime: number, endTime: nu
     return transients;
 };
 
-// Silence Threshold (~ -54dB)
 const SILENCE_THRESHOLD = 0.002; 
 
 const trimSilence = (buffer: AudioBuffer, start: number, end: number): { duration: number, isSilent: boolean } => {
@@ -149,8 +159,12 @@ const trimSilence = (buffer: AudioBuffer, start: number, end: number): { duratio
     const windowSize = Math.floor(sampleRate * 0.01); // 10ms analysis window
     let scanIx = eIx;
     
-    while (scanIx > sIx + windowSize) {
+    // Safety break
+    const limitIx = sIx + Math.floor(sampleRate * 0.05);
+
+    while (scanIx > limitIx) {
         let wSum = 0;
+        // Analyze window behind cursor
         for (let j = 0; j < windowSize; j++) {
             const val = channelData[scanIx - 1 - j];
             wSum += val * val;
@@ -160,25 +174,21 @@ const trimSilence = (buffer: AudioBuffer, start: number, end: number): { duratio
         if (wRms < SILENCE_THRESHOLD) {
             scanIx -= windowSize;
         } else {
-            // Found audio. Add a small release padding (50ms)
+            // Found audio. Add a generous release padding (50ms) to allow fadeOut to work
             scanIx = Math.min(eIx, scanIx + Math.floor(sampleRate * 0.05));
             break;
         }
     }
 
-    // CRITICAL FIX: Snap the END of the slice to a zero crossing as well
-    // This prevents clicks when the slice stops playing
-    scanIx = snapToZeroCrossing(channelData, scanIx, sampleRate);
+    // No zero crossing snap here - we rely on fadeOut envelopes for clean ends
     
     const finalDuration = (scanIx - sIx) / sampleRate;
     return { duration: finalDuration, isSilent: finalDuration < 0.01 };
 }
 
-// Start-of-file silence removal (for Turntable/Vinyl rips)
+// Start-of-file silence removal
 const removeLeadingSilence = (buffer: AudioBuffer): AudioBuffer => {
-    // Threshold ~ -46dB. Higher than digital silence to account for vinyl noise floor
     const threshold = 0.005; 
-    
     const channelData = buffer.getChannelData(0);
     let startIndex = 0;
     
@@ -190,20 +200,14 @@ const removeLeadingSilence = (buffer: AudioBuffer): AudioBuffer => {
         }
     }
 
-    // If silence is negligible (< 10ms), return original to save processing
     if (startIndex < buffer.sampleRate * 0.01) {
         return buffer;
     }
 
-    // Backtrack 5ms to preserve attack transient
-    const padding = Math.floor(buffer.sampleRate * 0.005);
-    startIndex = Math.max(0, startIndex - padding);
+    // Backtrack to silence to keep attack clean
+    startIndex = backtrackToSilence(channelData, startIndex, buffer.sampleRate);
     
-    // Ensure we start at a zero crossing to avoid click at the very start
-    startIndex = snapToZeroCrossing(channelData, startIndex, buffer.sampleRate);
-
     const newLength = buffer.length - startIndex;
-    
     const newBuffer = Tone.context.createBuffer(buffer.numberOfChannels, newLength, buffer.sampleRate);
     
     for (let c = 0; c < buffer.numberOfChannels; c++) {
@@ -225,13 +229,6 @@ const generateTransientSlices = (buffer: any, bpm: number, startTime: number = 0
 
     let slicePoints = findTransients(audioBuffer, startTime, end);
     
-    // Snap all start points to zero crossings
-    slicePoints = slicePoints.map(t => {
-         const idx = Math.floor(t * sampleRate);
-         const zcIdx = snapToZeroCrossing(channelData, idx, sampleRate);
-         return zcIdx / sampleRate;
-    });
-
     const maxSlices = 32;
     if (slicePoints.length > maxSlices) {
         slicePoints = slicePoints.slice(0, maxSlices);
@@ -246,7 +243,6 @@ const generateTransientSlices = (buffer: any, bpm: number, startTime: number = 0
         const { duration, isSilent } = trimSilence(audioBuffer, currentStart, nextStart);
 
         if (!isSilent && duration > 0.01) {
-            
             const type = classifySlice(audioBuffer, currentStart, duration);
             newSlices.push({
                 id: newSlices.length, // Ensure sequential IDs
@@ -254,7 +250,9 @@ const generateTransientSlices = (buffer: any, bpm: number, startTime: number = 0
                 duration: duration,
                 isActive: true,
                 type: type,
-                level: 1.0
+                level: 1.0,
+                fadeIn: 0.002, // Default micro-fade
+                fadeOut: 0.005
             });
         }
     }
@@ -284,6 +282,7 @@ export const useAudioEngine = () => {
   const sequenceRef = useRef<any>(null);
   const sequencerRef = useRef(sequencer);
   const paramsRef = useRef(params); 
+  const slicesRef = useRef(slices); // Ref to hold latest slices
   const player = useRef<any>(null);
   const previewPlayer = useRef<any>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
@@ -293,10 +292,14 @@ export const useAudioEngine = () => {
     reverb: null as any, 
     delay: null as any, 
     filter: null as any, 
+    dcBlocker: null as any,
+    filterFollower: null as any,
+    filterEnvDepth: null as any,
+    filterLFO: null as any,
+    filterLFODepth: null as any,
     distortion: null as any,
     bitCrusher: null as any,
-    tapeSaturation: null as any,
-    tapeFilter: null as any,
+    compressor: null as any
   });
   
   // Performance state for DJ FX
@@ -331,6 +334,10 @@ export const useAudioEngine = () => {
   }, [params]);
 
   useEffect(() => {
+      slicesRef.current = slices;
+  }, [slices]);
+
+  useEffect(() => {
     const setupAudio = async () => {
       try {
           Tone.Transport.bpm.value = params.bpm;
@@ -348,31 +355,58 @@ export const useAudioEngine = () => {
             wet: params.delay.wet,
           }).connect(effects.current.reverb);
 
+          // AutoFilter Chain Construction
+          
+          // 1. The main filter node
           effects.current.filter = new Tone.Filter({
             frequency: params.filter.frequency,
             Q: params.filter.q,
             type: params.filter.type,
+          });
+
+          // 2. DC Blocker / Safety Filter (HighPass @ 30Hz)
+          // This prevents low-frequency clicks/rumble when filter closes near 0Hz
+          effects.current.dcBlocker = new Tone.Filter({
+              frequency: 30,
+              type: 'highpass',
+              rolloff: -12,
+              Q: 0.1 
           }).connect(effects.current.delay);
+
+          effects.current.filter.connect(effects.current.dcBlocker);
+
+          // 3. Envelope Follower Branch
+          // Reads input amplitude -> Envelope Signal -> Scaled by Gain -> Modulates Frequency
+          effects.current.filterFollower = new Tone.Follower(0.05); // Fast attack/decay smoothing
+          effects.current.filterEnvDepth = new Tone.Gain(0);
+          effects.current.filterFollower.connect(effects.current.filterEnvDepth);
+          effects.current.filterEnvDepth.connect(effects.current.filter.frequency);
+
+          // 4. LFO Branch
+          // LFO Signal -> Scaled by Gain -> Modulates Frequency
+          effects.current.filterLFO = new Tone.LFO(1, -1, 1).start();
+          effects.current.filterLFODepth = new Tone.Gain(0);
+          effects.current.filterLFO.connect(effects.current.filterLFODepth);
+          effects.current.filterLFODepth.connect(effects.current.filter.frequency);
 
           effects.current.bitCrusher = new Tone.BitCrusher({
               bits: params.bitCrusher.bits,
               wet: params.bitCrusher.wet
-          }).connect(effects.current.filter);
+          });
+          // Fan out: BitCrusher connects to Filter (Audio) AND Follower (Modulation Source)
+          effects.current.bitCrusher.connect(effects.current.filter);
+          effects.current.bitCrusher.connect(effects.current.filterFollower);
 
           effects.current.distortion = new Tone.Distortion(params.distortion.amount).connect(effects.current.bitCrusher);
           effects.current.distortion.wet.value = params.distortion.wet;
 
-          effects.current.tapeFilter = new Tone.Filter({
-              frequency: params.tapeSaturation.tone,
-              type: 'lowpass',
-              Q: 0.5
+          // Replace Tape Saturation with Compressor
+          effects.current.compressor = new Tone.Compressor({
+              threshold: params.compressor.threshold,
+              ratio: params.compressor.ratio,
+              attack: params.compressor.attack,
+              release: params.compressor.release
           }).connect(effects.current.distortion);
-
-          effects.current.tapeSaturation = new Tone.Distortion({
-            distortion: params.tapeSaturation.drive,
-            oversample: '4x',
-            wet: params.tapeSaturation.wet
-          }).connect(effects.current.tapeFilter);
 
           setIsReady(true);
       } catch (e) {
@@ -425,8 +459,8 @@ export const useAudioEngine = () => {
             }
         }
         
-        if (updated.attack !== undefined) player.current.fadeIn = updated.attack;
-        if (updated.release !== undefined) player.current.fadeOut = updated.release;
+        if (updated.attack !== undefined) player.current.fadeIn = Math.max(0.002, updated.attack);
+        if (updated.release !== undefined) player.current.fadeOut = Math.max(0.002, updated.release);
     }
     
     // Effects Updates
@@ -441,7 +475,8 @@ export const useAudioEngine = () => {
                 }
             }
             efx.reverb.decay = Math.max(0.1, Math.min(decay, 10));
-            setToneParam(efx.reverb, 'wet', rev.wet); 
+            // Toggle On/Off Logic (Use Mix)
+            setToneParam(efx.reverb, 'wet', rev.isActive ? rev.wet : 0); 
     }
 
     if (efx.delay && updated.delay) {
@@ -452,32 +487,64 @@ export const useAudioEngine = () => {
             setToneParam(efx.delay, 'delayTime', del.delayTime);
             }
             setToneParam(efx.delay, 'feedback', del.feedback);
-            setToneParam(efx.delay, 'wet', del.wet);
+             // Toggle On/Off Logic (Use Mix)
+            setToneParam(efx.delay, 'wet', del.isActive ? del.wet : 0);
     }
 
     if (updated.filter && efx.filter) {
-            setToneParam(efx.filter, 'frequency', updated.filter.frequency);
-            setToneParam(efx.filter, 'Q', updated.filter.q);
-            efx.filter.type = updated.filter.type;
+            const f = updated.filter;
+            efx.filter.type = f.type;
+            
+            if (efx.filterLFO) {
+                if (f.isSynced) {
+                    efx.filterLFO.frequency.value = f.syncValue;
+                } else {
+                    efx.filterLFO.frequency.value = f.lfoRate;
+                }
+            }
+
+            // Filter Bypass Logic
+            // Since Tone.Filter is an insert effect without a wet/dry, we neutralize it when inactive
+            if (!f.isActive) {
+                // Neutralize Frequency based on type
+                if (f.type === 'lowpass') setToneParam(efx.filter, 'frequency', 20000);
+                else if (f.type === 'highpass') setToneParam(efx.filter, 'frequency', 0);
+                else setToneParam(efx.filter, 'frequency', f.frequency); // Fallback
+
+                // Disable Modulations
+                setToneParam(efx.filterEnvDepth, 'gain', 0);
+                setToneParam(efx.filterLFODepth, 'gain', 0);
+            } else {
+                setToneParam(efx.filter, 'frequency', f.frequency);
+                setToneParam(efx.filter, 'Q', f.q);
+                // Restore Modulations
+                setToneParam(efx.filterEnvDepth, 'gain', f.envDepth);
+                setToneParam(efx.filterLFODepth, 'gain', f.lfoDepth);
+            }
     }
 
     if (updated.distortion && efx.distortion) {
             efx.distortion.distortion = updated.distortion.amount;
-            setToneParam(efx.distortion, 'wet', updated.distortion.wet);
+            setToneParam(efx.distortion, 'wet', updated.distortion.isActive ? updated.distortion.wet : 0);
     }
 
     if (updated.bitCrusher && efx.bitCrusher) {
         setToneParam(efx.bitCrusher, 'bits', updated.bitCrusher.bits);
-        setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.wet);
+        setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.isActive ? updated.bitCrusher.wet : 0);
     }
 
-    if (updated.tapeSaturation) {
-        if (efx.tapeSaturation) {
-            efx.tapeSaturation.distortion = updated.tapeSaturation.drive;
-            setToneParam(efx.tapeSaturation, 'wet', updated.tapeSaturation.wet);
-        }
-        if (efx.tapeFilter) {
-            setToneParam(efx.tapeFilter, 'frequency', updated.tapeSaturation.tone);
+    // Compressor Update
+    if (updated.compressor && efx.compressor) {
+        const cmp = updated.compressor;
+        if (cmp.isActive) {
+            setToneParam(efx.compressor.threshold, 'value', cmp.threshold);
+            setToneParam(efx.compressor.ratio, 'value', cmp.ratio);
+            setToneParam(efx.compressor.attack, 'value', cmp.attack);
+            setToneParam(efx.compressor.release, 'value', cmp.release);
+        } else {
+            // Bypass logic: Ratio 1:1, Threshold 0
+            setToneParam(efx.compressor.threshold, 'value', 0);
+            setToneParam(efx.compressor.ratio, 'value', 1);
         }
     }
   };
@@ -493,6 +560,7 @@ export const useAudioEngine = () => {
     sequenceRef.current = new Tone.Sequence((time: number, index: number) => {
         const currentSeq = sequencerRef.current;
         const currentParams = paramsRef.current;
+        const currentSlices = slicesRef.current; 
         
         let actualStepIndex = index;
         const length = currentSeq.stepCount;
@@ -511,30 +579,22 @@ export const useAudioEngine = () => {
 
         const stepData = currentSeq.steps[actualStepIndex];
         
-        // Logic to determine current slice
-        if (stepData.active && slices.length > 0) {
-             const slice = slices[stepData.sliceIndex % slices.length];
+        if (stepData.active && currentSlices.length > 0) {
+             const slice = currentSlices[stepData.sliceIndex % currentSlices.length];
              if (slice && slice.isActive) {
-                 // Update tracking ref for DJ effects to the most recent active slice
                  lastPlayedSliceRef.current = slice;
              }
         }
 
-        // Playback logic
-        if (stepData.active && player.current && !player.current.disposed && slices.length > 0) {
-             const slice = slices[stepData.sliceIndex % slices.length];
+        if (stepData.active && player.current && !player.current.disposed && currentSlices.length > 0) {
+             const slice = currentSlices[stepData.sliceIndex % currentSlices.length];
              if (slice && slice.isActive) {
                  
-                 // Freeze Logic: If DJ mode is active, skip the sequencer trigger
                  if (isDjModeRef.current) return;
 
                  // 1. Glitch Chaos Logic
                  let playbackRate = currentParams.playbackRate;
-                 
-                 // XOR Logic: If global reverse is true, and slice reverse is true, we play forward.
-                 // If only one is true, we play reverse.
                  let reverse = reverseRef.current !== (slice.reverse || false);
-                 
                  let detune = currentParams.detune;
                  
                  if (currentParams.glitch.chaos > 0 && Math.random() < currentParams.glitch.chaos) {
@@ -554,15 +614,17 @@ export const useAudioEngine = () => {
                  setToneParam(player.current, 'detune', detune);
 
                  // Apply Per-Slice Envelope Overrides if present
-                 const attack = slice.fadeIn !== undefined ? slice.fadeIn : currentParams.attack;
-                 const release = slice.fadeOut !== undefined ? slice.fadeOut : currentParams.release;
-                 player.current.fadeIn = attack;
-                 player.current.fadeOut = release;
+                 const attack = (slice.fadeIn !== undefined && slice.fadeIn >= 0) ? slice.fadeIn : currentParams.attack;
+                 const release = (slice.fadeOut !== undefined && slice.fadeOut >= 0) ? slice.fadeOut : currentParams.release;
+                 
+                 // CRITICAL FIX: Enforce minimum fade times to prevent clicks
+                 player.current.fadeIn = Math.max(0.002, attack);
+                 player.current.fadeOut = Math.max(0.002, release);
 
                  const levelDb = slice.level <= 0 ? -Infinity : 20 * Math.log10(slice.level);
                  setToneParam(player.current, 'volume', levelDb); 
 
-                 // 2. Ratchet Logic (Retriggers)
+                 // 2. Ratchet Logic
                  const repeats = stepData.ratchet || 1;
                  const stepDuration = Tone.Time("16n").toSeconds();
                  const retriggerInterval = stepDuration / repeats;
@@ -580,7 +642,7 @@ export const useAudioEngine = () => {
     if (isPlaying && Tone.Transport.state !== 'started') Tone.Transport.start();
 
     return () => sequenceRef.current?.dispose();
-  }, [sequencer.stepCount, slices, audioBuffer, isPlaying]);
+  }, [sequencer.stepCount, audioBuffer, isPlaying]);
 
 
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string) => {
@@ -590,7 +652,6 @@ export const useAudioEngine = () => {
       player.current.dispose();
       player.current = null;
     }
-    // Stop preview player
     if (previewPlayer.current) {
         previewPlayer.current.stop();
         setIsPreviewPlaying(false);
@@ -616,16 +677,14 @@ export const useAudioEngine = () => {
 
       const buffer = await Promise.race([bufferPromise, new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 10000))]) as any;
       
-      // AUTO-TRIM: Remove leading silence (Vinyl/Turntable mode)
       let rawBuffer = buffer.get();
+      // Remove leading silence using improved algorithm
       rawBuffer = removeLeadingSilence(rawBuffer);
       
-      // Wrap trimmed buffer back into Tone.Buffer
       const processedBuffer = new Tone.Buffer(rawBuffer);
 
       if (!preserveSettings) {
           let detectedBpm = 0;
-          
           if (filename) {
               const explicitMatch = filename.match(/(\d{2,3})\s*bpm/i);
               if (explicitMatch) {
@@ -647,7 +706,6 @@ export const useAudioEngine = () => {
           }
 
           const beatDuration = 60 / (detectedBpm || 120);
-          // Generate slices based on the new trimmed buffer
           const newSlices = generateTransientSlices(processedBuffer, detectedBpm || 120, 0, processedBuffer.duration);
           setSlices(newSlices);
           setSelectedSliceIndex(0);
@@ -662,19 +720,17 @@ export const useAudioEngine = () => {
             return { ...prev, steps: newSteps, currentStep: -1 };
           });
 
-          // Default Params - Balanced for low clicks but punchy feel
           updateParams({ 
               bpm: detectedBpm || 120,
               grainSize: beatDuration / 8, 
               overlap: 0.05, 
-              attack: 0.002, // 2ms attack default for punch
-              release: 0.1,  // 100ms release
+              attack: 0.005,
+              release: 0.1,
               delay: { ...params.delay, delayTime: beatDuration * 0.75 }
           });
       }
 
-      // Updated fallback to match initialParams
-      const currentParams = preserveSettings ? paramsRef.current : { grainSize: 0.08, overlap: 0.05, playbackRate: 1, detune: 0, attack: 0.002, release: 0.1 };
+      const currentParams = preserveSettings ? paramsRef.current : { grainSize: 0.08, overlap: 0.05, playbackRate: 1, detune: 0, attack: 0.005, release: 0.1 };
       
       player.current = new Tone.GrainPlayer({
         url: processedBuffer,
@@ -683,11 +739,10 @@ export const useAudioEngine = () => {
         overlap: currentParams.overlap || 0.05,
         playbackRate: currentParams.playbackRate || 1,
         detune: currentParams.detune || 0,
-        fadeIn: currentParams.attack || 0.002,
-        fadeOut: currentParams.release || 0.1
-      }).connect(effects.current.tapeSaturation);
+        fadeIn: Math.max(0.002, currentParams.attack || 0.005),
+        fadeOut: Math.max(0.002, currentParams.release || 0.1)
+      }).connect(effects.current.compressor); // Connect to Compressor instead of Tape
       
-      // Ensure volume is reset (sometimes re-creating player keeps previous ramp values if using same context)
       player.current.volume.value = 0;
 
       setAudioBuffer(processedBuffer);
@@ -703,10 +758,9 @@ export const useAudioEngine = () => {
 
     } catch (error: any) {
       console.error("Error loading audio file:", error);
-      // Try to get explicit error message
       let msg = error?.message || "Unknown error";
       if (typeof error === 'object' && error.target) {
-          msg = "Network or Format Error (404/CORs)"; // Native events often lack messages
+          msg = "Network or Format Error (404/CORs)";
       }
       alert(`Failed to load audio file: ${msg}. The URL might be broken.`);
     } finally {
@@ -738,7 +792,6 @@ export const useAudioEngine = () => {
               const url = item instanceof File ? URL.createObjectURL(item) : item.url;
               const name = item instanceof File ? item.name : item.name;
               
-              // Try to classify based on filename if not explicit
               let type: SliceType = 'perc';
               if (!(item instanceof File) && item.type) {
                   type = item.type;
@@ -749,16 +802,13 @@ export const useAudioEngine = () => {
                   else if (lower.includes('hat') || lower.includes('hh')) type = 'hihat';
               }
 
-              // Load buffer with detailed error tracking
               try {
                   const buffer = await new Promise<any>((resolve, reject) => {
                       const b = new Tone.Buffer(url, () => resolve(b), (e: any) => reject(e));
                   });
                   buffers.push({ buffer: buffer.get(), name, type });
               } catch (e: any) {
-                  // Tone.Buffer errors are often just Event objects
                   console.warn(`Skipped loading sample: ${name} - ${e?.message || "Network Error"}`);
-                  // Continue trying to load other samples instead of failing completely
               }
           }
 
@@ -766,8 +816,6 @@ export const useAudioEngine = () => {
               throw new Error("No valid audio files found in this kit. Check your file paths or network connection.");
           }
 
-          // 2. Stitch Buffers
-          // We add 0.1s padding between samples to prevent granule bleeding
           const padding = 0.1; 
           const totalDuration = buffers.reduce((acc, b) => acc + b.buffer.duration + padding, 0);
           const sampleRate = Tone.context.sampleRate;
@@ -781,65 +829,59 @@ export const useAudioEngine = () => {
               const bData = b.buffer.getChannelData(0);
               const startSample = Math.floor(currentOffset * sampleRate);
               
-              // Copy data
               for (let i = 0; i < bData.length; i++) {
                   if (startSample + i < channelData.length) {
                       channelData[startSample + i] = bData[i];
                   }
               }
 
-              // Create Slice
               newSlices.push({
                   id: index,
                   offset: currentOffset,
                   duration: b.buffer.duration,
                   isActive: true,
                   type: b.type,
-                  level: 1.0
+                  level: 1.0,
+                  fadeIn: 0.002,
+                  fadeOut: 0.01
               });
 
               currentOffset += b.buffer.duration + padding;
           });
 
-          // Wrap in Tone Buffer
           const finalToneBuffer = new Tone.Buffer(masterBuffer);
 
-          // 3. Setup State
           setAudioBuffer(finalToneBuffer);
           setSlices(newSlices);
           setSelectedSliceIndex(0);
           if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
-          // 4. Create Player with punchy defaults
           player.current = new Tone.GrainPlayer({
               url: finalToneBuffer,
-              grainSize: 0.05, // Tight grains for kits
-              overlap: 0.025,  // Fast overlap
+              grainSize: 0.05, 
+              overlap: 0.025,  
               playbackRate: 1,
               detune: 0,
-              fadeIn: 0.002,   // Fast attack
-              fadeOut: 0.05    // Short release
-          }).connect(effects.current.tapeSaturation);
+              fadeIn: 0.002,   
+              fadeOut: 0.05    
+          }).connect(effects.current.compressor); // Connect to Compressor
           
           if (previewPlayer.current) {
             previewPlayer.current.buffer = finalToneBuffer;
           }
 
-          // 5. Reset Sequencer
-          // Map slices sequentially across the steps
           setSequencer(prev => {
               const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
                   ...step,
-                  active: i % 2 === 0, // simple 1/4 beat pattern default
+                  active: i % 2 === 0, 
                   sliceIndex: i % newSlices.length,
                   ratchet: 1
               }));
               return { ...prev, steps: newSteps, currentStep: -1 };
           });
 
-          // Defaults for kits
           updateParams({
-              bpm: 120, // Default bpm since we can't detect from one-shots
+              bpm: 120, 
               grainSize: 0.05,
               overlap: 0.025
           });
@@ -866,7 +908,6 @@ export const useAudioEngine = () => {
       setIsPlaying(false);
       setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
       
-      // Reset DJ State
       isDjModeRef.current = false;
       if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
 
@@ -877,7 +918,6 @@ export const useAudioEngine = () => {
     }
   }, [isPlaying]);
 
-  // --- Preview Logic ---
   const togglePreviewOriginal = () => {
       if (!previewPlayer.current || !previewPlayer.current.buffer.loaded) return;
       
@@ -886,7 +926,6 @@ export const useAudioEngine = () => {
           setIsPreviewPlaying(false);
           setSliceLoopState({ index: null, isLooping: false });
       } else {
-          // Stop any specific slice loop
           setSliceLoopState({ index: null, isLooping: false });
           
           previewPlayer.current.loop = true;
@@ -900,7 +939,6 @@ export const useAudioEngine = () => {
   const playSliceRaw = (index: number) => {
       if (!previewPlayer.current || !slices[index]) return;
       
-      // Stop any current preview/loop
       previewPlayer.current.stop();
       setIsPreviewPlaying(false);
       setSliceLoopState({ index: null, isLooping: false });
@@ -914,11 +952,9 @@ export const useAudioEngine = () => {
       if (!previewPlayer.current || !slices[index]) return;
 
       if (sliceLoopState.index === index && sliceLoopState.isLooping) {
-          // Stop
           previewPlayer.current.stop();
           setSliceLoopState({ index: null, isLooping: false });
       } else {
-          // Start Loop
           previewPlayer.current.stop();
           setIsPreviewPlaying(false);
 
@@ -938,37 +974,26 @@ export const useAudioEngine = () => {
   const sliceRegion = (start: number, end: number) => {
     if (!audioBuffer) return;
     
-    // 1. Auto-snap selection bounds to zero crossings for cleaner sound
     const rawBuffer = audioBuffer.get();
     const channelData = rawBuffer.getChannelData(0);
     const sampleRate = rawBuffer.sampleRate;
     
-    const startIx = Math.floor(start * sampleRate);
-    const endIx = Math.floor(end * sampleRate);
-    
-    const snappedStartIx = snapToZeroCrossing(channelData, startIx, sampleRate);
-    const snappedEndIx = snapToZeroCrossing(channelData, endIx, sampleRate);
-    
-    const snappedStart = snappedStartIx / sampleRate;
-    const snappedEnd = snappedEndIx / sampleRate;
+    // Instead of snapping to zero-crossing, we just ensure valid bounds
+    // The visual editor might still feel snappy, but we don't enforce ZC on the engine level here
+    // to allow free slicing.
+    let newSlices = generateTransientSlices(audioBuffer, params.bpm, start, end);
 
-    // 2. Perform Reslicing (Zoom) logic
-    // Instead of adding a single manual slice, we detect transients WITHIN this region
-    // and REPLACE the current slice set. This allows "focusing" on a section.
-    
-    // Auto-detect slices within the region
-    let newSlices = generateTransientSlices(audioBuffer, params.bpm, snappedStart, snappedEnd);
-
-    // If detection failed (e.g. ambient pad with no transients), force create at least one slice
     if (newSlices.length === 0) {
          newSlices = [{
             id: 0,
-            offset: snappedStart,
-            duration: snappedEnd - snappedStart,
+            offset: start,
+            duration: end - start,
             isActive: true,
-            type: classifySlice(rawBuffer, snappedStart, snappedEnd - snappedStart),
+            type: classifySlice(rawBuffer, start, end - start),
             level: 1.0,
-            reverse: false
+            reverse: false,
+            fadeIn: 0.005,
+            fadeOut: 0.005
          }];
     }
 
@@ -976,7 +1001,6 @@ export const useAudioEngine = () => {
     setSelectedSliceIndex(0);
     if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
-    // 3. Reset Sequencer to map to the new slice pool
     setSequencer(prev => {
         const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
             ...step,
@@ -1010,9 +1034,7 @@ export const useAudioEngine = () => {
           newSlices[index] = { ...newSlices[index], ...changes };
           return newSlices;
       });
-      // If we update duration/offset while looping, update the loop
       if (sliceLoopState.index === index && sliceLoopState.isLooping && previewPlayer.current) {
-          // Debounce or check if necessary logic could go here, but simple re-set is fine
           const s = { ...slices[index], ...changes };
           previewPlayer.current.loopStart = s.offset;
           previewPlayer.current.loopEnd = s.offset + s.duration;
@@ -1041,7 +1063,6 @@ export const useAudioEngine = () => {
 
                if (djLoopRef.current) { djLoopRef.current.dispose(); }
                
-               // Fallback to first slice if nothing played yet
                const slice = lastPlayedSliceRef.current || slices[0];
 
                if (slice && player.current) {
@@ -1061,7 +1082,6 @@ export const useAudioEngine = () => {
                    djLoopRef.current.dispose();
                    djLoopRef.current = null;
                }
-               // Reset Params
                if (player.current) {
                     setToneParam(player.current, 'playbackRate', params.playbackRate);
                     player.current.reverse = false;
@@ -1084,7 +1104,6 @@ export const useAudioEngine = () => {
                if (slice) {
                    player.current.stop();
 
-                   // Ramp down rate for the stop effect
                    setToneParam(player.current, 'playbackRate', 0.001, 0.8);
                    
                    djLoopRef.current = new Tone.Loop((time: number) => {
@@ -1095,7 +1114,6 @@ export const useAudioEngine = () => {
            } else {
                isDjModeRef.current = false;
                if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
-               // Restore rate
                setToneParam(player.current, 'playbackRate', params.playbackRate, 0.2);
            }
       },
@@ -1141,7 +1159,6 @@ export const useAudioEngine = () => {
             }
             if (djLoopRef.current) { djLoopRef.current.dispose(); }
 
-            // Get active slices for pool
             const activeSlices = slices.filter(s => s.isActive);
             const pool = activeSlices.length > 0 ? activeSlices : slices;
             if (pool.length === 0 || !player.current) return;
@@ -1154,27 +1171,21 @@ export const useAudioEngine = () => {
             player.current.reverse = false;
             setToneParam(player.current, 'playbackRate', params.playbackRate);
 
-            // Ensure volume starts reset before effect takes over
             player.current.volume.value = 0;
 
             let counter = 0;
 
             if (type === 'build') {
-                 // 1 Bar Build up (Looping Crescendo)
                  const s = snares.length > 0 ? snares[0] : (pool[Math.floor(pool.length/2)] || pool[0]);
                  
                  djLoopRef.current = new Tone.Loop((time: number) => {
                      player.current.stop(time);
                      
-                     // Calculate position in the measure (0 to 15)
                      const pos = counter % 16;
                      
-                     // Ramp Pitch: Starts normal, goes up to +12st
                      const pitchRamp = 1 + (pos / 16);
                      setToneParam(player.current, 'playbackRate', params.playbackRate * pitchRamp);
                      
-                     // Crescendo: Ramp volume from -24dB to +2dB
-                     // This creates the "rising" sensation
                      const volRamp = -24 + ((pos / 15) * 26);
                      player.current.volume.value = volRamp;
 
@@ -1183,14 +1194,12 @@ export const useAudioEngine = () => {
                  }, "16n").start();
 
             } else if (type === 'scatter') {
-                 // Chaos: Random slices, random reverse, random octave
                  djLoopRef.current = new Tone.Loop((time: number) => {
                      player.current.stop(time);
-                     player.current.volume.value = 0; // Ensure normal volume
+                     player.current.volume.value = 0; 
                      
                      const s = pool[Math.floor(Math.random() * pool.length)];
                      
-                     // Random Parameters
                      const reverse = Math.random() > 0.7;
                      const octave = Math.random() > 0.8 ? 2 : (Math.random() > 0.8 ? 0.5 : 1);
                      
@@ -1201,25 +1210,21 @@ export const useAudioEngine = () => {
                  }, "16n").start();
 
             } else if (type === 'break') {
-                 // Generative Breakbeat
-                 // 1 Bar Pattern generated on trigger
-                 // We can use a few templates or pure random weights
                  const patterns = [
-                     ['k', 'h', 's', 'k', 'h', 'k', 's', 'h'], // Classic
-                     ['k', 'k', 's', null, 'k', null, 's', 'k'], // D&Bish
-                     ['k', 'h', 'k', 'h', 's', 'h', 's', 'k']  // Jungle
+                     ['k', 'h', 's', 'k', 'h', 'k', 's', 'h'], 
+                     ['k', 'k', 's', null, 'k', null, 's', 'k'], 
+                     ['k', 'h', 'k', 'h', 's', 'h', 's', 'k'] 
                  ];
                  const pat = patterns[Math.floor(Math.random() * patterns.length)];
-                 const subdivision = "8n"; // 8th note base for breaks
+                 const subdivision = "8n"; 
                  
                  djLoopRef.current = new Tone.Loop((time: number) => {
                      player.current.stop(time);
-                     player.current.volume.value = 0; // Ensure normal volume
+                     player.current.volume.value = 0; 
                      
                      const step = counter % 8;
                      const type = pat[step];
                      
-                     // Add some 16th note ghost notes randomly
                      if (!type && Math.random() > 0.5 && hats.length > 0) {
                          const h = hats[Math.floor(Math.random()*hats.length)];
                          setToneParam(player.current, 'playbackRate', params.playbackRate);
@@ -1241,14 +1246,12 @@ export const useAudioEngine = () => {
             }
 
         } else {
-            // RELEASE: Return to beat one / main sequence
             isDjModeRef.current = false;
             if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
             if (player.current) {
                  setToneParam(player.current, 'playbackRate', params.playbackRate);
-                 setToneParam(player.current, 'detune', params.detune); // Reset detune too
+                 setToneParam(player.current, 'detune', params.detune); 
                  player.current.reverse = false;
-                 // Reset volume smoothly to avoid clicks if released during low volume part of build
                  player.current.volume.rampTo(0, 0.1);
             }
         }
@@ -1260,12 +1263,7 @@ export const useAudioEngine = () => {
   const generateAiBeat = (complexity: number) => {
       if (slices.length === 0) return;
       
-      // Strict Mute Logic: Only use active slices
       const activeSlices = slices.filter(s => s.isActive);
-      // If there are ANY active slices, we strictly use them.
-      // If the user muted EVERYTHING, we fallback to all slices to avoid generating silence (which can look like a bug)
-      // or we could generate silent steps. Let's assume fallback to prevent confusion, 
-      // but if the user muted 90%, we strictly use the 10%.
       const pool = activeSlices.length > 0 ? activeSlices : slices;
 
       const kicks = pool.filter(s => s.type === 'kick');
@@ -1273,7 +1271,6 @@ export const useAudioEngine = () => {
       const hats = pool.filter(s => s.type === 'hihat');
       const percs = pool.filter(s => s.type === 'perc');
       
-      // Helper to get random slice ID from specific type or fallback to pool
       const getKick = () => kicks.length > 0 ? kicks[Math.floor(Math.random() * kicks.length)].id : (pool[0]?.id || 0);
       const getSnare = () => snares.length > 0 ? snares[Math.floor(Math.random() * snares.length)].id : (pool[0]?.id || 0);
       const getHat = () => hats.length > 0 ? hats[Math.floor(Math.random() * hats.length)].id : (pool[0]?.id || 0);
@@ -1285,87 +1282,63 @@ export const useAudioEngine = () => {
           let sliceId = 0;
           let ratchet = 1;
 
-          // GENRE 1: STEADY (House / Techno / Pop) - 0.0 to 0.33
           if (complexity < 0.34) {
-              // Kick: 4-on-the-floor (Steps 0, 4, 8, 12)
-              // But strictly, usually House has Kick on 0,4,8,12 and Snare/Clap on 4,12.
-              // Since we can only play one slice per step here, we prioritize Snare on 4 & 12 for the "Backbeat"
               if (step % 4 === 0) {
                   active = true;
                   if (step === 4 || step === 12) {
-                      sliceId = getSnare(); // Strong Backbeat
+                      sliceId = getSnare(); 
                   } else {
-                      sliceId = getKick();  // Downbeats
+                      sliceId = getKick();  
                   }
               }
-
-              // Hats: Off-beats (Steps 2, 6, 10, 14)
               if (step % 4 === 2) {
                   active = true;
                   sliceId = getHat();
               }
-              
-              // Filler: 16th notes (low probability, increases with complexity within this range)
               if (!active && Math.random() < (complexity * 1.5)) {
                    active = true;
                    sliceId = Math.random() > 0.5 ? getHat() : (percs.length ? percs[0].id : getHat());
               }
           } 
-          // GENRE 2: DYNAMIC (Hip Hop / Breakbeat / Trap) - 0.34 to 0.66
           else if (complexity < 0.67) {
-              // Anchors: Kick on 1, Snare on 2 & 4
               if (step === 0) { active = true; sliceId = getKick(); }
               if (step === 4 || step === 12) { active = true; sliceId = getSnare(); }
               
-              // Syncopated Kicks (The "Boom-Bap" or Trap feel)
-              // Range scaling for syncopation: 0.34 -> 0, 0.66 -> 1
-              const syncopationLevel = (complexity - 0.34) * 3; // 0 to ~1
+              const syncopationLevel = (complexity - 0.34) * 3; 
 
-              // Step 8 (Beat 3): Often a kick, but sometimes ghosted
               if (!active && step === 8) {
                    if (Math.random() > 0.3) { active = true; sliceId = getKick(); }
               }
 
-              // Ghost Kicks / Offbeats
-              // Common spots: Step 2, 3 (16ths), Step 7, 10, 11, 14
               if (!active && (step === 2 || step === 3 || step === 7 || step === 10 || step === 11 || step === 14)) {
-                   // Probability increases with complexity
                    if (Math.random() < 0.15 + (syncopationLevel * 0.25)) {
                        active = true;
                        sliceId = getKick();
                    }
               }
 
-              // Hi-Hats: Steady 8ths or rolling 16ths
               if (!active) {
-                   // Fill remaining 8th note slots
                    if (step % 2 === 0) {
                        active = true;
                        sliceId = getHat();
                    } 
-                   // Fill 16ths for Trap feel
                    else if (Math.random() < 0.2 + (syncopationLevel * 0.5)) {
                        active = true;
                        sliceId = getHat();
-                       // Ratchet Rolls (Trap)
                        if (Math.random() < 0.3) ratchet = Math.random() > 0.5 ? 2 : 3;
                    }
               }
           }
-          // GENRE 3: CHAOS (Glitch / IDM) - 0.67 to 1.0
           else {
-              // ANCHORS: Still keep the backbeat strong for musicality!
               if (step === 0) { active = true; sliceId = getKick(); }
               if (step === 4 || step === 12) { active = true; sliceId = getSnare(); }
 
               if (!active) {
-                  // High density random fill
-                  const chaosLevel = (complexity - 0.67) * 3; // 0 to 1
+                  const chaosLevel = (complexity - 0.67) * 3; 
                   if (Math.random() < 0.5 + (chaosLevel * 0.4)) {
                       active = true;
                       sliceId = getAny();
                       
-                      // Glitch Ratchets
                       if (Math.random() < 0.3 + (chaosLevel * 0.3)) {
                           ratchet = Math.floor(Math.random() * 4) + 1;
                       }
@@ -1382,8 +1355,6 @@ export const useAudioEngine = () => {
   // --- Preset Management ---
 
   const exportPreset = async (name: string): Promise<string> => {
-      // Audio export functionality removed - now handled via DB/Storage
-      
       const preset: Preset = {
           id: crypto.randomUUID(),
           name,
@@ -1416,27 +1387,21 @@ export const useAudioEngine = () => {
   };
 
   const loadPreset = async (preset: Preset) => {
-      // 1. Manually sync paramsRef BEFORE any audio loading/sequencer logic loops.
-      // This prevents the sequencer loop from reading stale params while audio loads.
-      paramsRef.current = preset.params;
+      // Merge with defaults to ensure backward compatibility for new fields like 'compressor'
+      const mergedParams = { ...initialParams, ...preset.params };
+      paramsRef.current = mergedParams;
       
-      // Legacy support for older presets with embedded audio
       if (preset.audioData) {
           const blob = base64ToBlob(preset.audioData);
           const url = URL.createObjectURL(blob);
           await loadAudioFile(url, true);
       } 
-      // Cloud support (URL based)
       else if (preset.sampleUrl) {
           await loadAudioFile(preset.sampleUrl, true, preset.sampleName);
       }
-      // If no audio data, we assume we are applying params to the current audio
 
-      // 2. Set State
-      setParams(preset.params);
+      setParams(mergedParams);
       
-      // If the preset has slices (from a save), load them. 
-      // Factory presets typically have empty slices so we don't overwrite the auto-slice
       if (preset.slices && preset.slices.length > 0) {
           setSlices(preset.slices);
           if (preset.slices.length > 0) lastPlayedSliceRef.current = preset.slices[0];
@@ -1448,13 +1413,11 @@ export const useAudioEngine = () => {
           stepCount: preset.sequencer.stepCount,
           mode: preset.sequencer.mode,
           currentStep: -1
-          // Keep playing state
       }));
 
       setSampleName(preset.sampleName || 'Imported Preset');
       
-      // 3. Force update of all Audio Nodes
-      updateParams(preset.params);
+      updateParams(mergedParams);
   };
 
   return {

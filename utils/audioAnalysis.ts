@@ -16,12 +16,18 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
     let zeroCrossings = 0;
     let totalEnergy = 0;
     let lowFreqEnergy = 0;
+    let peakAmp = 0;
     
-    // IIR Low Pass Filter tailored for 150Hz split
-    // alpha = 2 * PI * dt * fc 
-    // dt = 1/44100, fc = 150Hz
-    // alpha ~= 6.28 * 0.0000226 * 150 ~= 0.021
-    const alpha = 0.021; 
+    // IIR Low Pass Filter
+    // Previous 150Hz was too low to catch Snare body (~200Hz).
+    // Moving cutoff to 600Hz allows us to distinguish:
+    // - Kicks: Dominant < 600Hz
+    // - Snares: Mixed (Body < 600Hz + Wires > 600Hz)
+    // - Hats: Dominant > 600Hz
+    const cutoff = 600; 
+    const dt = 1.0 / sampleRate;
+    const rc = 1.0 / (cutoff * 2 * Math.PI);
+    const alpha = dt / (rc + dt);
     
     // Initialize filter state with first sample to prevent ramp-up lag
     let lpfOutput = channelData[startIndex] || 0;
@@ -35,10 +41,15 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
             zeroCrossings++;
         }
         
-        // Total RMS Energy
-        totalEnergy += sample * sample;
+        // Total RMS Energy Accumulator
+        const sq = sample * sample;
+        totalEnergy += sq;
         
-        // Low Frequency Energy (< 150Hz)
+        // Peak Amplitude Check
+        const abs = Math.abs(sample);
+        if (abs > peakAmp) peakAmp = abs;
+
+        // Low Frequency Energy (< 600Hz)
         // Simple 1-pole Low Pass
         lpfOutput += alpha * (sample - lpfOutput);
         lowFreqEnergy += lpfOutput * lpfOutput;
@@ -46,29 +57,39 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
 
     const zcrRate = zeroCrossings / analysisLength;
     
-    // Avoid division by zero for silence
+    // Ratios
     const lowRatio = totalEnergy > 0.00001 ? lowFreqEnergy / totalEnergy : 0;
     
     // --- Classification Logic ---
 
-    // 1. HiHat / Shaker
-    // Characterized by very high frequency content (ZCR) and almost no sub-bass
-    if (zcrRate > 0.3 && lowRatio < 0.1) {
-        return 'hihat';
-    }
-
-    // 2. Kick Drum
-    // Characterized by dominant energy below 150Hz.
-    // Even "clicky" kicks have the majority of their sustain power in the sub.
-    // Threshold set to 0.40 (40% of energy is sub-150Hz)
-    if (lowRatio > 0.40) {
+    // 1. Kick Drum
+    // Dominant sub/low-mids (< 600Hz). Almost no high frequency content compared to bass.
+    if (lowRatio > 0.85) {
         return 'kick';
     }
 
-    // 3. Snare Drum (Fallback)
-    // Snares have strong energy (unlike hats) but it's centered around 200-400Hz (body)
-    // and > 2kHz (wires). This means 'lowRatio' will be small (< 0.40),
-    // but 'totalEnergy' is significant.
-    
-    return 'snare';
+    // 2. HiHat / Shaker
+    // "Skewed toward upper frequencies"
+    // With 600Hz split, Hats have very little low energy.
+    // We also expect high ZCR, but the energy ratio is the strongest indicator.
+    if (lowRatio < 0.20) {
+        return 'hihat';
+    }
+
+    // 3. Snare Drum
+    // "Broadband noise"
+    // Snares sit in the middle. They have body (Low Energy) AND wires (High Energy).
+    // So lowRatio should be balanced (0.2 to 0.85).
+    // We also check ZCR to distinguish from Toms (which are mid-heavy but low ZCR).
+    if (lowRatio >= 0.20 && lowRatio <= 0.85) {
+        // Toms usually have ZCR < 0.05. Snares usually > 0.05.
+        // Also check peak level - Snares are usually transient heavy.
+        if (zcrRate > 0.06) {
+            return 'snare';
+        }
+    }
+
+    // 4. Percussion / Misc (Fallback)
+    // Toms, vocal chops, weak transients, or ambiguous sounds
+    return 'perc';
 }

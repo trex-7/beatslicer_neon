@@ -1,4 +1,5 @@
 
+
 export type BiquadFilterType = "lowpass" | "highpass" | "bandpass" | "lowshelf" | "highshelf" | "peaking" | "notch" | "allpass";
 
 export interface GranularSynthParams {
@@ -15,12 +16,14 @@ export type NoteSubdivision = '1m' | '2n' | '4n' | '4t' | '8n' | '8t' | '16n' | 
 
 export interface EffectParams {
   reverb: {
+    isActive: boolean;
     decay: number;
     wet: number;
     isSynced: boolean;
     syncValue: NoteSubdivision;
   };
   delay: {
+    isActive: boolean;
     delayTime: number;
     feedback: number;
     wet: number;
@@ -28,20 +31,30 @@ export interface EffectParams {
     syncValue: NoteSubdivision;
   };
   filter: {
+    isActive: boolean;
     frequency: number;
     q: number;
     type: BiquadFilterType;
+    envDepth: number; // Envelope Follower amount (Hz)
+    lfoDepth: number; // LFO modulation amount (Hz)
+    lfoRate: number; // LFO frequency in Hz
+    isSynced: boolean;
+    syncValue: NoteSubdivision;
   };
   distortion: {
+    isActive: boolean;
     amount: number;
     wet: number;
   };
-  tapeSaturation: {
-    drive: number;
-    tone: number;
-    wet: number;
+  compressor: {
+    isActive: boolean;
+    threshold: number;
+    ratio: number;
+    attack: number;
+    release: number;
   };
   bitCrusher: {
+    isActive: boolean;
     bits: number; // 1 to 16
     wet: number;
   };

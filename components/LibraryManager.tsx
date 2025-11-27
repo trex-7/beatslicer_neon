@@ -1,9 +1,10 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import Tooltip from './Tooltip';
 import { DEMO_LOOPS, DEMO_KITS } from '../utils/demoLoops';
 import { FACTORY_PRESETS } from '../utils/factoryPresets';
 import { supabase } from '../utils/supabaseClient';
-import { fetchLibrary, saveCloudPreset, uploadSampleToCloud, type CloudItem } from '../utils/db';
+import { fetchLibrary, saveCloudPreset, uploadSampleToCloud, deleteCloudPreset, type CloudItem } from '../utils/db';
 import type { KitSample, Preset } from '../types';
 import Auth from './Auth';
 import JSZip from 'jszip';
@@ -22,6 +23,8 @@ interface LibraryManagerProps {
     sampleName: string;
 }
 
+const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
+
 const LibraryManager: React.FC<LibraryManagerProps> = ({ 
     onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, onPreviewToggle, isPreviewing, sampleName
 }) => {
@@ -39,6 +42,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
     
     const [presetName, setPresetName] = useState("My Groove");
     const [isProcessing, setIsProcessing] = useState(false);
+    const [deleteMode, setDeleteMode] = useState(false);
     
     // Auth State
     const [user, setUser] = useState<any>(null);
@@ -85,7 +89,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
     };
 
     const handleKitFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
+        const files: File[] = Array.from(event.target.files || []);
         
         if (files.length > 0) {
             // Filter for valid audio files
@@ -105,8 +109,9 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
 
             // Attempt to determine Kit Name from folder structure
             let kitName = "User Kit";
-            if (audioFiles[0].webkitRelativePath) {
-                const parts = audioFiles[0].webkitRelativePath.split('/');
+            const firstFile = audioFiles[0] as any;
+            if (firstFile.webkitRelativePath) {
+                const parts = firstFile.webkitRelativePath.split('/');
                 if (parts.length > 1) {
                     kitName = parts[0]; // Top level folder name
                 }
@@ -134,12 +139,46 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
     };
 
     // Main Dropdown Handler
-    const handleMainDropdown = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleMainDropdown = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const value = e.target.value;
         if (!value) return;
 
         const [type, ...rest] = value.split(':');
         const id = rest.join(':');
+
+        // --- DELETE MODE LOGIC ---
+        if (deleteMode) {
+            if (type === 'cloud_preset') {
+                const presetToDelete = [...userPresets, ...publicPresets].find(x => x.id === id);
+                if (presetToDelete) {
+                    if (window.confirm(`Are you sure you want to PERMANENTLY DELETE "${presetToDelete.label}"?`)) {
+                        setIsProcessing(true);
+                        const success = await deleteCloudPreset(id);
+                        if (success) {
+                            // Refresh library
+                            if (user) {
+                                const data = await fetchLibrary(user.id);
+                                setPublicPresets(data.publicPresets);
+                                setPublicSamples(data.publicSamples);
+                                setUserPresets(data.userPresets);
+                                setUserSamples(data.userSamples);
+                            }
+                        } else {
+                            alert("Failed to delete. You might not have permission.");
+                        }
+                        setIsProcessing(false);
+                    }
+                }
+            } else {
+                alert("You can only delete Cloud Presets in this mode.");
+            }
+            // Reset selection and exit delete mode optionally, or keep it on
+            e.target.value = "";
+            setDeleteMode(false); 
+            return;
+        }
+
+        // --- NORMAL LOAD LOGIC ---
 
         if (type === 'action') {
             if (id === 'new_preset') {
@@ -243,7 +282,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
         }
     };
 
-    const handleCloudSave = async () => {
+    const handleCloudSave = async (isFactory: boolean = false) => {
         if (!user || !presetName) return;
         setIsProcessing(true);
         try {
@@ -252,7 +291,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
             let sampleId: string | undefined;
 
             if (audioBlob) {
-                const uploadResult = await uploadSampleToCloud(audioBlob, sampleName + ".wav", user.id);
+                const uploadResult = await uploadSampleToCloud(audioBlob, sampleName + ".wav", user.id, isFactory);
                 if (uploadResult) {
                     sampleId = uploadResult.id;
                 }
@@ -268,11 +307,12 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                 presetObj.sequencer,
                 presetObj.slices,
                 user.id,
-                sampleId 
+                sampleId,
+                isFactory
             );
 
             if (success) {
-                alert("Saved to cloud successfully!");
+                alert(`Saved to cloud successfully!${isFactory ? ' (Factory Preset)' : ''}`);
                 // Refresh Library
                 const data = await fetchLibrary(user.id);
                 setPublicPresets(data.publicPresets);
@@ -303,11 +343,15 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
         if (action === 'save_project') {
             await handleProjectSave();
         } else if (action === 'save_cloud') {
-            await handleCloudSave();
+            await handleCloudSave(false);
+        } else if (action === 'save_cloud_factory') {
+            await handleCloudSave(true);
         }
 
         e.target.value = "";
     };
+
+    const isAdmin = user && ADMIN_EMAILS.includes(user.email);
 
     return (
         <div className="flex flex-col lg:flex-row items-center justify-between bg-nebula-blue/20 p-2 sm:p-3 rounded-xl border border-white/10 gap-3 w-full shadow-lg relative min-h-[60px]">
@@ -345,22 +389,30 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
 
             {/* SECTION 1: UNIFIED LOADER */}
             <div className="flex items-center gap-2 flex-1 w-full lg:w-auto">
-                <div className="relative flex-1 w-full">
+                <div className="relative flex-1 w-full flex items-center gap-2">
                      <select 
                         onChange={handleMainDropdown} 
                         disabled={isLoading || isProcessing} 
-                        className="w-full bg-deep-space/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-hyper-cyan focus:ring-1 focus:ring-hyper-cyan outline-none appearance-none cursor-pointer hover:bg-deep-space/80 transition-colors shadow-inner"
+                        className={`w-full border rounded-lg px-3 py-2 text-sm text-white focus:ring-1 outline-none appearance-none cursor-pointer transition-colors shadow-inner
+                            ${deleteMode 
+                                ? 'bg-red-900/40 border-red-500 focus:border-red-400 focus:ring-red-400' 
+                                : 'bg-deep-space/60 border-white/10 focus:border-hyper-cyan focus:ring-hyper-cyan hover:bg-deep-space/80'}
+                        `}
                         defaultValue=""
                      >
-                        <option value="" disabled>Load Source...</option>
+                        <option value="" disabled>
+                            {deleteMode ? "⚠ SELECT PRESET TO DELETE ⚠" : "Load Source..."}
+                        </option>
                         
-                        <optgroup label="Actions">
-                            <option value="action:new_preset">✨ New / Init Preset</option>
-                            <option value="action:upload_file">📂 Upload Audio File (Loop)...</option>
-                            <option value="action:upload_kit">🥁 Upload Kit (Select Files)...</option>
-                            <option value="action:upload_kit_folder">📂 Upload Kit (Select Folder)...</option>
-                            <option value="action:load_json">💾 Load JSON File...</option>
-                        </optgroup>
+                        {!deleteMode && (
+                            <optgroup label="Actions">
+                                <option value="action:new_preset">✨ New / Init Preset</option>
+                                <option value="action:upload_file">📂 Upload Audio File (Loop)...</option>
+                                <option value="action:upload_kit">🥁 Upload Kit (Select Files)...</option>
+                                <option value="action:upload_kit_folder">📂 Upload Kit (Select Folder)...</option>
+                                <option value="action:load_json">💾 Load JSON File...</option>
+                            </optgroup>
+                        )}
 
                         {/* User Cloud Content */}
                         {userPresets.length > 0 && (
@@ -370,19 +422,22 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                 ))}
                             </optgroup>
                         )}
-                        {userSamples.length > 0 && (
+                        
+                        {!deleteMode && userSamples.length > 0 && (
                             <optgroup label="My Cloud Samples">
                                 {userSamples.map(s => (
                                     <option key={s.id} value={`cloud_sample:${s.id}`}>👤 {s.label}</option>
                                 ))}
                             </optgroup>
                         )}
-
-                        <optgroup label="Factory Presets">
-                             {FACTORY_PRESETS.map(p => (
-                                 <option key={p.id} value={`preset:${p.id}`}>✨ {p.name}</option>
-                             ))}
-                        </optgroup>
+                        
+                        {!deleteMode && (
+                            <optgroup label="Factory Presets">
+                                {FACTORY_PRESETS.map(p => (
+                                    <option key={p.id} value={`preset:${p.id}`}>✨ {p.name}</option>
+                                ))}
+                            </optgroup>
+                        )}
 
                         {/* Public Cloud Content */}
                         {publicPresets.length > 0 && (
@@ -393,7 +448,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                             </optgroup>
                         )}
                         
-                        {publicSamples.length > 0 && (
+                        {!deleteMode && publicSamples.length > 0 && (
                              <optgroup label="Community Samples">
                                 {publicSamples.map(s => (
                                     <option key={s.id} value={`cloud_sample:${s.id}`}>☁️ {s.label} (by {s.author})</option>
@@ -401,7 +456,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                             </optgroup>
                         )}
                         
-                        {(DEMO_LOOPS.length > 0 || DEMO_KITS.length > 0) && (
+                        {!deleteMode && (DEMO_LOOPS.length > 0 || DEMO_KITS.length > 0) && (
                             <optgroup label="Legacy Demos">
                                 {DEMO_LOOPS.map((l, i) => <option key={`demo-loop-${i}`} value={`loop:${l.url}`}>🎵 {l.name}</option>)}
                                 {DEMO_KITS.map((k, i) => <option key={`demo-kit-${i}`} value={`kit:${k.name}`}>🎹 {k.name}</option>)}
@@ -409,6 +464,24 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                         )}
                      </select>
                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/50 text-[10px]">▼</div>
+                     
+                     {/* Admin Delete Toggle */}
+                     {isAdmin && (
+                        <Tooltip text={deleteMode ? "Exit Delete Mode" : "Admin Delete Mode"}>
+                            <button
+                                onClick={() => setDeleteMode(!deleteMode)}
+                                className={`w-9 h-9 flex items-center justify-center rounded-lg border transition-all 
+                                    ${deleteMode 
+                                        ? 'bg-red-600 text-white border-red-400 animate-pulse' 
+                                        : 'bg-transparent text-star-dust/30 border-white/5 hover:text-red-400 hover:border-red-400/50'}
+                                `}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </Tooltip>
+                     )}
                 </div>
 
                 <Tooltip text="Preview Source (Raw Audio)">
@@ -444,14 +517,19 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                 <div className="relative w-full lg:w-40">
                     <select 
                         onChange={handleSaveDropdown}
-                        disabled={isLoading || isProcessing || !presetName}
+                        disabled={isLoading || isProcessing || !presetName || deleteMode}
                         className="w-full bg-deep-space/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-plasma-pink focus:ring-1 focus:ring-plasma-pink outline-none appearance-none cursor-pointer hover:bg-deep-space/80 transition-colors shadow-inner disabled:opacity-50"
                         defaultValue=""
                     >
                         <option value="" disabled>Save Action...</option>
                         <option value="save_project">📦 Save Project to Device (ZIP)</option>
                         {user ? (
-                            <option value="save_cloud">☁️ Save to Cloud (Audio + Settings)</option>
+                            <>
+                                <option value="save_cloud">☁️ Save to Cloud (Private)</option>
+                                {isAdmin && (
+                                     <option value="save_cloud_factory">🏭 Save as Factory Preset (Admin)</option>
+                                )}
+                            </>
                         ) : (
                             <option value="" disabled className="text-white/30">☁️ Login to Cloud Save</option>
                         )}

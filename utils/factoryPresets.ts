@@ -24,10 +24,10 @@ const createPreset = (
         bpm: 120,
         attack: 0.005,    // Updated
         release: 0.1,     // Updated
-        reverb: { isActive: true, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-        delay: { isActive: true, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
+        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
+        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
         filter: { 
-            isActive: true,
+            isActive: false,
             frequency: 20000, 
             q: 1, 
             type: 'lowpass',
@@ -37,9 +37,9 @@ const createPreset = (
             isSynced: true,
             syncValue: '4n'
         },
-        distortion: { isActive: true, amount: 0, wet: 0 },
+        distortion: { isActive: false, amount: 0, wet: 0 },
         compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
-        bitCrusher: { isActive: true, bits: 8, wet: 0 },
+        bitCrusher: { isActive: false, bits: 8, wet: 0 },
         glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
     };
 

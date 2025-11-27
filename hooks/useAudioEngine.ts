@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
@@ -16,7 +7,7 @@ import { audioBufferToWav, blobToBase64, base64ToBlob } from '../utils/audioHelp
 
 declare const Tone: any; // Using Tone.js from CDN
 
-// Improved Defaults - Slightly softened to prevent clicks while maintaining punch
+// Improved Defaults - Only Compressor (Med) is active by default
 const initialParams: AllParams = {
   grainSize: 0.08,  // Tighter grain (80ms) for percussion
   overlap: 0.05,    // Smoother crossfade (50ms)
@@ -25,10 +16,10 @@ const initialParams: AllParams = {
   bpm: 120,
   attack: 0.005,    // Safe default attack (5ms) to prevent clicks
   release: 0.1,     // 100ms Release for tight tails
-  reverb: { isActive: true, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-  delay: { isActive: true, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
+  reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
+  delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
   filter: { 
-      isActive: true,
+      isActive: false,
       frequency: 2000, 
       q: 1, 
       type: 'lowpass',
@@ -38,9 +29,9 @@ const initialParams: AllParams = {
       isSynced: true,
       syncValue: '4n'
   },
-  distortion: { isActive: true, amount: 0, wet: 0 },
-  compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
-  bitCrusher: { isActive: true, bits: 8, wet: 0 },
+  distortion: { isActive: false, amount: 0, wet: 0 },
+  compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 }, // Med Preset Default
+  bitCrusher: { isActive: false, bits: 8, wet: 0 },
   glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
 };
 
@@ -441,30 +432,31 @@ export const useAudioEngine = () => {
     // 4. Apply Side Effects to Tone.js Nodes
     const efx = effects.current;
 
-    if (newParams.bpm) {
-        Tone.Transport.bpm.value = newParams.bpm;
+    if (newParams.bpm !== undefined) {
+        Tone.Transport.bpm.value = updated.bpm;
     }
     
     if (player.current && !player.current.disposed) {
-        if (updated.grainSize !== undefined) player.current.grainSize = updated.grainSize;
-        if (updated.overlap !== undefined) player.current.overlap = updated.overlap;
+        // Change detection: Only update if explicitly in newParams to prevent redundant audio engine resets
+        if (newParams.grainSize !== undefined) player.current.grainSize = updated.grainSize;
+        if (newParams.overlap !== undefined) player.current.overlap = updated.overlap;
         
         // Use setToneParam for safety against crashes
         if (!isDjModeRef.current) {
-            if (updated.playbackRate !== undefined) {
+            if (newParams.playbackRate !== undefined) {
                 setToneParam(player.current, 'playbackRate', updated.playbackRate);
             }
-            if (updated.detune !== undefined) {
+            if (newParams.detune !== undefined) {
                 setToneParam(player.current, 'detune', updated.detune);
             }
         }
         
-        if (updated.attack !== undefined) player.current.fadeIn = Math.max(0.002, updated.attack);
-        if (updated.release !== undefined) player.current.fadeOut = Math.max(0.002, updated.release);
+        if (newParams.attack !== undefined) player.current.fadeIn = Math.max(0.002, updated.attack);
+        if (newParams.release !== undefined) player.current.fadeOut = Math.max(0.002, updated.release);
     }
     
     // Effects Updates
-    if (efx.reverb && updated.reverb) {
+    if (efx.reverb && newParams.reverb) {
             const rev = updated.reverb;
             let decay = rev.decay;
             if (rev.isSynced) {
@@ -479,7 +471,7 @@ export const useAudioEngine = () => {
             setToneParam(efx.reverb, 'wet', rev.isActive ? rev.wet : 0); 
     }
 
-    if (efx.delay && updated.delay) {
+    if (efx.delay && newParams.delay) {
             const del = updated.delay;
             if (del.isSynced) {
             setToneParam(efx.delay, 'delayTime', Tone.Time(del.syncValue).toSeconds());
@@ -491,7 +483,7 @@ export const useAudioEngine = () => {
             setToneParam(efx.delay, 'wet', del.isActive ? del.wet : 0);
     }
 
-    if (updated.filter && efx.filter) {
+    if (newParams.filter && efx.filter) {
             const f = updated.filter;
             efx.filter.type = f.type;
             
@@ -523,18 +515,18 @@ export const useAudioEngine = () => {
             }
     }
 
-    if (updated.distortion && efx.distortion) {
+    if (newParams.distortion && efx.distortion) {
             efx.distortion.distortion = updated.distortion.amount;
             setToneParam(efx.distortion, 'wet', updated.distortion.isActive ? updated.distortion.wet : 0);
     }
 
-    if (updated.bitCrusher && efx.bitCrusher) {
+    if (newParams.bitCrusher && efx.bitCrusher) {
         setToneParam(efx.bitCrusher, 'bits', updated.bitCrusher.bits);
         setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.isActive ? updated.bitCrusher.wet : 0);
     }
 
     // Compressor Update
-    if (updated.compressor && efx.compressor) {
+    if (newParams.compressor && efx.compressor) {
         const cmp = updated.compressor;
         if (cmp.isActive) {
             setToneParam(efx.compressor.threshold, 'value', cmp.threshold);
@@ -720,30 +712,54 @@ export const useAudioEngine = () => {
             return { ...prev, steps: newSteps, currentStep: -1 };
           });
 
-          updateParams({ 
+          // COMPLETE RESET OF PARAMETERS
+          const resetParams: AllParams = {
+              ...initialParams,
               bpm: detectedBpm || 120,
               grainSize: beatDuration / 8, 
               overlap: 0.05, 
               attack: 0.005,
               release: 0.1,
-              delay: { ...params.delay, delayTime: beatDuration * 0.75 }
-          });
+              delay: { 
+                  ...initialParams.delay, 
+                  delayTime: beatDuration * 0.75 
+              },
+              // Explicitly reset all effects to initial state
+              filter: initialParams.filter,
+              reverb: initialParams.reverb,
+              distortion: initialParams.distortion,
+              bitCrusher: initialParams.bitCrusher,
+              compressor: initialParams.compressor,
+              glitch: initialParams.glitch
+          };
+          
+          updateParams(resetParams);
       }
 
-      const currentParams = preserveSettings ? paramsRef.current : { grainSize: 0.08, overlap: 0.05, playbackRate: 1, detune: 0, attack: 0.005, release: 0.1 };
+      // Use the latest params (whether preserved or reset)
+      const currentParams = paramsRef.current;
       
       player.current = new Tone.GrainPlayer({
         url: processedBuffer,
         loop: false, 
-        grainSize: currentParams.grainSize || 0.08,
-        overlap: currentParams.overlap || 0.05,
-        playbackRate: currentParams.playbackRate || 1,
-        detune: currentParams.detune || 0,
-        fadeIn: Math.max(0.002, currentParams.attack || 0.005),
-        fadeOut: Math.max(0.002, currentParams.release || 0.1)
+        grainSize: currentParams.grainSize,
+        overlap: currentParams.overlap,
+        playbackRate: currentParams.playbackRate,
+        detune: currentParams.detune,
+        fadeIn: Math.max(0.002, currentParams.attack),
+        fadeOut: Math.max(0.002, currentParams.release)
       }).connect(effects.current.compressor); // Connect to Compressor instead of Tape
       
-      player.current.volume.value = 0;
+      // EXPLICIT PARAMETER ENFORCEMENT
+      // Tone.GrainPlayer sometimes defaults to internal values on init.
+      // We force these values again to ensure the volume/gain structure is correct immediately.
+      if (player.current) {
+         player.current.grainSize = currentParams.grainSize;
+         player.current.overlap = currentParams.overlap;
+         player.current.playbackRate = currentParams.playbackRate;
+         player.current.detune = currentParams.detune;
+         player.current.volume.value = 0;
+      }
 
       setAudioBuffer(processedBuffer);
       
@@ -856,20 +872,6 @@ export const useAudioEngine = () => {
           setSelectedSliceIndex(0);
           if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
-          player.current = new Tone.GrainPlayer({
-              url: finalToneBuffer,
-              grainSize: 0.05, 
-              overlap: 0.025,  
-              playbackRate: 1,
-              detune: 0,
-              fadeIn: 0.002,   
-              fadeOut: 0.05    
-          }).connect(effects.current.compressor); // Connect to Compressor
-          
-          if (previewPlayer.current) {
-            previewPlayer.current.buffer = finalToneBuffer;
-          }
-
           setSequencer(prev => {
               const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
                   ...step,
@@ -880,11 +882,45 @@ export const useAudioEngine = () => {
               return { ...prev, steps: newSteps, currentStep: -1 };
           });
 
-          updateParams({
+          // RESET PARAMETERS FOR KIT
+          const resetParams: AllParams = {
+              ...initialParams,
               bpm: 120, 
               grainSize: 0.05,
-              overlap: 0.025
-          });
+              overlap: 0.025,
+              // Full Reset of effects
+              filter: initialParams.filter,
+              reverb: initialParams.reverb,
+              distortion: initialParams.distortion,
+              bitCrusher: initialParams.bitCrusher,
+              compressor: initialParams.compressor,
+              glitch: initialParams.glitch
+          };
+          updateParams(resetParams);
+          
+          const currentParams = paramsRef.current;
+
+          player.current = new Tone.GrainPlayer({
+              url: finalToneBuffer,
+              grainSize: currentParams.grainSize, 
+              overlap: currentParams.overlap,  
+              playbackRate: currentParams.playbackRate,
+              detune: currentParams.detune,
+              fadeIn: 0.002,   
+              fadeOut: 0.05    
+          }).connect(effects.current.compressor); // Connect to Compressor
+          
+          // EXPLICIT PARAMETER ENFORCEMENT for Kit
+          if (player.current) {
+            player.current.grainSize = currentParams.grainSize;
+            player.current.overlap = currentParams.overlap;
+            player.current.playbackRate = currentParams.playbackRate;
+            player.current.detune = currentParams.detune;
+          }
+
+          if (previewPlayer.current) {
+            previewPlayer.current.buffer = finalToneBuffer;
+          }
 
           if (isPlaying) {
             if (Tone.Transport.state !== 'started') Tone.Transport.start();

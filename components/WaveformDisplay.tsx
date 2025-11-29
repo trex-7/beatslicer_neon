@@ -1,6 +1,6 @@
+
 import React, { useRef, useEffect, useState } from 'react';
-import type { Slice, SequencerState } from '../types';
-import Tooltip from './Tooltip';
+import type { Slice, SequencerState, SliceType } from '../types';
 
 declare const d3: any; // Using d3 from CDN
 
@@ -16,6 +16,8 @@ interface WaveformDisplayProps {
     onSliceToggle: (index: number) => void;
     onRegionSlice: (start: number, end: number) => void;
     onAutoSlice?: () => void;
+    onPlaySlice: (index: number) => void;
+    onSliceTypeChange: (index: number, type: SliceType) => void;
 }
 
 const WaveformDisplay: React.FC<WaveformDisplayProps> = ({ 
@@ -28,12 +30,18 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     selectedSliceIndex,
     onSliceSelect,
     onSliceToggle,
-    onRegionSlice
+    onRegionSlice,
+    onPlaySlice,
+    onSliceTypeChange
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
     const [zoom, setZoom] = useState(1);
     const [containerWidth, setContainerWidth] = useState(0);
+
+    // Track playback state for click handlers without forcing D3 redraws
+    const isPlayingRef = useRef(isPlaying);
+    useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
     // Drag Selection State
     const [dragStart, setDragStart] = useState<number | null>(null);
@@ -118,19 +126,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         if (svg.select("#defs-layer").empty()) {
             const defs = svg.append("defs").attr("id", "defs-layer");
             
-            defs.append("linearGradient")
-                .attr("id", "waveform-gradient")
-                .attr("x1", "0%").attr("y1", "0%")
-                .attr("x2", "100%").attr("y2", "0%") 
-                .selectAll("stop")
-                .data([
-                    {offset: "0%", color: "#00f6ff"},
-                    {offset: "100%", color: "#ff00aa"}
-                ])
-                .enter().append("stop")
-                .attr("offset", d => d.offset)
-                .attr("stop-color", d => d.color);
-            
             // Pattern for disabled slices
             defs.append("pattern")
                 .attr("id", "disabled-pattern")
@@ -139,12 +134,13 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 .attr("height", 10)
                 .append("path")
                 .attr("d", "M-1,1 l2,-2 M0,10 l10,-10 M9,11 l2,-2")
-                .attr("stroke", "#ff00aa")
+                .attr("stroke", "#444")
                 .attr("stroke-width", 1);
 
             // Layer order determines z-index
-            svg.append("g").attr("id", "waveform-layer");
+            // REORDERED: Slices background first, then waveform on top
             svg.append("g").attr("id", "slices-layer");
+            svg.append("g").attr("id", "waveform-layer");
             svg.append("g").attr("id", "playback-layer");
             svg.append("g").attr("id", "selection-layer"); // Add selection layer on top
         }
@@ -159,7 +155,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 192; // Match the new h-48 (12rem * 16 = 192px)
+        const height = 192; // Match the new h-48
 
         const channelData = audioBuffer.getChannelData(0);
         const samples = Math.floor(channelData.length / totalWidth);
@@ -178,6 +174,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
 
         const x = d3.scaleLinear().domain([0, downsampledData.length]).range([0, totalWidth]);
         
+        // Changed from AREA to LINE/STROKE Logic for transparency
         const area = d3.area()
             .x((d: any, i: number) => x(i))
             .y0(height / 2)
@@ -188,15 +185,25 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             .y0(height / 2)
             .y1((d: any) => height/2 - (d * height/2));
             
+        // Render Waveform as a stroke-heavy shape with low fill opacity
+        // This allows the slice colors underneath to be very visible
         layer.append('path')
             .datum(downsampledData)
             .attr('d', area)
-            .attr('fill', 'url(#waveform-gradient)');
+            .attr('fill', '#ffffff')
+            .attr('fill-opacity', 0.15) // Transparent fill
+            .attr('stroke', '#ffffff')    // Crisp outline
+            .attr('stroke-width', 0.5)
+            .attr('opacity', 1.0);
 
         layer.append('path')
             .datum(downsampledData)
             .attr('d', areaNegative)
-            .attr('fill', 'url(#waveform-gradient)');
+            .attr('fill', '#ffffff')
+            .attr('fill-opacity', 0.15)
+            .attr('stroke', '#ffffff')
+            .attr('stroke-width', 0.5)
+            .attr('opacity', 1.0);
         
     }, [audioBuffer, containerWidth, zoom]); // Only redraw waveform if buffer/zoom changes
 
@@ -211,32 +218,46 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         const height = 192; // Match h-48
         const duration = audioBuffer.duration;
         
+        const getTypeColor = (type: SliceType) => {
+            switch (type) {
+                case 'kick': return '#ef4444'; // Red-500
+                case 'snare': return '#eab308'; // Yellow-500
+                case 'hihat': return '#00f6ff'; // Cyan
+                case 'perc': return '#a855f7'; // Purple-500
+                default: return '#ffffff';
+            }
+        };
+
         if (slices.length > 0) {
             slices.forEach((slice, index) => {
                 const xPos = (slice.offset / duration) * totalWidth;
                 const w = (slice.duration / duration) * totalWidth;
+                const color = getTypeColor(slice.type);
                 
                 // Group for slice
                 const g = layer.append('g')
                     .attr('class', 'slice-group')
                     .attr('cursor', 'pointer');
 
-                // Background for selection/hover detection
+                // Background/Fill - BEHIND WAVEFORM
                 let fill = 'transparent';
                 if (!slice.isActive) {
                      fill = 'url(#disabled-pattern)';
-                } else if (index === selectedSliceIndex) {
-                     fill = 'rgba(255, 255, 255, 0.15)';
+                } else {
+                     // High Opacity because it's behind the waveform
+                     fill = index === selectedSliceIndex 
+                        ? color + 'D9' // 85% opacity (Selected)
+                        : color + '66'; // 40% opacity (Unselected - visible enough)
                 }
                 
-                // Overlay for disabled state to darken it
+                // Overlay for disabled state
                 if (!slice.isActive) {
                      g.append('rect')
                         .attr('x', xPos)
                         .attr('y', 0)
                         .attr('width', w)
                         .attr('height', height)
-                        .attr('fill', 'rgba(0,0,0,0.5)');
+                        .attr('fill', 'rgba(0,0,0,0.6)');
                 }
 
                 g.append('rect')
@@ -245,35 +266,19 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr('width', w)
                     .attr('height', height)
                     .attr('fill', fill)
-                    .attr('stroke', index === selectedSliceIndex ? '#ffffff' : (slice.isActive ? 'rgba(255,255,255,0.2)' : '#ff00aa'))
-                    .attr('stroke-width', index === selectedSliceIndex ? 2 : 1)
-                    .attr('stroke-dasharray', index === selectedSliceIndex ? 'none' : '4,2');
+                    // Add distinct border
+                    .attr('stroke', index === selectedSliceIndex ? '#ffffff' : color)
+                    .attr('stroke-width', index === selectedSliceIndex ? 2 : 0)
+                    .attr('stroke-opacity', 1);
                 
-                // Red X for inactive
-                if (!slice.isActive) {
-                     g.append('line')
-                        .attr('x1', xPos)
-                        .attr('y1', 0)
-                        .attr('x2', xPos + w)
-                        .attr('y2', height)
-                        .attr('stroke', '#ff00aa')
-                        .attr('stroke-width', 1)
-                        .attr('pointer-events', 'none');
-                     
-                     g.append('line')
-                        .attr('x1', xPos)
-                        .attr('y1', height)
-                        .attr('x2', xPos + w)
-                        .attr('y2', 0)
-                        .attr('stroke', '#ff00aa')
-                        .attr('stroke-width', 1)
-                        .attr('pointer-events', 'none');
-                }
-
-                // Click to select
+                // Click to select & Play
                 g.on('click', (e: Event) => {
                     e.stopPropagation(); 
                     onSliceSelect(index);
+                    // Play if not currently running sequencer
+                    if (!isPlayingRef.current) {
+                        onPlaySlice(index);
+                    }
                 });
                 
                 // Double click to toggle active state
@@ -288,7 +293,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     g.append('text')
                         .attr('x', xPos + 4)
                         .attr('y', 15)
-                        .attr('fill', !slice.isActive ? '#ff00aa' : (index === selectedSliceIndex ? '#fff' : 'rgba(255,255,255,0.5)'))
+                        .attr('fill', !slice.isActive ? '#999' : (index === selectedSliceIndex ? '#fff' : 'rgba(255,255,255,0.9)'))
                         .attr('font-size', '10px')
                         .attr('font-weight', 'bold')
                         .text(slice.id)
@@ -296,24 +301,24 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     
                     // Type (K, S, H, P)
                     let typeLabel = 'P';
-                    let typeColor = '#ffffff';
-                    if (slice.type === 'kick') { typeLabel = 'K'; typeColor = '#ef4444'; }
-                    else if (slice.type === 'snare') { typeLabel = 'S'; typeColor = '#eab308'; }
-                    else if (slice.type === 'hihat') { typeLabel = 'H'; typeColor = '#00f6ff'; }
+                    if (slice.type === 'kick') typeLabel = 'K';
+                    else if (slice.type === 'snare') typeLabel = 'S';
+                    else if (slice.type === 'hihat') typeLabel = 'H';
                     
                     if (w > 25 && slice.isActive) {
                         g.append('text')
                             .attr('x', xPos + 4)
                             .attr('y', height - 8)
-                            .attr('fill', typeColor)
+                            .attr('fill', '#fff')
                             .attr('font-size', '9px')
                             .attr('font-weight', 'bold')
+                            .attr('opacity', 0.9)
                             .text(typeLabel);
                     }
                 }
             });
         }
-    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle]);
+    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle, onPlaySlice]);
 
     // 3. Draw Playback Highlight (Fast Update)
     useEffect(() => {
@@ -341,8 +346,8 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         .attr('y', 0)
                         .attr('width', width)
                         .attr('height', height)
-                        .attr('fill', 'rgba(0, 246, 255, 0.3)') // Cyan highlight
-                        .attr('stroke', '#00f6ff')
+                        .attr('fill', 'rgba(255, 255, 255, 0.5)') 
+                        .attr('stroke', '#ffffff')
                         .attr('stroke-width', 2)
                         .attr('pointer-events', 'none');
                 }
@@ -376,12 +381,42 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     }, [dragStart, dragCurrent]);
 
 
+    const currentSliceType = selectedSliceIndex !== null && slices[selectedSliceIndex] ? slices[selectedSliceIndex].type : null;
+
+    const ClassificationButton = ({ type, color, label }: { type: SliceType, color: string, label: string }) => {
+        const isActive = currentSliceType === type;
+        // Tailwind classes for colors
+        let colorClasses = "";
+        let borderClass = "";
+        
+        if (type === 'kick') { colorClasses = "text-red-500 bg-red-500/10 hover:bg-red-500/20"; borderClass = "border-red-500"; }
+        else if (type === 'snare') { colorClasses = "text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20"; borderClass = "border-yellow-500"; }
+        else if (type === 'hihat') { colorClasses = "text-cyan-400 bg-cyan-400/10 hover:bg-cyan-400/20"; borderClass = "border-cyan-400"; }
+        else { colorClasses = "text-purple-400 bg-purple-400/10 hover:bg-purple-400/20"; borderClass = "border-purple-400"; }
+
+        const activeClasses = isActive 
+            ? `bg-opacity-100 ${colorClasses.replace('/10', '/30')} border ${borderClass} shadow-[0_0_10px_rgba(255,255,255,0.2)]` 
+            : `border border-white/10 opacity-70 hover:opacity-100 hover:border-white/30`;
+
+        return (
+            <button 
+                onClick={() => selectedSliceIndex !== null && onSliceTypeChange(selectedSliceIndex, type)}
+                className={`flex-1 flex flex-row items-center justify-center gap-2 py-1.5 px-2 rounded-md transition-all duration-200 group ${activeClasses}`}
+                title={`Set Selected Slice to ${label}`}
+                disabled={selectedSliceIndex === null}
+            >
+                <div className={`w-2 h-2 rounded-full transition-transform group-hover:scale-125 ${isActive ? 'bg-white' : ''}`} style={{ backgroundColor: isActive ? '#fff' : color }}></div>
+                <span className={`text-[9px] font-bold uppercase tracking-wider ${isActive ? 'text-white' : 'text-star-dust'}`}>{label}</span>
+            </button>
+        );
+    }
+
     return (
-        <div className="space-y-1">
+        <div className="space-y-2">
             {/* Scrollable Container */}
             <div 
                 ref={containerRef} 
-                className="w-full h-48 bg-deep-space/50 rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
+                className="w-full h-48 bg-[#0a0d14] rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
             >
                 {!audioBuffer && (
                     <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
@@ -398,18 +433,22 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             </div>
              
              {/* Controls Bar Below Waveform */}
-             <div className="flex justify-between items-center text-[10px] text-star-dust/50 px-1">
-                 <div className="flex gap-4">
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>Kick</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>Snare</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>Hat</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white"></span>Perc</span>
+             <div className="flex flex-col sm:flex-row justify-between items-center gap-2 p-1 bg-deep-space/30 rounded border border-white/5">
+                 
+                 {/* Classification Buttons */}
+                 <div className="flex gap-1 w-full sm:w-2/3">
+                    <ClassificationButton type="kick" color="#ef4444" label="Kick" />
+                    <ClassificationButton type="snare" color="#eab308" label="Snare" />
+                    <ClassificationButton type="hihat" color="#00f6ff" label="Hat" />
+                    <ClassificationButton type="perc" color="#a855f7" label="Perc" />
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="uppercase tracking-widest">Zoom</span>
-                    <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-5 h-5 flex items-center justify-center bg-white/10 rounded hover:bg-white/20">-</button>
-                    <span className="w-8 text-center">{Math.round(zoom * 100)}%</span>
-                    <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-5 h-5 flex items-center justify-center bg-white/10 rounded hover:bg-white/20">+</button>
+
+                {/* Zoom Controls */}
+                <div className="flex items-center gap-1 bg-black/20 px-2 py-1 rounded-md border border-white/5 h-8">
+                    <span className="uppercase text-[9px] font-bold text-star-dust/50 tracking-widest hidden sm:inline mr-2">Zoom</span>
+                    <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">-</button>
+                    <span className="w-10 text-center text-xs font-mono text-hyper-cyan">{Math.round(zoom * 100)}%</span>
+                    <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">+</button>
                 </div>
             </div>
         </div>

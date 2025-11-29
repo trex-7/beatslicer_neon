@@ -9,6 +9,8 @@ export interface CloudItem {
     data?: any;
     url?: string;
     author?: string;
+    isFactory?: boolean;
+    _userId?: string;
 }
 
 export interface LibraryData {
@@ -16,12 +18,14 @@ export interface LibraryData {
     publicSamples: CloudItem[];
     userPresets: CloudItem[];
     userSamples: CloudItem[];
+    factoryPresets: CloudItem[];
+    factorySamples: CloudItem[];
 }
 
 // --- Fetching ---
 
 export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
-    if (!supabase) return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [] };
+    if (!supabase) return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
 
     try {
         // Construct filter: Public/Factory OR Owned by User
@@ -63,50 +67,59 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
         // 3. Process Presets
         const allPresets: CloudItem[] = (presetsRaw as any[] || []).map(p => ({
             id: p.id,
-            label: p.name,
+            label: p.name || 'Untitled Preset',
             type: 'preset',
             author: p.profiles?.username || 'Anon',
             // Helper property to check ownership
             _userId: p.user_id,
+            isFactory: p.is_factory,
             data: {
-                params: p.parameters,
-                sequencer: p.sequencer_data,
-                slices: p.slices_data,
-                sampleUrl: p.samples?.url,
-                sampleName: p.samples?.title
+                // FALLBACKS ADDED HERE TO PREVENT CRASHES
+                params: p.parameters || {},
+                sequencer: p.sequencer_data || { steps: [], stepCount: 16, mode: 'forward' },
+                slices: p.slices_data || [],
+                sampleUrl: p.samples?.url || '',
+                sampleName: p.samples?.title || 'Unknown Sample'
             }
         }));
 
         // 4. Process Samples
         const allSamples: CloudItem[] = (samplesRaw as any[] || []).map(s => ({
             id: s.id,
-            label: s.title,
+            label: s.title || 'Untitled Sample',
             type: 'sample',
             url: s.url,
             author: s.profiles?.username || 'Anon',
             _userId: s.user_id,
+            isFactory: s.is_factory
         }));
 
         // 5. Categorize
-        // "User" items are those created by the current user
-        // "Public" items are those created by others (or factory) that are public
         
-        const userPresets = userId ? allPresets.filter((p: any) => p._userId === userId) : [];
-        const publicPresets = allPresets.filter((p: any) => !userId || p._userId !== userId);
+        // Factory Content (Global)
+        const factoryPresets = allPresets.filter(p => p.isFactory);
+        const factorySamples = allSamples.filter(s => s.isFactory);
 
-        const userSamples = userId ? allSamples.filter((s: any) => s._userId === userId) : [];
-        const publicSamples = allSamples.filter((s: any) => !userId || s._userId !== userId);
+        // User Content (Private)
+        const userPresets = userId ? allPresets.filter((p: any) => p._userId === userId && !p.isFactory) : [];
+        const userSamples = userId ? allSamples.filter((s: any) => s._userId === userId && !s.isFactory) : [];
+
+        // Community Content (Public but not Factory, and not mine)
+        const publicPresets = allPresets.filter((p: any) => !p.isFactory && (!userId || p._userId !== userId));
+        const publicSamples = allSamples.filter((s: any) => !s.isFactory && (!userId || s._userId !== userId));
 
         return {
             userPresets,
             publicPresets,
+            factoryPresets,
             userSamples,
-            publicSamples
+            publicSamples,
+            factorySamples
         };
 
     } catch (e) {
         console.error("Error fetching library:", e);
-        return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [] };
+        return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
     }
 };
 
@@ -148,7 +161,7 @@ export const saveCloudPreset = async (
 export const deleteCloudPreset = async (id: string): Promise<boolean> => {
     if (!supabase) return false;
     try {
-        const { error } = await supabase.from('presets').delete().eq('id', id);
+        const { error, count } = await supabase.from('presets').delete({ count: 'exact' }).eq('id', id);
         if (error) throw error;
         return true;
     } catch (e) {
@@ -157,26 +170,78 @@ export const deleteCloudPreset = async (id: string): Promise<boolean> => {
     }
 };
 
+export const deleteCloudSample = async (id: string): Promise<boolean> => {
+    if (!supabase) return false;
+    try {
+        const { error, count } = await supabase.from('samples').delete({ count: 'exact' }).eq('id', id);
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error deleting sample:", e);
+        return false;
+    }
+};
+
+export const deleteBulkPresets = async (ids: string[]): Promise<boolean> => {
+    if (!supabase || ids.length === 0) return false;
+    try {
+        const { error, count } = await supabase.from('presets').delete({ count: 'exact' }).in('id', ids);
+        if (error) throw error;
+        console.log(`Deleted ${count} presets`);
+        return true;
+    } catch (e) {
+        console.error("Error bulk deleting presets:", e);
+        return false;
+    }
+};
+
+export const deleteBulkSamples = async (ids: string[]): Promise<boolean> => {
+    if (!supabase || ids.length === 0) return false;
+    try {
+        const { error, count } = await supabase.from('samples').delete({ count: 'exact' }).in('id', ids);
+        if (error) throw error;
+        console.log(`Deleted ${count} samples`);
+        return true;
+    } catch (e) {
+        console.error("Error bulk deleting samples:", e);
+        return false;
+    }
+};
+
 
 // --- Storage ---
 
 export const uploadSampleToCloud = async (file: File | Blob, fileName: string, userId: string, isFactory: boolean = false): Promise<{ publicUrl: string, id: string } | null> => {
-    if (!supabase) return null;
+    if (!supabase) {
+        console.error("Supabase not initialized");
+        return null;
+    }
 
     try {
-        const fileExt = fileName.split('.').pop() || 'wav';
-        const storagePath = `${userId}/${Date.now()}.${fileExt}`;
+        // Create unique path to prevent collisions
+        // e.g. factory/1700000_abcd_filename.wav
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        const prefix = isFactory ? 'factory' : userId;
+        const cleanName = fileName.replace(/[^a-z0-9.]/gi, '_');
+        const storagePath = `${prefix}/${Date.now()}_${randomSuffix}_${cleanName}`;
+
+        console.log(`[Upload] Starting storage upload for ${fileName} to ${storagePath}`);
 
         // 1. Upload to Storage
-        const { error: uploadError } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
             .from('audio-assets')
             .upload(storagePath, file);
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+            console.error("[Upload] Storage Error:", uploadError.message);
+            throw uploadError;
+        }
 
         // 2. Get Public URL
         const { data } = supabase.storage.from('audio-assets').getPublicUrl(storagePath);
         const publicUrl = data.publicUrl;
+
+        console.log(`[Upload] File stored. Public URL: ${publicUrl}`);
 
         // 3. Insert Record
         const { data: sampleData, error: dbError } = await supabase.from('samples').insert({
@@ -187,11 +252,15 @@ export const uploadSampleToCloud = async (file: File | Blob, fileName: string, u
             is_factory: isFactory
         }).select('id').single();
 
-        if (dbError) throw dbError;
+        if (dbError) {
+            console.error("[Upload] Database Insert Error:", dbError.message);
+            throw dbError;
+        }
 
+        console.log(`[Upload] Success! Sample ID: ${sampleData.id}`);
         return { publicUrl, id: sampleData.id };
     } catch (e) {
-        console.error("Error uploading sample:", e);
+        console.error("[Upload] Critical Error uploading sample:", e);
         return null;
     }
 };

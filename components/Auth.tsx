@@ -1,18 +1,29 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../utils/supabaseClient';
 
 interface AuthProps {
     user: any;
-    onClose?: () => void;
 }
 
-const Auth: React.FC<AuthProps> = ({ user, onClose }) => {
+const Auth: React.FC<AuthProps> = ({ user }) => {
+    const [isOpen, setIsOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [mode, setMode] = useState<'login' | 'signup'>('login');
     const [message, setMessage] = useState<{ text: string, type: 'error' | 'success' } | null>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -30,10 +41,10 @@ const Auth: React.FC<AuthProps> = ({ user, onClose }) => {
                 const { error } = await supabase.auth.signUp({
                     email,
                     password,
-                    options: { data: { username: email.split('@')[0] } } // Default username
+                    options: { data: { username: email.split('@')[0] } }
                 });
                 if (error) throw error;
-                setMessage({ text: "Sign up successful! You can now log in.", type: 'success' });
+                setMessage({ text: "Success! You can now log in.", type: 'success' });
                 setMode('login');
             } else {
                 const { error } = await supabase.auth.signInWithPassword({
@@ -41,8 +52,7 @@ const Auth: React.FC<AuthProps> = ({ user, onClose }) => {
                     password,
                 });
                 if (error) throw error;
-                // Session updates automatically via onAuthStateChange in parent
-                if (onClose) onClose();
+                setIsOpen(false); // Close on success
             }
         } catch (error: any) {
             setMessage({ text: error.message || 'Authentication failed', type: 'error' });
@@ -53,69 +63,104 @@ const Auth: React.FC<AuthProps> = ({ user, onClose }) => {
 
     const handleLogout = async () => {
         if (supabase) await supabase.auth.signOut();
+        setIsOpen(false);
     };
 
-    if (user) {
-        return (
-            <div className="flex items-center gap-3 bg-deep-space/90 p-2 rounded-lg border border-hyper-cyan/30">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold text-xs uppercase">
-                    {user.email?.slice(0, 2)}
-                </div>
-                <div className="flex flex-col">
-                    <span className="text-xs text-white font-bold">{user.user_metadata?.username || user.email?.split('@')[0]}</span>
-                    <button onClick={handleLogout} className="text-[9px] text-plasma-pink hover:text-white text-left">Sign Out</button>
-                </div>
-            </div>
-        );
-    }
-
     return (
-        <div className="bg-deep-space/95 p-4 rounded-xl border border-white/10 shadow-xl w-64 absolute top-12 right-0 z-50 backdrop-blur-md">
-            <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider text-center">
-                {mode === 'login' ? 'Cloud Login' : 'Create Account'}
-            </h3>
-            
-            <form onSubmit={handleAuth} className="space-y-3">
-                <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none"
-                    required
-                />
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none"
-                    required
-                />
-                
-                {message && (
-                    <div className={`text-[10px] p-1.5 rounded ${message.type === 'error' ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
-                        {message.text}
-                    </div>
-                )}
-
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-hyper-cyan hover:bg-hyper-cyan/80 text-deep-space font-bold text-xs py-2 rounded transition-all disabled:opacity-50"
-                >
-                    {loading ? 'Processing...' : (mode === 'login' ? 'ENTER' : 'JOIN')}
-                </button>
-            </form>
-
-            <div className="mt-3 text-center">
+        <div className="relative" ref={dropdownRef}>
+            {/* Trigger Button */}
+            {user ? (
                 <button 
-                    onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setMessage(null); }}
-                    className="text-[10px] text-star-dust hover:text-white underline"
+                    onClick={() => setIsOpen(!isOpen)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${isOpen ? 'bg-deep-space border-hyper-cyan shadow-lg' : 'bg-deep-space/60 border-white/10 hover:bg-deep-space/80'}`}
                 >
-                    {mode === 'login' ? "Need an account?" : "Have an account?"}
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold text-[10px] uppercase">
+                        {user.email?.slice(0, 2)}
+                    </div>
+                    <span className="text-xs text-white font-bold hidden sm:block max-w-[80px] truncate">
+                        {user.user_metadata?.username || user.email?.split('@')[0]}
+                    </span>
+                    <span className="text-[9px] text-white/50">▼</span>
                 </button>
-            </div>
+            ) : (
+                <button 
+                    onClick={() => setIsOpen(!isOpen)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all ${isOpen ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-deep-space/60 border-white/10 text-hyper-cyan hover:bg-deep-space/80'}`}
+                >
+                    <span>Cloud Login</span>
+                </button>
+            )}
+
+            {/* Dropdown Content */}
+            {isOpen && (
+                <div 
+                    className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-white/20 shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-[100] overflow-hidden"
+                    style={{ backgroundColor: '#121826' }} 
+                >
+                    {user ? (
+                        <div className="p-2">
+                             <div className="px-3 py-2 border-b border-white/10 mb-2">
+                                <p className="text-xs text-star-dust">Logged in as</p>
+                                <p className="text-sm font-bold text-white truncate">{user.email}</p>
+                            </div>
+                            <button 
+                                onClick={handleLogout}
+                                className="w-full text-left px-3 py-2 text-xs font-bold text-plasma-pink hover:bg-white/5 rounded transition-colors"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="p-4">
+                            <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider text-center">
+                                {mode === 'login' ? 'Cloud Login' : 'Create Account'}
+                            </h3>
+                            
+                            <form onSubmit={handleAuth} className="space-y-3">
+                                <input
+                                    type="email"
+                                    placeholder="Email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none"
+                                    required
+                                />
+                                <input
+                                    type="password"
+                                    placeholder="Password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none"
+                                    required
+                                />
+                                
+                                {message && (
+                                    <div className={`text-[10px] p-1.5 rounded ${message.type === 'error' ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                                        {message.text}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full bg-hyper-cyan hover:bg-hyper-cyan/80 text-deep-space font-bold text-xs py-2 rounded transition-all disabled:opacity-50"
+                                >
+                                    {loading ? 'Processing...' : (mode === 'login' ? 'ENTER' : 'JOIN')}
+                                </button>
+                            </form>
+
+                            <div className="mt-3 text-center">
+                                <button 
+                                    onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setMessage(null); }}
+                                    className="text-[10px] text-star-dust hover:text-white underline"
+                                >
+                                    {mode === 'login' ? "Need an account?" : "Have an account?"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

@@ -1,5 +1,3 @@
-
-
 import type { Preset, AllParams, SequencerState } from '../types';
 
 // Helper to create a base preset structure
@@ -37,10 +35,17 @@ const createPreset = (
             isSynced: true,
             syncValue: '4n'
         },
-        distortion: { isActive: false, amount: 0, wet: 0 },
+        distortion: { isActive: true, amount: 1.0, wet: 0.1 },
         compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
         bitCrusher: { isActive: false, bits: 8, wet: 0 },
-        glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
+        glitch: { 
+            chaos: 0, 
+            allowReverse: false, 
+            allowOctaveJump: true,
+            allowRatchet: true,
+            pitchShift: true, // Default to preserving length
+            allowFormant: true 
+        }
     };
 
     // Deep merge params roughly
@@ -85,7 +90,14 @@ export const FACTORY_PRESETS: Preset[] = [
             grainSize: 0.05,
             overlap: 0.02,
             playbackRate: 1.0,
-            glitch: { chaos: 0.45, allowReverse: true, allowOctaveJump: true },
+            glitch: { 
+                chaos: 0.45, 
+                allowReverse: false, 
+                allowOctaveJump: true,
+                allowRatchet: true,
+                pitchShift: true,
+                allowFormant: true
+            },
             bitCrusher: { isActive: true, bits: 4, wet: 0.25 },
             distortion: { isActive: true, amount: 0.4, wet: 0.15 },
             filter: { isActive: true, frequency: 12000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' }
@@ -130,7 +142,14 @@ export const FACTORY_PRESETS: Preset[] = [
             grainSize: 0.025, // Tiny grains
             overlap: 0.02,
             delay: { isActive: true, delayTime: 0.1, feedback: 0.7, wet: 0.3, isSynced: true, syncValue: '32n' },
-            glitch: { chaos: 0.1, allowReverse: true, allowOctaveJump: false }
+            glitch: { 
+                chaos: 0.1, 
+                allowReverse: true, 
+                allowOctaveJump: false,
+                allowRatchet: true,
+                pitchShift: true,
+                allowFormant: false
+            }
         },
         { mode: 'forward' }
     )

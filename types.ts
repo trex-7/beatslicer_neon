@@ -64,6 +64,9 @@ export interface GlitchParams {
     chaos: number; // 0 to 1 probability
     allowReverse: boolean;
     allowOctaveJump: boolean;
+    allowRatchet: boolean; // Randomly retrigger
+    pitchShift: boolean; // If true, transpose keeps sample length (Detune). If false, it behaves like Tape (Rate).
+    allowFormant: boolean; // Randomize grain size/window for formant/robotic textures
 }
 
 export interface AllParams extends GranularSynthParams, EffectParams {

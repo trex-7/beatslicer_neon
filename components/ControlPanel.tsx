@@ -5,6 +5,8 @@
 
 
 
+
+
 import React, { useState } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
@@ -364,15 +366,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                 <Slider 
                                     label="Fade In" min={0} max={0.2} step={0.001} 
-                                    value={currentSlice.fadeIn ?? 0} 
+                                    value={currentSlice.fadeIn ?? params.attack} 
                                     onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} 
-                                    disabled={disabled} unit="s" defaultValue={0.005}
+                                    disabled={disabled} unit="s" defaultValue={params.attack}
                                 />
                                 <Slider 
                                     label="Fade Out" min={0} max={0.5} step={0.001} 
-                                    value={currentSlice.fadeOut ?? 0} 
+                                    value={currentSlice.fadeOut ?? params.release} 
                                     onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} 
-                                    disabled={disabled} unit="s" defaultValue={0.01}
+                                    disabled={disabled} unit="s" defaultValue={params.release}
                                 />
                             </div>
                              <Slider 
@@ -445,23 +447,62 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 value={params.glitch?.chaos || 0}
                                 onChange={(v) => onParamChange('glitch', { ...params.glitch, chaos: v })}
                                 disabled={disabled}
-                                tooltip="Probability of random variations (Reverse, Octave Jumps) occurring on each step"
+                                tooltip="Probability of random variations occurring on each step"
                                 defaultValue={0}
                             />
-                            <div className="flex gap-2 mt-2">
-                                <button 
-                                    onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })}
-                                    className={`flex-1 py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
-                                >
-                                    Rev
-                                </button>
-                                <button 
-                                    onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })}
-                                    className={`flex-1 py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
-                                >
-                                    Octave
-                                </button>
+                            
+                            {/* Chaos Toggles */}
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                                <Tooltip text="Allow Random Repeats (Ratchet)">
+                                    <button 
+                                        onClick={() => onParamChange('glitch', { ...params.glitch, allowRatchet: !params.glitch.allowRatchet })}
+                                        className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowRatchet ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
+                                    >
+                                        Ratchet
+                                    </button>
+                                </Tooltip>
+                                
+                                <Tooltip text="Allow Random Reverse">
+                                    <button 
+                                        onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })}
+                                        className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
+                                    >
+                                        Rev
+                                    </button>
+                                </Tooltip>
+                                
+                                <Tooltip text="Allow Random Octave Jumps (+/- 1200 cents)">
+                                    <button 
+                                        onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })}
+                                        className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
+                                    >
+                                        Octave
+                                    </button>
+                                </Tooltip>
+                                
+                                <Tooltip text="Allow Random Grain Size Modulation (Robotic/Formant Textures)">
+                                    <button 
+                                        onClick={() => onParamChange('glitch', { ...params.glitch, allowFormant: !params.glitch.allowFormant })}
+                                        className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowFormant ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}
+                                    >
+                                        Formant
+                                    </button>
+                                </Tooltip>
                             </div>
+
+                            {/* Pitch Shift Mode Toggle */}
+                            <div className="mt-2 flex items-center justify-between bg-deep-space/40 rounded px-2 py-1 border border-white/5">
+                                <span className="text-[9px] text-star-dust/60 font-bold uppercase">Pitch Mode</span>
+                                <Tooltip text="Pitch Shift: Random pitch changes preserve length (Detune). Tape Speed: Pitch changes affect speed/length (Rate).">
+                                    <button 
+                                        onClick={() => onParamChange('glitch', { ...params.glitch, pitchShift: !params.glitch.pitchShift })}
+                                        className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors ${params.glitch.pitchShift ? 'bg-hyper-cyan text-deep-space' : 'bg-white/10 text-star-dust'}`}
+                                    >
+                                        {params.glitch.pitchShift ? 'P.SHIFT (Fixed Len)' : 'TAPE (Var Len)'}
+                                    </button>
+                                </Tooltip>
+                            </div>
+
                         </div>
                     </div>
                 </div>

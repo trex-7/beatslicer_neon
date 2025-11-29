@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
@@ -125,6 +124,8 @@ const App: React.FC = () => {
                                 onSliceToggle={toggleSliceActive}
                                 onRegionSlice={sliceRegion}
                                 onAutoSlice={autoSlice}
+                                onPlaySlice={playSliceRaw}
+                                onSliceTypeChange={(index, type) => updateSlice(index, { type })}
                            />
                         </div>
 

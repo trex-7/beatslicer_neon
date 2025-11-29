@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
@@ -29,10 +30,17 @@ const initialParams: AllParams = {
       isSynced: true,
       syncValue: '4n'
   },
-  distortion: { isActive: false, amount: 0, wet: 0 },
+  distortion: { isActive: true, amount: 1.0, wet: 0.1 }, // Updated Default: Enabled, High Drive, Low Mix
   compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 }, // Med Preset Default
   bitCrusher: { isActive: false, bits: 8, wet: 0 },
-  glitch: { chaos: 0, allowReverse: true, allowOctaveJump: true }
+  glitch: { 
+      chaos: 0, 
+      allowReverse: false, 
+      allowOctaveJump: true,
+      allowRatchet: true,
+      pitchShift: true, // Default to preserving length
+      allowFormant: true 
+  }
 };
 
 const generateDefaultSteps = (count: number): SequencerStep[] => {
@@ -242,8 +250,7 @@ const generateTransientSlices = (buffer: any, bpm: number, startTime: number = 0
                 isActive: true,
                 type: type,
                 level: 1.0,
-                fadeIn: 0.002, // Default micro-fade
-                fadeOut: 0.005
+                // Removed explicit defaults to allow global fallback
             });
         }
     }
@@ -355,12 +362,12 @@ export const useAudioEngine = () => {
             type: params.filter.type,
           });
 
-          // 2. DC Blocker / Safety Filter (HighPass @ 30Hz)
-          // This prevents low-frequency clicks/rumble when filter closes near 0Hz
+          // 2. DC Blocker / Safety Filter (HighPass @ 10Hz)
+          // Lowered to 10Hz and steeper rolloff to better handle sub-bass while removing DC
           effects.current.dcBlocker = new Tone.Filter({
-              frequency: 30,
+              frequency: 10,
               type: 'highpass',
-              rolloff: -12,
+              rolloff: -24,
               Q: 0.1 
           }).connect(effects.current.delay);
 
@@ -451,8 +458,9 @@ export const useAudioEngine = () => {
             }
         }
         
-        if (newParams.attack !== undefined) player.current.fadeIn = Math.max(0.002, updated.attack);
-        if (newParams.release !== undefined) player.current.fadeOut = Math.max(0.002, updated.release);
+        // Use 1ms minimum floor to prevent clicks
+        if (newParams.attack !== undefined) player.current.fadeIn = Math.max(0.001, updated.attack); 
+        if (newParams.release !== undefined) player.current.fadeOut = Math.max(0.001, updated.release);
     }
     
     // Effects Updates
@@ -588,15 +596,56 @@ export const useAudioEngine = () => {
                  let playbackRate = currentParams.playbackRate;
                  let reverse = reverseRef.current !== (slice.reverse || false);
                  let detune = currentParams.detune;
+                 let repeats = stepData.ratchet || 1;
                  
+                 // Reset Grain Size to standard (in case Formant changed it)
+                 player.current.grainSize = currentParams.grainSize;
+                 player.current.overlap = currentParams.overlap;
+
                  if (currentParams.glitch.chaos > 0 && Math.random() < currentParams.glitch.chaos) {
                      const roll = Math.random();
+                     
+                     // 1. Random Ratchet
+                     if (currentParams.glitch.allowRatchet && Math.random() < 0.4) {
+                         repeats = Math.floor(Math.random() * 3) + 2; // 2, 3, or 4
+                     }
+
+                     // 2. Formant / Robotic Texture (Random Grain Size)
+                     if (currentParams.glitch.allowFormant && Math.random() < 0.4) {
+                         // Extremely small or weird grain sizes create robotic formants
+                         player.current.grainSize = (Math.random() * 0.1) + 0.02;
+                         player.current.overlap = Math.random() * 0.1;
+                     }
+
+                     // 3. Reverse
                      if (currentParams.glitch.allowReverse && roll < 0.3) {
                          reverse = !reverse;
-                     } else if (currentParams.glitch.allowOctaveJump && roll < 0.6) {
-                         detune += (Math.random() > 0.5 ? 1200 : -1200);
-                     } else {
-                         playbackRate *= (0.8 + Math.random() * 0.4);
+                     } 
+                     
+                     // 4. Octave Jump (Kick Protected)
+                     else if (currentParams.glitch.allowOctaveJump && roll < 0.6) {
+                         // If "Pitch Shift" (Preserve Length) is ON, use Detune.
+                         // If "Pitch Shift" is OFF (Tape Mode), use PlaybackRate.
+                         if (currentParams.glitch.pitchShift) {
+                             const isKick = slice.type === 'kick';
+                             // Kicks only go UP (1200) or stay 0. Never down (-1200).
+                             const shift = isKick ? 1200 : (Math.random() > 0.5 ? 1200 : -1200);
+                             detune += shift;
+                         } else {
+                             // Tape Mode: 2x speed or 0.5x speed
+                             playbackRate *= (Math.random() > 0.5 ? 2.0 : 0.5);
+                         }
+                     } 
+                     
+                     // 5. Random Pitch Jitter (Non-Octave)
+                     else {
+                         if (currentParams.glitch.pitchShift) {
+                             // Random Detune (+/- 200 cents)
+                             detune += (Math.random() * 400) - 200;
+                         } else {
+                             // Random Speed Change
+                             playbackRate *= (0.8 + Math.random() * 0.4);
+                         }
                      }
                  }
 
@@ -610,14 +659,14 @@ export const useAudioEngine = () => {
                  const release = (slice.fadeOut !== undefined && slice.fadeOut >= 0) ? slice.fadeOut : currentParams.release;
                  
                  // CRITICAL FIX: Enforce minimum fade times to prevent clicks
-                 player.current.fadeIn = Math.max(0.002, attack);
-                 player.current.fadeOut = Math.max(0.002, release);
+                 // Use 1ms (0.001) as mandatory minimum instead of 5ms
+                 player.current.fadeIn = Math.max(0.001, attack);
+                 player.current.fadeOut = Math.max(0.001, release);
 
                  const levelDb = slice.level <= 0 ? -Infinity : 20 * Math.log10(slice.level);
                  setToneParam(player.current, 'volume', levelDb); 
 
                  // 2. Ratchet Logic
-                 const repeats = stepData.ratchet || 1;
                  const stepDuration = Tone.Time("16n").toSeconds();
                  const retriggerInterval = stepDuration / repeats;
 
@@ -639,6 +688,16 @@ export const useAudioEngine = () => {
 
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string) => {
     setIsLoading(true);
+
+    // FORCE CLEANUP OF DJ STATE
+    // This is critical to prevent "stuck" states (reverse, loops, stutter) from persisting to new file
+    if (djLoopRef.current) {
+        djLoopRef.current.dispose();
+        djLoopRef.current = null;
+    }
+    isDjModeRef.current = false;
+    reverseRef.current = false;
+
     if (player.current) {
       player.current.stop();
       player.current.dispose();
@@ -746,8 +805,8 @@ export const useAudioEngine = () => {
         overlap: currentParams.overlap,
         playbackRate: currentParams.playbackRate,
         detune: currentParams.detune,
-        fadeIn: Math.max(0.002, currentParams.attack),
-        fadeOut: Math.max(0.002, currentParams.release)
+        fadeIn: Math.max(0.001, currentParams.attack),
+        fadeOut: Math.max(0.001, currentParams.release)
       }).connect(effects.current.compressor); // Connect to Compressor instead of Tape
       
       // EXPLICIT PARAMETER ENFORCEMENT
@@ -758,6 +817,8 @@ export const useAudioEngine = () => {
          player.current.overlap = currentParams.overlap;
          player.current.playbackRate = currentParams.playbackRate;
          player.current.detune = currentParams.detune;
+         player.current.fadeIn = Math.max(0.001, currentParams.attack);
+         player.current.fadeOut = Math.max(0.001, currentParams.release);
          player.current.volume.value = 0;
       }
 
@@ -787,6 +848,15 @@ export const useAudioEngine = () => {
   // New Function: Load multiple files and stitch them into a "Tape" with manual slices
   const loadConstructionKit = useCallback(async (files: File[] | KitSample[], kitName: string) => {
       setIsLoading(true);
+      
+      // FORCE CLEANUP OF DJ STATE
+      if (djLoopRef.current) {
+          djLoopRef.current.dispose();
+          djLoopRef.current = null;
+      }
+      isDjModeRef.current = false;
+      reverseRef.current = false;
+
       if (player.current) {
         player.current.stop();
         player.current.dispose();
@@ -858,8 +928,7 @@ export const useAudioEngine = () => {
                   isActive: true,
                   type: b.type,
                   level: 1.0,
-                  fadeIn: 0.002,
-                  fadeOut: 0.01
+                  // Removed explicit defaults to allow global fallback
               });
 
               currentOffset += b.buffer.duration + padding;
@@ -906,8 +975,8 @@ export const useAudioEngine = () => {
               overlap: currentParams.overlap,  
               playbackRate: currentParams.playbackRate,
               detune: currentParams.detune,
-              fadeIn: 0.002,   
-              fadeOut: 0.05    
+              fadeIn: 0.001,   
+              fadeOut: 0.01    
           }).connect(effects.current.compressor); // Connect to Compressor
           
           // EXPLICIT PARAMETER ENFORCEMENT for Kit
@@ -916,6 +985,8 @@ export const useAudioEngine = () => {
             player.current.overlap = currentParams.overlap;
             player.current.playbackRate = currentParams.playbackRate;
             player.current.detune = currentParams.detune;
+            player.current.fadeIn = 0.001;
+            player.current.fadeOut = 0.01;
           }
 
           if (previewPlayer.current) {
@@ -1011,16 +1082,12 @@ export const useAudioEngine = () => {
     if (!audioBuffer) return;
     
     const rawBuffer = audioBuffer.get();
-    const channelData = rawBuffer.getChannelData(0);
-    const sampleRate = rawBuffer.sampleRate;
     
-    // Instead of snapping to zero-crossing, we just ensure valid bounds
-    // The visual editor might still feel snappy, but we don't enforce ZC on the engine level here
-    // to allow free slicing.
-    let newSlices = generateTransientSlices(audioBuffer, params.bpm, start, end);
-
-    if (newSlices.length === 0) {
-         newSlices = [{
+    // CHANGE: Manual slicing now strictly respects the user selection
+    // Removed generateTransientSlices to prevent auto-snapping (Zero Crossing Logic)
+    // This allows exact cuts but requires envelopes to prevent clicks.
+    
+    const newSlices = [{
             id: 0,
             offset: start,
             duration: end - start,
@@ -1028,10 +1095,8 @@ export const useAudioEngine = () => {
             type: classifySlice(rawBuffer, start, end - start),
             level: 1.0,
             reverse: false,
-            fadeIn: 0.005,
-            fadeOut: 0.005
-         }];
-    }
+            // Removed explicit defaults to allow global fallback
+    }];
 
     setSlices(newSlices);
     setSelectedSliceIndex(0);
@@ -1443,11 +1508,13 @@ export const useAudioEngine = () => {
           if (preset.slices.length > 0) lastPlayedSliceRef.current = preset.slices[0];
       }
 
+      // CRASH FIX: Safe access to sequencer data
+      const seqData = preset.sequencer || { steps: [], stepCount: 16, mode: 'forward' };
       setSequencer(prev => ({
           ...prev,
-          steps: preset.sequencer.steps,
-          stepCount: preset.sequencer.stepCount,
-          mode: preset.sequencer.mode,
+          steps: seqData.steps || [],
+          stepCount: seqData.stepCount || 16,
+          mode: seqData.mode || 'forward',
           currentStep: -1
       }));
 

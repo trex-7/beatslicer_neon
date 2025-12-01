@@ -1,13 +1,5 @@
 
-
-
-
-
-
-
-
-
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
 import EffectSection from './EffectSection';
@@ -32,7 +24,8 @@ interface ControlPanelProps {
     onPlaySlice: (index: number) => void;
     onLoopSlice: (index: number) => void;
     sliceLoopState: { index: number | null, isLooping: boolean };
-    audioBuffer: any; // Tone.AudioBuffer or native
+    audioBuffer: any;
+    isProMode: boolean;
 }
 
 const subdivisionOptions: { value: NoteSubdivision; label: string }[] = [
@@ -69,7 +62,7 @@ const PowerButton = ({ active, onClick, disabled }: { active: boolean, onClick: 
     </Tooltip>
 );
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ 
+const ControlPanel: React.FC<ControlPanelProps> = memo(({ 
     params, 
     onParamChange, 
     onEffectParamChange, 
@@ -82,12 +75,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     onPlaySlice,
     onLoopSlice,
     sliceLoopState,
-    audioBuffer
+    audioBuffer,
+    isProMode
 }) => {
     
     const [aiComplexity, setAiComplexity] = useState(0);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
+
+    // --- PRO MODE FUNCTIONS ---
 
     const updateSliceType = (type: SliceType) => {
         if (selectedSliceIndex !== null) onSliceUpdate(selectedSliceIndex, { type });
@@ -117,8 +113,253 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         }
     };
 
+    // --- SIMPLE MODE MACROS ---
+
+    const updateTextureMacro = (val: number) => {
+        // Val 0 (Smooth/Ambient) -> Val 1 (Choppy/Glitchy)
+        // Grain Size: 0.5 -> 0.02
+        // Overlap: 0.25 -> 0.01
+        const inv = 1 - val;
+        onParamChange('grainSize', 0.02 + (inv * 0.48));
+        onParamChange('overlap', 0.01 + (inv * 0.24));
+    };
+
+    const updateReverbMacro = (val: number) => {
+        // Space / Reverb
+        // Force active if val > 0
+        const isActive = val > 0; 
+        const newReverb = {
+            ...params.reverb,
+            isActive: isActive,
+            wet: Math.min(1, val * 1.2), // Boost wetness curve
+            decay: 0.5 + (val * 9.5) // 0.5s to 10s
+        };
+        onParamChange('reverb', newReverb);
+    };
+
+    const updateDelayMacro = (val: number) => {
+        // Echo / Delay
+        const isActive = val > 0;
+        const newDelay = {
+            ...params.delay,
+            isActive: isActive,
+            wet: Math.min(1, val * 1.0),
+            feedback: Math.min(0.9, val * 0.85)
+        };
+        onParamChange('delay', newDelay);
+    };
+
+    const updateDirtMacro = (val: number) => {
+        // Controls Distortion + BitCrush
+        const distAmount = val; 
+        const distWet = Math.min(0.6, val * 0.8);
+        const crushBits = 16 - (val * 12); // 16 down to 4 bits
+        const crushWet = val > 0.3 ? Math.min(0.5, (val - 0.3)) : 0;
+
+        const newDistortion = {
+            ...params.distortion,
+            isActive: val > 0,
+            amount: distAmount,
+            wet: distWet
+        };
+
+        const newBitCrusher = {
+            ...params.bitCrusher,
+            isActive: val > 0.3,
+            bits: Math.max(1, crushBits),
+            wet: crushWet
+        };
+
+        onParamChange('distortion', newDistortion);
+        onParamChange('bitCrusher', newBitCrusher);
+    };
+
+    const updateChaosMacro = (val: number) => {
+        onParamChange('glitch', {
+            ...params.glitch,
+            chaos: val,
+            allowRatchet: val > 0.2,
+            allowOctaveJump: val > 0.4,
+            allowReverse: val > 0.6,
+            allowFormant: val > 0.8
+        });
+    };
+
+    // --- RENDER ---
+
+    if (!isProMode) {
+        // ==========================================
+        //             SIMPLE MODE UI
+        // ==========================================
+        return (
+            <div className="space-y-6 animate-in fade-in duration-500">
+                {/* 1. Macro Controls */}
+                <div className="bg-deep-space/50 p-6 rounded-2xl border border-white/5 shadow-2xl">
+                    <div className="flex items-center gap-2 mb-6">
+                        <span className="text-2xl">🎛️</span>
+                        <h2 className="text-xl font-bold text-white uppercase tracking-widest">Sound Macros</h2>
+                    </div>
+                    
+                    {/* Grid updated to 5 columns for new Echo slider */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                         {/* Texture */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🌊</span>
+                            <label className="text-hyper-cyan font-bold uppercase tracking-widest text-xs">Texture</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                defaultValue={0.75}
+                                onChange={(e) => updateTextureMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-hyper-cyan [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(0,246,255,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Smooth</span>
+                                <span>Choppy</span>
+                            </div>
+                         </div>
+
+                         {/* Space (Reverb) */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🌌</span>
+                            <label className="text-purple-400 font-bold uppercase tracking-widest text-xs">Space</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                defaultValue={0}
+                                onChange={(e) => updateReverbMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(192,132,252,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Dry</span>
+                                <span>Cosmic</span>
+                            </div>
+                         </div>
+
+                         {/* Echo (Delay) */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🔁</span>
+                            <label className="text-blue-400 font-bold uppercase tracking-widest text-xs">Echo</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                defaultValue={0}
+                                onChange={(e) => updateDelayMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(96,165,250,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Dry</span>
+                                <span>Dub</span>
+                            </div>
+                         </div>
+
+                         {/* Dirt */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🔥</span>
+                            <label className="text-orange-500 font-bold uppercase tracking-widest text-xs">Grit</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                defaultValue={0}
+                                onChange={(e) => updateDirtMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(249,115,22,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Clean</span>
+                                <span>Dirty</span>
+                            </div>
+                         </div>
+
+                         {/* Chaos */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🎲</span>
+                            <label className="text-plasma-pink font-bold uppercase tracking-widest text-xs">Glitch</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={params.glitch?.chaos || 0}
+                                onChange={(e) => updateChaosMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-plasma-pink [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(255,0,170,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Safe</span>
+                                <span>Chaos</span>
+                            </div>
+                         </div>
+                    </div>
+                </div>
+
+                {/* 2. Magic Beat Generator (Simplified) */}
+                <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 p-6 rounded-2xl border border-white/10 flex flex-col md:flex-row items-center gap-6">
+                    <div className="flex-1 text-center md:text-left">
+                        <h3 className="text-2xl font-bold text-white mb-2">✨ Magic Pattern Generator</h3>
+                        <p className="text-star-dust/70">Don't want to program beats? Let the AI remix your slices instantly.</p>
+                    </div>
+                    <div className="flex gap-4">
+                         <button 
+                            onClick={() => generateAiBeat(0.2)} 
+                            className="px-6 py-4 bg-deep-space border border-hyper-cyan/30 text-hyper-cyan font-bold rounded-xl hover:bg-hyper-cyan hover:text-deep-space transition-all shadow-lg active:scale-95"
+                         >
+                            House Vibe
+                         </button>
+                         <button 
+                            onClick={() => generateAiBeat(0.5)} 
+                            className="px-6 py-4 bg-deep-space border border-purple-500/30 text-purple-400 font-bold rounded-xl hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95"
+                         >
+                            Breakbeat
+                         </button>
+                         <button 
+                            onClick={() => generateAiBeat(0.9)} 
+                            className="px-6 py-4 bg-deep-space border border-plasma-pink/30 text-plasma-pink font-bold rounded-xl hover:bg-plasma-pink hover:text-white transition-all shadow-lg active:scale-95"
+                         >
+                            Glitchy
+                         </button>
+                    </div>
+                </div>
+
+                {/* 3. Performance Pads (Simplified) */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <button 
+                        onMouseDown={() => djActions.triggerStutter('8n', true)}
+                        onMouseUp={() => djActions.triggerStutter('8n', false)}
+                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('8n', true); }}
+                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('8n', false); }}
+                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-hyper-cyan hover:bg-hyper-cyan hover:text-deep-space transition-all active:scale-95 shadow-lg"
+                    >
+                        🔁 Stutter
+                    </button>
+                    <button 
+                        onMouseDown={() => djActions.triggerReverse(true)} 
+                        onMouseUp={() => djActions.triggerReverse(false)}
+                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerReverse(true); }}
+                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerReverse(false); }}
+                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-yellow-400 hover:bg-yellow-400 hover:text-deep-space transition-all active:scale-95 shadow-lg"
+                    >
+                        Rewind ⏪
+                    </button>
+                    <button 
+                        onMouseDown={() => djActions.triggerTapeStop(true)} 
+                        onMouseUp={() => djActions.triggerTapeStop(false)}
+                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerTapeStop(true); }}
+                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerTapeStop(false); }}
+                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-red-500 hover:bg-red-500 hover:text-white transition-all active:scale-95 shadow-lg"
+                    >
+                        STOP 🛑
+                    </button>
+                     <button 
+                        onMouseDown={() => djActions.triggerFill('scatter', true)}
+                        onMouseUp={() => djActions.triggerFill('scatter', false)}
+                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerFill('scatter', true); }}
+                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerFill('scatter', false); }}
+                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-purple-400 hover:bg-purple-500 hover:text-white transition-all active:scale-95 shadow-lg"
+                    >
+                        Fill 💥
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    //             PRO MODE UI (Legacy)
+    // ==========================================
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in duration-500">
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* DJ Performance Section */}
@@ -716,6 +957,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
         </div>
     );
-};
+});
 
 export default ControlPanel;

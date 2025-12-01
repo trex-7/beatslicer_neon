@@ -1,5 +1,5 @@
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, memo } from 'react';
 import Tooltip from './Tooltip';
 import { DEMO_LOOPS, DEMO_KITS } from '../utils/demoLoops';
 import { FACTORY_PRESETS } from '../utils/factoryPresets';
@@ -10,9 +10,8 @@ import {
     uploadSampleToCloud, 
     deleteCloudPreset, 
     deleteCloudSample, 
-    deleteBulkPresets, 
-    deleteBulkSamples, 
-    type CloudItem 
+    type CloudItem,
+    type DeleteResult
 } from '../utils/db';
 import type { KitSample, Preset } from '../types';
 import Auth from './Auth';
@@ -22,13 +21,11 @@ interface LibraryManagerProps {
     onFileLoad: (file: File) => void;
     onKitLoad: (files: File[] | KitSample[], name: string) => void;
     onDemoLoad: (url: string, name: string) => void;
-    onExport: (name: string) => Promise<string>; // Returns JSON string
+    onExport: (name: string) => Promise<string>;
     onImport: (json: string) => Promise<void>;
     onLoadPreset: (preset: Preset) => void;
     getAudioWav: () => Promise<Blob | null>;
     isLoading: boolean;
-    onPreviewToggle: () => void;
-    isPreviewing: boolean;
     sampleName: string;
 }
 
@@ -36,8 +33,8 @@ const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
 
 type TabView = 'dashboard' | 'my_presets' | 'my_samples' | 'factory' | 'community';
 
-const LibraryManager: React.FC<LibraryManagerProps> = ({ 
-    onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, onPreviewToggle, isPreviewing, sampleName
+const LibraryManager: React.FC<LibraryManagerProps> = memo(({ 
+    onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, sampleName
 }) => {
     // Hidden Input Refs
     const audioInputRef = useRef<HTMLInputElement>(null);
@@ -59,6 +56,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
     const [activeTab, setActiveTab] = useState<TabView>('dashboard');
     const [projectName, setProjectName] = useState("My Groove");
     const [isProcessing, setIsProcessing] = useState(false);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     
     // Upload Progress State
@@ -104,6 +102,8 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
         loadLibraryData();
     }, [user, isOpen]);
 
+    // Admin Check
+    const isAdmin = user && user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
 
     // --- ACTION HANDLERS (Files) ---
 
@@ -257,35 +257,62 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
     // --- DELETION ---
 
     const handleDelete = async (item: CloudItem) => {
-        if (!window.confirm(`Permanently delete "${item.label}"?`)) return;
+        if (deletingId) return; // Prevent double click
+        console.log(`[Library] Deleting item ${item.id} (${item.type}) by user ${user?.id}`);
         
-        // Optimistic UI Update: Remove immediately from list
+        setDeletingId(item.id);
+
+        // Optimistic UI Update
+        const revertState = {
+            userPresets, publicPresets, factoryPresets,
+            userSamples, publicSamples, factorySamples
+        };
+
         if (item.type === 'preset') {
             setUserPresets(prev => prev.filter(p => p.id !== item.id));
+            setPublicPresets(prev => prev.filter(p => p.id !== item.id));
+            setFactoryPresets(prev => prev.filter(p => p.id !== item.id));
         } else {
             setUserSamples(prev => prev.filter(s => s.id !== item.id));
+            setPublicSamples(prev => prev.filter(s => s.id !== item.id));
+            setFactorySamples(prev => prev.filter(s => s.id !== item.id));
         }
 
-        setIsProcessing(true);
-        let success = false;
-        if (item.type === 'preset') success = await deleteCloudPreset(item.id);
-        else success = await deleteCloudSample(item.id);
-
-        if (!success) {
-            alert("Delete failed on server. Item will be restored.");
-            // Revert state by reloading from server
-            await loadLibraryData();
+        let result: DeleteResult = { success: false };
+        
+        if (item.type === 'preset') {
+            result = await deleteCloudPreset(item.id);
         } else {
-            // Success: We can optionally reload silently to ensure sync, 
-            // but for UX speed we trust the optimistic update.
-            // setTimeout(() => loadLibraryData(), 2000); 
+            result = await deleteCloudSample(item.id, item.url);
         }
-        setIsProcessing(false);
+
+        if (!result.success) {
+            console.warn("Delete failed, reverting UI:", result.error);
+            
+            // Handle known RLS error format
+            const msg = result.error || "Unknown Error";
+            if (msg.includes("Permission Denied") || msg.includes("0 rows")) {
+                alert(`Delete Failed: The Database RLS Policy prevented this action.\n\nEven as an App Admin, you cannot delete rows owned by other users unless the Backend SQL Policy explicitly allows it.`);
+            } else {
+                alert(`Delete failed: ${msg}`);
+            }
+            
+            // Revert state
+            setUserPresets(revertState.userPresets);
+            setPublicPresets(revertState.publicPresets);
+            setFactoryPresets(revertState.factoryPresets);
+            setUserSamples(revertState.userSamples);
+            setPublicSamples(revertState.publicSamples);
+            setFactorySamples(revertState.factorySamples);
+        } else {
+            console.log(`[Library] Deleted item ${item.id} successfully`);
+        }
+        setDeletingId(null);
     };
 
     // --- ADMIN BULK UPLOAD ---
     const handleBulkUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []);
+        const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
         if (files.length === 0 || !user) return;
 
@@ -310,8 +337,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
         await loadLibraryData();
     };
 
-    const isAdmin = user && ADMIN_EMAILS.includes(user.email?.toLowerCase());
-
     // --- RENDER HELPERS ---
 
     const renderList = (items: CloudItem[], canDelete: boolean = false) => {
@@ -322,7 +347,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
         return (
             <div className="grid grid-cols-1 gap-2">
                 {filtered.map(item => (
-                    <div key={item.id} className="flex items-center justify-between p-3 rounded-lg bg-deep-space/40 border border-white/5 hover:bg-white/5 transition-colors group">
+                    <div 
+                        key={item.id} 
+                        className={`flex items-center justify-between p-3 rounded-lg bg-deep-space/40 border border-white/5 hover:bg-white/5 transition-colors group ${deletingId === item.id ? 'opacity-50 pointer-events-none bg-red-900/10' : ''}`}
+                    >
                         <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => loadCloudItem(item)}>
                             <div className={`w-8 h-8 rounded flex items-center justify-center text-lg ${item.type === 'preset' ? 'bg-hyper-cyan/10 text-hyper-cyan' : 'bg-plasma-pink/10 text-plasma-pink'}`}>
                                 {item.type === 'preset' ? '🎛️' : '💿'}
@@ -336,6 +364,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                         </div>
                         <div className="flex items-center gap-2">
                             <button 
+                                type="button"
                                 onClick={() => loadCloudItem(item)}
                                 className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded transition-colors"
                             >
@@ -343,11 +372,23 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                             </button>
                             {canDelete && (
                                 <button 
-                                    onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
-                                    className="p-1.5 text-star-dust hover:text-red-500 transition-colors"
+                                    type="button"
+                                    onClick={(e) => { 
+                                        e.preventDefault();
+                                        e.stopPropagation(); 
+                                        handleDelete(item); 
+                                    }}
+                                    disabled={deletingId === item.id}
+                                    className="p-2 text-white/50 hover:text-red-500 hover:bg-white/5 rounded-full transition-colors z-10"
                                     title="Delete"
                                 >
-                                    ✕
+                                    {deletingId === item.id ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    )}
                                 </button>
                             )}
                         </div>
@@ -389,18 +430,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
 
                 {/* Right: Actions */}
                 <div className="flex items-center gap-2 sm:gap-4">
-                    <Tooltip text="Preview Raw Audio">
-                        <button 
-                            onClick={onPreviewToggle}
-                            className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all ${isPreviewing ? 'border-plasma-pink text-plasma-pink animate-pulse' : 'border-white/10 text-white/50 hover:bg-white/10'}`}
-                        >
-                            ▶
-                        </button>
-                    </Tooltip>
-
                     <Auth user={user} />
 
                     <button 
+                        type="button"
                         onClick={() => setIsOpen(true)}
                         className="bg-white/10 hover:bg-white/20 text-white border border-white/10 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-lg hover:shadow-hyper-cyan/20 hover:border-hyper-cyan/30 flex items-center gap-2"
                     >
@@ -429,6 +462,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                 <nav className="flex-1 p-2 space-y-1">
                                     <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-3 py-2 hidden sm:block">Project</div>
                                     <button 
+                                        type="button"
                                         onClick={() => setActiveTab('dashboard')}
                                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}
                                     >
@@ -439,6 +473,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                     
                                     <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-3 py-2 hidden sm:block">My Library</div>
                                     <button 
+                                        type="button"
                                         onClick={() => setActiveTab('my_presets')}
                                         disabled={!user}
                                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'my_presets' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-star-dust hover:bg-white/5 hover:text-white disabled:opacity-30'}`}
@@ -446,6 +481,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                         <span className="text-lg">🎛️</span> <span className="hidden sm:inline">My Presets</span>
                                     </button>
                                     <button 
+                                        type="button"
                                         onClick={() => setActiveTab('my_samples')}
                                         disabled={!user}
                                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'my_samples' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-star-dust hover:bg-white/5 hover:text-white disabled:opacity-30'}`}
@@ -457,12 +493,14 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
 
                                     <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-3 py-2 hidden sm:block">Explore</div>
                                     <button 
+                                        type="button"
                                         onClick={() => setActiveTab('factory')}
                                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'factory' ? 'bg-plasma-pink/10 text-plasma-pink border border-plasma-pink/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}
                                     >
                                         <span className="text-lg">🏭</span> <span className="hidden sm:inline">Factory</span>
                                     </button>
                                     <button 
+                                        type="button"
                                         onClick={() => setActiveTab('community')}
                                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'community' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}
                                     >
@@ -473,6 +511,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                 {isAdmin && (
                                     <div className="p-2 border-t border-white/5">
                                         <button 
+                                            type="button"
                                             onClick={() => bulkUploadRef.current?.click()}
                                             className="w-full flex items-center justify-center gap-2 p-2 bg-white/5 hover:bg-white/10 rounded border border-white/5 text-xs text-white/50 hover:text-white"
                                             title="Admin Bulk Upload"
@@ -496,21 +535,21 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                             {/* Local Actions */}
                                             <div className="space-y-4">
                                                 <h3 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest border-b border-white/10 pb-2">Local Actions</h3>
-                                                <button onClick={() => { onLoadPreset(FACTORY_PRESETS[0]); setProjectName("Init Project"); setIsOpen(false); }} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
+                                                <button type="button" onClick={() => { onLoadPreset(FACTORY_PRESETS[0]); setProjectName("Init Project"); setIsOpen(false); }} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
                                                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl group-hover:bg-hyper-cyan group-hover:text-black transition-colors">✨</div>
                                                     <div>
                                                         <div className="font-bold text-white">New Project</div>
                                                         <div className="text-xs text-star-dust">Initialize a blank state</div>
                                                     </div>
                                                 </button>
-                                                <button onClick={() => audioInputRef.current?.click()} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
+                                                <button type="button" onClick={() => audioInputRef.current?.click()} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
                                                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl group-hover:bg-hyper-cyan group-hover:text-black transition-colors">📂</div>
                                                     <div>
                                                         <div className="font-bold text-white">Load Audio File</div>
                                                         <div className="text-xs text-star-dust">Import WAV, MP3, AIFF loop</div>
                                                     </div>
                                                 </button>
-                                                 <button onClick={() => kitFolderInputRef.current?.click()} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
+                                                 <button type="button" onClick={() => kitFolderInputRef.current?.click()} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-hyper-cyan/50 rounded-xl text-left flex items-center gap-4 transition-all group">
                                                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl group-hover:bg-hyper-cyan group-hover:text-black transition-colors">🥁</div>
                                                     <div>
                                                         <div className="font-bold text-white">Import Kit Folder</div>
@@ -522,7 +561,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                             {/* Save Actions */}
                                             <div className="space-y-4">
                                                 <h3 className="text-xs font-bold text-plasma-pink uppercase tracking-widest border-b border-white/10 pb-2">Save & Export</h3>
-                                                <button onClick={handleProjectDownload} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-plasma-pink/50 rounded-xl text-left flex items-center gap-4 transition-all group">
+                                                <button type="button" onClick={handleProjectDownload} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-plasma-pink/50 rounded-xl text-left flex items-center gap-4 transition-all group">
                                                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl group-hover:bg-plasma-pink group-hover:text-white transition-colors">📦</div>
                                                     <div>
                                                         <div className="font-bold text-white">Download Project ZIP</div>
@@ -531,7 +570,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                                 </button>
                                                 
                                                 {user ? (
-                                                    <button onClick={() => handleCloudSave(false)} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-plasma-pink/50 rounded-xl text-left flex items-center gap-4 transition-all group">
+                                                    <button type="button" onClick={() => handleCloudSave(false)} className="w-full p-4 bg-deep-space/60 border border-white/10 hover:border-plasma-pink/50 rounded-xl text-left flex items-center gap-4 transition-all group">
                                                         <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl group-hover:bg-plasma-pink group-hover:text-white transition-colors">☁️</div>
                                                         <div>
                                                             <div className="font-bold text-white">Save to Cloud</div>
@@ -545,7 +584,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                                     </div>
                                                 )}
 
-                                                <button onClick={() => presetInputRef.current?.click()} className="w-full p-3 text-xs text-star-dust hover:text-white border border-dashed border-white/10 rounded-lg hover:bg-white/5 transition-colors">
+                                                <button type="button" onClick={() => presetInputRef.current?.click()} className="w-full p-3 text-xs text-star-dust hover:text-white border border-dashed border-white/10 rounded-lg hover:bg-white/5 transition-colors">
                                                     Import JSON Preset File...
                                                 </button>
                                             </div>
@@ -581,24 +620,24 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                                                         <span className="text-lg">⭐</span>
                                                                         <div className="font-bold text-white group-hover:text-plasma-pink transition-colors">{p.name}</div>
                                                                     </div>
-                                                                    <button className="px-3 py-1 text-xs bg-white/10 rounded text-white">LOAD</button>
+                                                                    <button type="button" className="px-3 py-1 text-xs bg-white/10 rounded text-white">LOAD</button>
                                                                 </div>
                                                             ))}
-                                                            {renderList(factoryPresets)}
+                                                            {renderList(factoryPresets, isAdmin)}
                                                         </div>
                                                     </div>
                                                     <div>
                                                         <h3 className="text-xs font-bold text-white/50 mb-3 uppercase">Samples</h3>
-                                                        {renderList(factorySamples)}
+                                                        {renderList(factorySamples, isAdmin)}
                                                     </div>
                                                     <div>
                                                         <h3 className="text-xs font-bold text-white/50 mb-3 uppercase">Legacy Demos</h3>
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                                             {DEMO_LOOPS.map((l,i) => (
-                                                                <button key={i} onClick={() => loadLegacy('loop', l)} className="p-2 text-left bg-white/5 hover:bg-white/10 rounded text-xs text-star-dust hover:text-white">🎵 {l.name}</button>
+                                                                <button type="button" key={i} onClick={() => loadLegacy('loop', l)} className="p-2 text-left bg-white/5 hover:bg-white/10 rounded text-xs text-star-dust hover:text-white">🎵 {l.name}</button>
                                                             ))}
                                                             {DEMO_KITS.map((k,i) => (
-                                                                <button key={i} onClick={() => loadLegacy('kit', k)} className="p-2 text-left bg-white/5 hover:bg-white/10 rounded text-xs text-star-dust hover:text-white">🥁 {k.name}</button>
+                                                                <button type="button" key={i} onClick={() => loadLegacy('kit', k)} className="p-2 text-left bg-white/5 hover:bg-white/10 rounded text-xs text-star-dust hover:text-white">🥁 {k.name}</button>
                                                             ))}
                                                         </div>
                                                     </div>
@@ -608,11 +647,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                                                 <div className="space-y-6">
                                                     <div>
                                                         <h3 className="text-xs font-bold text-white/50 mb-3 uppercase">Community Presets</h3>
-                                                        {renderList(publicPresets)}
+                                                        {renderList(publicPresets, isAdmin)}
                                                     </div>
                                                     <div>
                                                         <h3 className="text-xs font-bold text-white/50 mb-3 uppercase">Community Samples</h3>
-                                                        {renderList(publicSamples)}
+                                                        {renderList(publicSamples, isAdmin)}
                                                     </div>
                                                 </div>
                                             )}
@@ -646,13 +685,13 @@ const LibraryManager: React.FC<LibraryManagerProps> = ({
                             <div className="text-center"><div className="text-2xl font-bold text-red-400">{uploadProgress.failed}</div><div className="text-[10px] uppercase text-white/50">Failed</div></div>
                         </div>
                         {uploadProgress.complete && (
-                            <button onClick={() => setUploadProgress(p => ({ ...p, active: false }))} className="w-full py-2 bg-hyper-cyan text-black font-bold rounded hover:bg-white transition-colors">CLOSE</button>
+                            <button type="button" onClick={() => setUploadProgress(p => ({ ...p, active: false }))} className="w-full py-2 bg-hyper-cyan text-black font-bold rounded hover:bg-white transition-colors">CLOSE</button>
                         )}
                     </div>
                 </div>
             )}
         </>
     );
-};
+});
 
 export default LibraryManager;

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { SequencerState, SequencerMode, SequencerStep } from '../types';
 import Tooltip from './Tooltip';
@@ -11,6 +12,7 @@ interface SequencerProps {
     onEditModeToggle: (mode: 'trigger' | 'ratchet') => void;
     disabled: boolean;
     selectedSliceIndex: number | null;
+    isProMode: boolean;
 }
 
 const Sequencer: React.FC<SequencerProps> = ({ 
@@ -21,7 +23,8 @@ const Sequencer: React.FC<SequencerProps> = ({
     onRandomize,
     onEditModeToggle,
     disabled,
-    selectedSliceIndex
+    selectedSliceIndex,
+    isProMode
 }) => {
     
     const modes: SequencerMode[] = ['forward', 'backward', 'pendulum', 'random'];
@@ -30,6 +33,12 @@ const Sequencer: React.FC<SequencerProps> = ({
     const currentEditMode = sequencer.editMode || 'trigger';
 
     const handleStepClick = (index: number, currentStep: SequencerStep) => {
+        if (!isProMode) {
+            // Simple mode: Always toggle Trigger
+             onStepChange(index, { active: !currentStep.active });
+             return;
+        }
+
         if (currentEditMode === 'trigger') {
             onStepChange(index, { active: !currentStep.active });
         } else {
@@ -56,65 +65,71 @@ const Sequencer: React.FC<SequencerProps> = ({
                         Sequencer
                     </h3>
                     
-                    {/* Edit Mode Toggle */}
-                    <div className="flex bg-deep-space rounded border border-white/20 overflow-hidden">
-                         <Tooltip text="Click steps to toggle On/Off">
-                            <button 
-                                onClick={() => onEditModeToggle('trigger')}
-                                className={`px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${currentEditMode === 'trigger' ? 'bg-hyper-cyan text-deep-space' : 'text-star-dust hover:bg-white/10'}`}
-                            >
-                                Trigger
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="Click steps to set Retriggers (1x, 2x, 3x, 4x)">
-                            <button 
-                                onClick={() => onEditModeToggle('ratchet')}
-                                className={`px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${currentEditMode === 'ratchet' ? 'bg-plasma-pink text-white' : 'text-star-dust hover:bg-white/10'}`}
-                            >
-                                Ratchet
-                            </button>
-                         </Tooltip>
-                    </div>
+                    {/* Edit Mode Toggle - ONLY IN PRO MODE */}
+                    {isProMode && (
+                        <div className="flex bg-deep-space rounded border border-white/20 overflow-hidden">
+                             <Tooltip text="Click steps to toggle On/Off">
+                                <button 
+                                    onClick={() => onEditModeToggle('trigger')}
+                                    className={`px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${currentEditMode === 'trigger' ? 'bg-hyper-cyan text-deep-space' : 'text-star-dust hover:bg-white/10'}`}
+                                >
+                                    Trigger
+                                </button>
+                            </Tooltip>
+                            <Tooltip text="Click steps to set Retriggers (1x, 2x, 3x, 4x)">
+                                <button 
+                                    onClick={() => onEditModeToggle('ratchet')}
+                                    className={`px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${currentEditMode === 'ratchet' ? 'bg-plasma-pink text-white' : 'text-star-dust hover:bg-white/10'}`}
+                                >
+                                    Ratchet
+                                </button>
+                             </Tooltip>
+                        </div>
+                    )}
                 </div>
                 
                 <div className="flex gap-2 items-center flex-wrap">
-                     {/* Step Count Selector */}
-                     <div className="flex bg-nebula-blue/50 rounded-md p-0.5">
-                        {[8, 16, 32].map((count) => (
-                            <Tooltip key={count} text={`Set sequence length to ${count} steps`}>
-                                <button
-                                    onClick={() => onStepCountChange(count as 8|16|32)}
-                                    disabled={disabled}
-                                    className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
-                                        sequencer.stepCount === count 
-                                        ? 'bg-hyper-cyan text-deep-space' 
-                                        : 'text-star-dust hover:bg-white/10'
-                                    }`}
-                                >
-                                    {count}
-                                </button>
-                            </Tooltip>
-                        ))}
-                    </div>
+                     {/* Step Count Selector - ONLY IN PRO MODE */}
+                     {isProMode && (
+                         <div className="flex bg-nebula-blue/50 rounded-md p-0.5">
+                            {[8, 16, 32].map((count) => (
+                                <Tooltip key={count} text={`Set sequence length to ${count} steps`}>
+                                    <button
+                                        onClick={() => onStepCountChange(count as 8|16|32)}
+                                        disabled={disabled}
+                                        className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
+                                            sequencer.stepCount === count 
+                                            ? 'bg-hyper-cyan text-deep-space' 
+                                            : 'text-star-dust hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {count}
+                                    </button>
+                                </Tooltip>
+                            ))}
+                        </div>
+                     )}
 
-                    {/* Mode Selector */}
-                    <div className="flex bg-nebula-blue/50 rounded-md p-0.5">
-                        {modes.map((m) => (
-                             <Tooltip key={m} text={`Set playback direction: ${m}`}>
-                                <button
-                                    onClick={() => onModeChange(m)}
-                                    disabled={disabled}
-                                    className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded transition-colors ${
-                                        sequencer.mode === m
-                                        ? 'bg-plasma-pink text-white' 
-                                        : 'text-star-dust hover:bg-white/10'
-                                    }`}
-                                >
-                                    {m}
-                                </button>
-                            </Tooltip>
-                        ))}
-                    </div>
+                    {/* Mode Selector - ONLY IN PRO MODE */}
+                    {isProMode && (
+                        <div className="flex bg-nebula-blue/50 rounded-md p-0.5">
+                            {modes.map((m) => (
+                                 <Tooltip key={m} text={`Set playback direction: ${m}`}>
+                                    <button
+                                        onClick={() => onModeChange(m)}
+                                        disabled={disabled}
+                                        className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded transition-colors ${
+                                            sequencer.mode === m
+                                            ? 'bg-plasma-pink text-white' 
+                                            : 'text-star-dust hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {m}
+                                    </button>
+                                </Tooltip>
+                            ))}
+                        </div>
+                    )}
 
                     <Tooltip text="Randomize step activity and slice assignments">
                         <button 
@@ -129,7 +144,7 @@ const Sequencer: React.FC<SequencerProps> = ({
             </div>
 
             {/* Steps Grid */}
-            <div className={`grid gap-1.5 grid-cols-8 sm:grid-cols-16 pb-1`}>
+            <div className={`grid gap-1.5 grid-cols-8 ${sequencer.stepCount > 16 ? 'sm:grid-cols-16' : 'sm:grid-cols-8 md:grid-cols-16'} pb-1`}>
                 {sequencer.steps.map((step, index) => {
                     const isActiveStep = sequencer.currentStep === index;
                     return (
@@ -138,7 +153,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                             <div className={`w-full h-1 rounded-full mb-0.5 transition-colors duration-75 ${isActiveStep ? 'bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)]' : 'bg-transparent'}`}></div>
                             
                             {/* Step Button */}
-                            <Tooltip text={currentEditMode === 'ratchet' ? `Ratchets: ${step.ratchet || 1}x` : `Toggle step ${index + 1}`}>
+                            <Tooltip text={isProMode && currentEditMode === 'ratchet' ? `Ratchets: ${step.ratchet || 1}x` : `Toggle step ${index + 1}`}>
                                 <button
                                     onClick={() => handleStepClick(index, step)}
                                     disabled={disabled}
@@ -151,7 +166,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     <div className={`w-1.5 h-1.5 rounded-full ${step.active ? 'bg-deep-space' : 'bg-white/10'}`}></div>
                                     
                                     {/* Ratchet Indicator Overlay */}
-                                    {step.active && step.ratchet && step.ratchet > 1 && (
+                                    {isProMode && step.active && step.ratchet && step.ratchet > 1 && (
                                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                             <span className="text-[9px] font-bold text-deep-space bg-white/90 px-0.5 rounded leading-none">x{step.ratchet}</span>
                                         </div>
@@ -159,20 +174,22 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 </button>
                             </Tooltip>
                             
-                            {/* Slice Assignment Button */}
-                            <Tooltip text={`Assign selected slice to step ${index + 1}`}>
-                                <button 
-                                    onClick={() => handleSliceAssign(index)}
-                                    disabled={disabled}
-                                    className={`w-full py-0.5 text-[9px] font-mono rounded border transition-colors 
-                                        ${step.sliceIndex === selectedSliceIndex 
-                                            ? 'bg-white/20 text-white border-white/50' 
-                                            : 'bg-nebula-blue/30 text-white/50 border-white/5 hover:bg-white/10 hover:text-white'}
-                                    `}
-                                >
-                                    {step.sliceIndex}
-                                </button>
-                            </Tooltip>
+                            {/* Slice Assignment Button - ONLY PRO MODE */}
+                            {isProMode && (
+                                <Tooltip text={`Assign selected slice to step ${index + 1}`}>
+                                    <button 
+                                        onClick={() => handleSliceAssign(index)}
+                                        disabled={disabled}
+                                        className={`w-full py-0.5 text-[9px] font-mono rounded border transition-colors 
+                                            ${step.sliceIndex === selectedSliceIndex 
+                                                ? 'bg-white/20 text-white border-white/50' 
+                                                : 'bg-nebula-blue/30 text-white/50 border-white/5 hover:bg-white/10 hover:text-white'}
+                                        `}
+                                    >
+                                        {step.sliceIndex}
+                                    </button>
+                                </Tooltip>
+                            )}
                         </div>
                     );
                 })}

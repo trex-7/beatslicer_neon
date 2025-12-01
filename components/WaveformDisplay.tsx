@@ -18,6 +18,9 @@ interface WaveformDisplayProps {
     onAutoSlice?: () => void;
     onPlaySlice: (index: number) => void;
     onSliceTypeChange: (index: number, type: SliceType) => void;
+    onPreviewToggle: () => void;
+    isPreviewing: boolean;
+    isProMode: boolean;
 }
 
 const WaveformDisplay: React.FC<WaveformDisplayProps> = ({ 
@@ -32,7 +35,10 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     onSliceToggle,
     onRegionSlice,
     onPlaySlice,
-    onSliceTypeChange
+    onSliceTypeChange,
+    onPreviewToggle,
+    isPreviewing,
+    isProMode
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
@@ -62,14 +68,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         return () => resizeObserver.disconnect();
     }, []);
 
-    // Drag Logic
+    // Drag Logic - DISABLED IN SIMPLE MODE (Prevents accidental slicing)
     useEffect(() => {
+        if (!isProMode) return; 
+
         const handleWindowMouseMove = (e: MouseEvent) => {
             if (dragStart !== null && svgRef.current) {
                  const rect = svgRef.current.getBoundingClientRect();
-                 // Calculate X relative to SVG content
                  let x = e.clientX - rect.left;
-                 // Clamp to visible width
                  x = Math.max(0, Math.min(x, rect.width));
                  setDragCurrent(x);
             }
@@ -84,8 +90,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                  const startX = Math.min(dragStart, currentX);
                  const endX = Math.max(dragStart, currentX);
                  
-                 // Only trigger slice if drag distance is significant (> 5px)
-                 // This prevents accidental slices when clicking to select existing slices
                  if (endX - startX > 5) {
                      const totalWidth = rect.width; 
                      const startTime = (startX / totalWidth) * audioBuffer.duration;
@@ -106,11 +110,10 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             window.removeEventListener('mousemove', handleWindowMouseMove);
             window.removeEventListener('mouseup', handleWindowMouseUp);
         };
-    }, [dragStart, audioBuffer, onRegionSlice]);
+    }, [dragStart, audioBuffer, onRegionSlice, isProMode]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (!audioBuffer) return;
-        // Only start drag if we clicked directly on the SVG (not a child that stopped propagation)
+        if (!audioBuffer || !isProMode) return; // Only allow custom slicing in Pro Mode
         const rect = svgRef.current!.getBoundingClientRect();
         const x = e.clientX - rect.left;
         setDragStart(x);
@@ -122,11 +125,9 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         if (!svgRef.current) return;
         const svg = d3.select(svgRef.current);
         
-        // Setup Defs and Layers if they don't exist
         if (svg.select("#defs-layer").empty()) {
             const defs = svg.append("defs").attr("id", "defs-layer");
             
-            // Pattern for disabled slices
             defs.append("pattern")
                 .attr("id", "disabled-pattern")
                 .attr("patternUnits", "userSpaceOnUse")
@@ -137,16 +138,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 .attr("stroke", "#444")
                 .attr("stroke-width", 1);
 
-            // Layer order determines z-index
-            // REORDERED: Slices background first, then waveform on top
             svg.append("g").attr("id", "slices-layer");
             svg.append("g").attr("id", "waveform-layer");
             svg.append("g").attr("id", "playback-layer");
-            svg.append("g").attr("id", "selection-layer"); // Add selection layer on top
+            svg.append("g").attr("id", "selection-layer"); 
         }
     }, []);
 
-    // 1. Draw Waveform (Heavy Computation)
+    // 1. Draw Waveform
     useEffect(() => {
         if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
 
@@ -155,12 +154,11 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 192; // Match the new h-48
+        const height = 192; 
 
         const channelData = audioBuffer.getChannelData(0);
         const samples = Math.floor(channelData.length / totalWidth);
         
-        // Downsample for display
         const downsampledData: number[] = [];
         for (let i = 0; i < totalWidth; i++) {
             let max = 0;
@@ -174,7 +172,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
 
         const x = d3.scaleLinear().domain([0, downsampledData.length]).range([0, totalWidth]);
         
-        // Changed from AREA to LINE/STROKE Logic for transparency
         const area = d3.area()
             .x((d: any, i: number) => x(i))
             .y0(height / 2)
@@ -185,14 +182,12 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             .y0(height / 2)
             .y1((d: any) => height/2 - (d * height/2));
             
-        // Render Waveform as a stroke-heavy shape with low fill opacity
-        // This allows the slice colors underneath to be very visible
         layer.append('path')
             .datum(downsampledData)
             .attr('d', area)
             .attr('fill', '#ffffff')
-            .attr('fill-opacity', 0.15) // Transparent fill
-            .attr('stroke', '#ffffff')    // Crisp outline
+            .attr('fill-opacity', 0.15) 
+            .attr('stroke', '#ffffff')   
             .attr('stroke-width', 0.5)
             .attr('opacity', 1.0);
 
@@ -205,9 +200,9 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             .attr('stroke-width', 0.5)
             .attr('opacity', 1.0);
         
-    }, [audioBuffer, containerWidth, zoom]); // Only redraw waveform if buffer/zoom changes
+    }, [audioBuffer, containerWidth, zoom]); 
 
-    // 2. Draw Slices Overlay (Medium Computation)
+    // 2. Draw Slices Overlay
     useEffect(() => {
         if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
         const svg = d3.select(svgRef.current);
@@ -215,15 +210,15 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 192; // Match h-48
+        const height = 192; 
         const duration = audioBuffer.duration;
         
         const getTypeColor = (type: SliceType) => {
             switch (type) {
-                case 'kick': return '#ef4444'; // Red-500
-                case 'snare': return '#eab308'; // Yellow-500
-                case 'hihat': return '#00f6ff'; // Cyan
-                case 'perc': return '#a855f7'; // Purple-500
+                case 'kick': return '#ef4444'; 
+                case 'snare': return '#eab308'; 
+                case 'hihat': return '#00f6ff'; 
+                case 'perc': return '#a855f7'; 
                 default: return '#ffffff';
             }
         };
@@ -234,23 +229,19 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 const w = (slice.duration / duration) * totalWidth;
                 const color = getTypeColor(slice.type);
                 
-                // Group for slice
                 const g = layer.append('g')
                     .attr('class', 'slice-group')
                     .attr('cursor', 'pointer');
 
-                // Background/Fill - BEHIND WAVEFORM
                 let fill = 'transparent';
                 if (!slice.isActive) {
                      fill = 'url(#disabled-pattern)';
                 } else {
-                     // High Opacity because it's behind the waveform
                      fill = index === selectedSliceIndex 
-                        ? color + 'D9' // 85% opacity (Selected)
-                        : color + '66'; // 40% opacity (Unselected - visible enough)
+                        ? color + 'D9' 
+                        : color + '66'; 
                 }
                 
-                // Overlay for disabled state
                 if (!slice.isActive) {
                      g.append('rect')
                         .attr('x', xPos)
@@ -266,30 +257,26 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr('width', w)
                     .attr('height', height)
                     .attr('fill', fill)
-                    // Add distinct border
                     .attr('stroke', index === selectedSliceIndex ? '#ffffff' : color)
                     .attr('stroke-width', index === selectedSliceIndex ? 2 : 0)
                     .attr('stroke-opacity', 1);
                 
-                // Click to select & Play
                 g.on('click', (e: Event) => {
                     e.stopPropagation(); 
                     onSliceSelect(index);
-                    // Play if not currently running sequencer
                     if (!isPlayingRef.current) {
                         onPlaySlice(index);
                     }
                 });
                 
-                // Double click to toggle active state
                 g.on('dblclick', (e: Event) => {
                     e.stopPropagation();
-                    onSliceToggle(index);
+                    if (isProMode) {
+                        onSliceToggle(index); // Only toggle muted in Pro mode
+                    }
                 });
 
-                // Slice ID and Type Label
                 if (w > 15) {
-                    // ID
                     g.append('text')
                         .attr('x', xPos + 4)
                         .attr('y', 15)
@@ -299,7 +286,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         .text(slice.id)
                         .style('text-decoration', !slice.isActive ? 'line-through' : 'none');
                     
-                    // Type (K, S, H, P)
                     let typeLabel = 'P';
                     if (slice.type === 'kick') typeLabel = 'K';
                     else if (slice.type === 'snare') typeLabel = 'S';
@@ -318,9 +304,9 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 }
             });
         }
-    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle, onPlaySlice]);
+    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle, onPlaySlice, isProMode]);
 
-    // 3. Draw Playback Highlight (Fast Update)
+    // 3. Draw Playback Highlight
     useEffect(() => {
         if (!audioBuffer || !svgRef.current || containerWidth === 0) return;
         const svg = d3.select(svgRef.current);
@@ -328,7 +314,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         layer.selectAll("*").remove();
 
         const totalWidth = containerWidth * zoom;
-        const height = 192; // Match h-48
+        const height = 192; 
         const duration = audioBuffer.duration;
 
         if (sequencer.isPlaying && sequencer.currentStep !== -1) {
@@ -340,7 +326,6 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     const endX = ((activeSlice.offset + activeSlice.duration) / duration) * totalWidth;
                     const width = Math.max(1, endX - startX);
                     
-                    // Highlight Rect
                     layer.append('rect')
                         .attr('x', startX)
                         .attr('y', 0)
@@ -355,14 +340,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         }
     }, [sequencer.currentStep, sequencer.isPlaying, slices, audioBuffer, containerWidth, zoom, sequencer.steps]);
 
-    // 4. Draw Selection Overlay
+    // 4. Draw Selection Overlay (PRO MODE ONLY)
     useEffect(() => {
         if (!svgRef.current) return;
         const svg = d3.select(svgRef.current);
         const layer = svg.select("#selection-layer");
         layer.selectAll("*").remove();
         
-        if (dragStart !== null && dragCurrent !== null) {
+        if (dragStart !== null && dragCurrent !== null && isProMode) {
             const start = Math.min(dragStart, dragCurrent);
             const width = Math.abs(dragCurrent - dragStart);
             
@@ -371,21 +356,21 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     .attr("x", start)
                     .attr("y", 0)
                     .attr("width", width)
-                    .attr("height", 192) // Match h-48
+                    .attr("height", 192) 
                     .attr("fill", "rgba(255, 255, 255, 0.2)")
                     .attr("stroke", "white")
                     .attr("stroke-width", 1)
                     .attr("stroke-dasharray", "4,2");
             }
         }
-    }, [dragStart, dragCurrent]);
+    }, [dragStart, dragCurrent, isProMode]);
 
 
     const currentSliceType = selectedSliceIndex !== null && slices[selectedSliceIndex] ? slices[selectedSliceIndex].type : null;
 
     const ClassificationButton = ({ type, color, label }: { type: SliceType, color: string, label: string }) => {
         const isActive = currentSliceType === type;
-        // Tailwind classes for colors
+        
         let colorClasses = "";
         let borderClass = "";
         
@@ -416,7 +401,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             {/* Scrollable Container */}
             <div 
                 ref={containerRef} 
-                className="w-full h-48 bg-[#0a0d14] rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent cursor-crosshair"
+                className={`w-full h-48 bg-[#0a0d14] rounded-lg ring-1 ring-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent ${isProMode ? 'cursor-crosshair' : 'cursor-pointer'}`}
             >
                 {!audioBuffer && (
                     <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
@@ -432,25 +417,38 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 />
             </div>
              
-             {/* Controls Bar Below Waveform */}
-             <div className="flex flex-col sm:flex-row justify-between items-center gap-2 p-1 bg-deep-space/30 rounded border border-white/5">
-                 
-                 {/* Classification Buttons */}
-                 <div className="flex gap-1 w-full sm:w-2/3">
-                    <ClassificationButton type="kick" color="#ef4444" label="Kick" />
-                    <ClassificationButton type="snare" color="#eab308" label="Snare" />
-                    <ClassificationButton type="hihat" color="#00f6ff" label="Hat" />
-                    <ClassificationButton type="perc" color="#a855f7" label="Perc" />
-                </div>
+             {/* Controls Bar - HIDDEN IN SIMPLE MODE to reduce clutter */}
+             {isProMode && (
+                 <div className="flex flex-col sm:flex-row justify-between items-center gap-2 p-1 bg-deep-space/30 rounded border border-white/5 animate-in slide-in-from-top-2 duration-300">
+                     
+                     <button
+                        onClick={onPreviewToggle}
+                        className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                            isPreviewing 
+                            ? 'bg-plasma-pink text-white border-plasma-pink animate-pulse' 
+                            : 'bg-transparent text-plasma-pink border-plasma-pink/50 hover:bg-plasma-pink/10'
+                        }`}
+                    >
+                        {isPreviewing ? 'Stop Preview' : 'Preview Original'}
+                    </button>
 
-                {/* Zoom Controls */}
-                <div className="flex items-center gap-1 bg-black/20 px-2 py-1 rounded-md border border-white/5 h-8">
-                    <span className="uppercase text-[9px] font-bold text-star-dust/50 tracking-widest hidden sm:inline mr-2">Zoom</span>
-                    <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">-</button>
-                    <span className="w-10 text-center text-xs font-mono text-hyper-cyan">{Math.round(zoom * 100)}%</span>
-                    <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">+</button>
+                     {/* Classification Buttons */}
+                     <div className="flex gap-1 w-full sm:w-2/3">
+                        <ClassificationButton type="kick" color="#ef4444" label="Kick" />
+                        <ClassificationButton type="snare" color="#eab308" label="Snare" />
+                        <ClassificationButton type="hihat" color="#00f6ff" label="Hat" />
+                        <ClassificationButton type="perc" color="#a855f7" label="Perc" />
+                    </div>
+
+                    {/* Zoom Controls */}
+                    <div className="flex items-center gap-1 bg-black/20 px-2 py-1 rounded-md border border-white/5 h-8">
+                        <span className="uppercase text-[9px] font-bold text-star-dust/50 tracking-widest hidden sm:inline mr-2">Zoom</span>
+                        <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">-</button>
+                        <span className="w-10 text-center text-xs font-mono text-hyper-cyan">{Math.round(zoom * 100)}%</span>
+                        <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">+</button>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };

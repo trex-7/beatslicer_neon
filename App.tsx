@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
 import Header from './components/Header';
@@ -47,8 +48,8 @@ const App: React.FC = () => {
         sliceLoopState
     } = useAudioEngine();
     
-    // Switched to FWDL.mp3 as a more reliable alternative loop
-    const defaultSampleUrl = 'https://tonejs.github.io/audio/loop/FWDL.mp3';
+    // Default to Simple Mode for new users
+    const [isProMode, setIsProMode] = useState(false);
 
     const handleParamChange = <K extends keyof AllParams>(key: K, value: AllParams[K]) => {
       updateParams({ [key]: value } as Partial<AllParams>);
@@ -65,14 +66,13 @@ const App: React.FC = () => {
     };
 
     const handleDemoLoad = (url: string, name: string) => {
-        // Pass name to loadAudioFile for BPM detection hints (to be implemented in audio engine next)
         loadAudioFile(url, false, name);
     };
 
     return (
-        <div className="min-h-screen bg-deep-space font-sans flex flex-col items-center p-2 sm:p-4 lg:p-6">
+        <div className="min-h-screen bg-deep-space font-sans flex flex-col items-center p-2 sm:p-4 lg:p-6 transition-colors duration-500">
             <div className="w-full max-w-[1920px] mx-auto space-y-4">
-                <Header />
+                <Header isProMode={isProMode} onToggleMode={setIsProMode} />
                 
                 {!isReady ? (
                     <div className="flex justify-center items-center h-96 bg-nebula-blue/30 rounded-xl">
@@ -91,19 +91,24 @@ const App: React.FC = () => {
                                 onLoadPreset={loadPreset}
                                 getAudioWav={getAudioWav}
                                 isLoading={isLoading}
-                                onPreviewToggle={togglePreviewOriginal}
-                                isPreviewing={isPreviewPlaying}
                                 sampleName={sampleName}
                             />
                         </div>
 
+                        {/* BIG PLAY BUTTON */}
                         <div className="flex justify-center py-2">
                             <Tooltip text="Start or stop the sequencer" position="bottom">
                                 <button
                                     onClick={togglePlay}
                                     disabled={!audioBuffer || isLoading}
-                                    className={`w-64 py-3 text-xl font-bold rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg
-                                        ${isPlaying ? 'bg-plasma-pink text-white shadow-plasma-pink/40' : 'bg-hyper-cyan text-deep-space shadow-hyper-cyan/40'}`}
+                                    className={`
+                                        transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg
+                                        ${isProMode 
+                                            ? 'w-64 py-3 text-xl font-bold rounded-full bg-hyper-cyan text-deep-space shadow-hyper-cyan/40' 
+                                            : 'w-48 h-48 rounded-full border-4 border-white/10 text-4xl font-black tracking-widest bg-gradient-to-br from-hyper-cyan to-blue-600 text-white shadow-[0_0_50px_rgba(0,246,255,0.3)] hover:shadow-[0_0_80px_rgba(0,246,255,0.6)]'
+                                        }
+                                        ${isPlaying ? (isProMode ? 'bg-plasma-pink text-white shadow-plasma-pink/40' : 'from-plasma-pink to-red-600 shadow-[0_0_50px_rgba(255,0,170,0.4)] animate-pulse') : ''}
+                                    `}
                                 >
                                     {isLoading ? 'LOADING...' : (isPlaying ? 'STOP' : 'PLAY')}
                                 </button>
@@ -126,6 +131,9 @@ const App: React.FC = () => {
                                 onAutoSlice={autoSlice}
                                 onPlaySlice={playSliceRaw}
                                 onSliceTypeChange={(index, type) => updateSlice(index, { type })}
+                                onPreviewToggle={togglePreviewOriginal}
+                                isPreviewing={isPreviewPlaying}
+                                isProMode={isProMode}
                            />
                         </div>
 
@@ -140,6 +148,7 @@ const App: React.FC = () => {
                                 onEditModeToggle={setSequencerEditMode}
                                 disabled={!audioBuffer || isLoading}
                                 selectedSliceIndex={selectedSliceIndex}
+                                isProMode={isProMode}
                            />
                         </div>
                         
@@ -159,6 +168,7 @@ const App: React.FC = () => {
                             onLoopSlice={toggleSliceLoop}
                             sliceLoopState={sliceLoopState}
                             audioBuffer={audioBuffer}
+                            isProMode={isProMode}
                           />
                         </div>
                     </>

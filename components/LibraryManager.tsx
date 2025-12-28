@@ -14,7 +14,6 @@ import {
     type DeleteResult
 } from '../utils/db';
 import type { KitSample, Preset } from '../types';
-import Auth from './Auth';
 import JSZip from 'jszip';
 
 interface LibraryManagerProps {
@@ -27,6 +26,9 @@ interface LibraryManagerProps {
     getAudioWav: () => Promise<Blob | null>;
     isLoading: boolean;
     sampleName: string;
+    className?: string;
+    variant?: 'default' | 'centered' | 'visual-browser' | 'transport';
+    user: any;
 }
 
 const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
@@ -34,7 +36,7 @@ const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
 type TabView = 'dashboard' | 'my_presets' | 'my_samples' | 'factory' | 'community';
 
 const LibraryManager: React.FC<LibraryManagerProps> = memo(({ 
-    onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, sampleName
+    onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, sampleName, className, variant = 'default', user
 }) => {
     // Hidden Input Refs
     const audioInputRef = useRef<HTMLInputElement>(null);
@@ -70,22 +72,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         complete: boolean;
     }>({ active: false, current: 0, total: 0, currentFile: '', success: 0, failed: 0, complete: false });
 
-    // Auth State
-    const [user, setUser] = useState<any>(null);
-
     // --- INITIALIZATION ---
-
-    useEffect(() => {
-        if (supabase) {
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                setUser(session?.user ?? null);
-            });
-            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-                setUser(session?.user ?? null);
-            });
-            return () => subscription.unsubscribe();
-        }
-    }, []);
 
     const loadLibraryData = async () => {
         if (!supabase) return;
@@ -397,6 +384,246 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             </div>
         );
     };
+    
+    // --- VARIANT: TRANSPORT BAR ---
+    if (variant === 'transport') {
+        return (
+            <>
+                 {/* Keep hidden inputs for file operations */}
+                <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioFileChange} className="hidden" />
+                <input type="file" accept=".json" ref={presetInputRef} onChange={handlePresetImport} className="hidden" />
+                <input type="file" accept="audio/*" multiple ref={bulkUploadRef} onChange={handleBulkUploadChange} className="hidden" />
+                
+                <div className={`flex items-center gap-3 h-full ${className}`}>
+                     {/* Info Block */}
+                     <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)] shrink-0">
+                            FX
+                        </div>
+                        <div className="flex flex-col min-w-0 justify-center">
+                            <input 
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                className="bg-transparent text-white font-bold text-lg outline-none placeholder-white/20 w-32 md:w-48 truncate hover:text-hyper-cyan focus:text-hyper-cyan transition-colors"
+                                placeholder="Untitled"
+                            />
+                            <div className="text-[10px] text-star-dust truncate flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                <span className="opacity-70">Active:</span>
+                                <span className="text-hyper-cyan truncate max-w-[100px]">{sampleName}</span>
+                            </div>
+                        </div>
+                     </div>
+
+                     {/* Divider */}
+                     <div className="h-8 w-px bg-white/10 mx-1 hidden sm:block"></div>
+                     
+                     {/* Open Library Button */}
+                     <Tooltip text="Open Library">
+                         <button 
+                            onClick={() => setIsOpen(true)} 
+                            className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0"
+                         >
+                            <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
+                            <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">LIBRARY</span>
+                         </button>
+                     </Tooltip>
+                     
+                     {/* Modal Logic handled below */}
+                </div>
+                
+                 {/* Reuse Modal Logic */}
+                {isOpen && (
+                    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className="w-full max-w-5xl h-[85vh] bg-[#0f1319] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
+                            {/* Copy of Modal Logic */}
+                             <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#151a23]">
+                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <span className="text-hyper-cyan">📚</span> Library Manager
+                                </h2>
+                                <button onClick={() => setIsOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
+                            </div>
+                            <div className="flex flex-1 overflow-hidden">
+                                {/* SIDEBAR */}
+                                <div className="w-16 sm:w-64 bg-[#12161d] border-r border-white/5 flex flex-col">
+                                    <nav className="flex-1 p-2 space-y-1">
+                                        <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🏠</span> <span className="hidden sm:inline">Dashboard</span>
+                                        </button>
+                                         <div className="h-px bg-white/5 my-2 mx-2"></div>
+                                        <button onClick={() => setActiveTab('factory')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'factory' ? 'bg-plasma-pink/10 text-plasma-pink border border-plasma-pink/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🏭</span> <span className="hidden sm:inline">Factory</span>
+                                        </button>
+                                        <button onClick={() => setActiveTab('community')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'community' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🌐</span> <span className="hidden sm:inline">Community</span>
+                                        </button>
+                                    </nav>
+                                </div>
+                                {/* Content */}
+                                <div className="flex-1 flex flex-col bg-[#0a0d14] relative p-4 overflow-y-auto">
+                                     {activeTab === 'dashboard' && (
+                                         <div className="text-center p-8">
+                                             <h1 className="text-2xl font-bold text-white">Project Dashboard</h1>
+                                             <button onClick={() => audioInputRef.current?.click()} className="mt-4 px-6 py-3 bg-hyper-cyan text-deep-space font-bold rounded hover:bg-white transition-colors">Load Audio File</button>
+                                         </div>
+                                     )}
+                                     {activeTab === 'factory' && (
+                                         <div className="space-y-4">
+                                             {FACTORY_PRESETS.map(p => (
+                                                <button key={p.id} onClick={() => { onLoadPreset(p); setIsOpen(false); }} className="w-full text-left p-3 bg-white/5 hover:bg-white/10 rounded border border-white/5 text-white flex justify-between">
+                                                    <span>{p.name}</span>
+                                                    <span className="text-xs text-white/50">PRESET</span>
+                                                </button>
+                                             ))}
+                                         </div>
+                                     )}
+                                     {activeTab === 'community' && renderList(publicPresets)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </>
+        )
+    }
+    
+    // --- VARIANT: VISUAL BROWSER (Dashboard Inline) ---
+    if (variant === 'visual-browser') {
+        return (
+            <>
+                 {/* Keep hidden inputs for file operations */}
+                <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioFileChange} className="hidden" />
+                <input type="file" accept=".json" ref={presetInputRef} onChange={handlePresetImport} className="hidden" />
+                
+                <div className={`bg-[#0a0d14] rounded-2xl border border-white/5 p-4 flex flex-col relative overflow-hidden group h-full ${className}`}>
+                    {/* Background Detail */}
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-hyper-cyan/5 rounded-full blur-3xl -z-1 pointer-events-none"></div>
+
+                    {/* Active Project Header */}
+                    <div className="flex justify-between items-start mb-4 border-b border-white/5 pb-4">
+                        <div className="flex-1 min-w-0 pr-4">
+                            <div className="text-[9px] font-bold text-star-dust/50 uppercase tracking-widest mb-1">Active Project</div>
+                             <input 
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                className="bg-transparent text-xl md:text-2xl font-black text-white outline-none placeholder-white/20 w-full truncate hover:text-hyper-cyan focus:text-hyper-cyan transition-colors"
+                                placeholder="Untitled"
+                            />
+                            <div className="text-xs text-star-dust/80 mt-1 truncate flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                {sampleName}
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-2 shrink-0">
+                            <Tooltip text="Upload Sample">
+                                <button onClick={() => audioInputRef.current?.click()} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors">
+                                    📂
+                                </button>
+                            </Tooltip>
+                        </div>
+                    </div>
+
+                    {/* Presets List */}
+                    <div className="flex-1 overflow-y-auto min-h-0 space-y-1 scrollbar-thin scrollbar-thumb-white/10 pr-2">
+                        <div className="sticky top-0 bg-[#0a0d14]/90 backdrop-blur-sm py-2 z-10 flex justify-between items-center border-b border-white/5 mb-2">
+                            <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Quick Load</span>
+                            <button onClick={() => setIsOpen(true)} className="text-[9px] text-hyper-cyan hover:underline">VIEW ALL</button>
+                        </div>
+                        
+                        {/* Factory Presets First */}
+                        {FACTORY_PRESETS.slice(0, 5).map(p => (
+                            <button 
+                                key={p.id} 
+                                onClick={() => onLoadPreset(p)} 
+                                className="w-full text-left px-3 py-2 rounded text-xs font-medium text-star-dust hover:text-white hover:bg-white/5 transition-all flex items-center justify-between group/item"
+                            >
+                                <span>{p.name}</span>
+                                <span className="opacity-0 group-hover/item:opacity-100 text-[9px] text-hyper-cyan">LOAD</span>
+                            </button>
+                        ))}
+                        
+                        {/* User Presets */}
+                        {userPresets.slice(0, 5).map(p => (
+                             <button 
+                                key={p.id} 
+                                onClick={() => loadCloudItem(p)} 
+                                className="w-full text-left px-3 py-2 rounded text-xs font-medium text-purple-300 hover:text-white hover:bg-purple-500/10 transition-all flex items-center justify-between group/item"
+                            >
+                                <span>{p.label}</span>
+                                <span className="opacity-0 group-hover/item:opacity-100 text-[9px] text-purple-400">CLOUD</span>
+                            </button>
+                        ))}
+
+                         {/* Demos */}
+                         {DEMO_LOOPS.slice(0, 3).map((l, i) => (
+                             <button 
+                                key={`demo-${i}`} 
+                                onClick={() => loadLegacy('loop', l)} 
+                                className="w-full text-left px-3 py-2 rounded text-xs font-medium text-star-dust/60 hover:text-white hover:bg-white/5 transition-all flex items-center justify-between group/item"
+                            >
+                                <span>{l.name}</span>
+                                <span className="opacity-0 group-hover/item:opacity-100 text-[9px] text-white/30">DEMO</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                
+                {/* Re-use existing modal for full view */}
+                {isOpen && (
+                    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className="w-full max-w-5xl h-[85vh] bg-[#0f1319] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
+                            {/* Copy of Modal Logic */}
+                             <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#151a23]">
+                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <span className="text-hyper-cyan">📚</span> Library Manager
+                                </h2>
+                                <button onClick={() => setIsOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
+                            </div>
+                            <div className="flex flex-1 overflow-hidden">
+                                {/* SIDEBAR */}
+                                <div className="w-16 sm:w-64 bg-[#12161d] border-r border-white/5 flex flex-col">
+                                    <nav className="flex-1 p-2 space-y-1">
+                                        <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🏠</span> <span className="hidden sm:inline">Dashboard</span>
+                                        </button>
+                                         <div className="h-px bg-white/5 my-2 mx-2"></div>
+                                        <button onClick={() => setActiveTab('factory')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'factory' ? 'bg-plasma-pink/10 text-plasma-pink border border-plasma-pink/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🏭</span> <span className="hidden sm:inline">Factory</span>
+                                        </button>
+                                        <button onClick={() => setActiveTab('community')} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'community' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-star-dust hover:bg-white/5 hover:text-white'}`}>
+                                            <span className="text-lg">🌐</span> <span className="hidden sm:inline">Community</span>
+                                        </button>
+                                    </nav>
+                                </div>
+                                {/* Content */}
+                                <div className="flex-1 flex flex-col bg-[#0a0d14] relative p-4 overflow-y-auto">
+                                     {activeTab === 'dashboard' && (
+                                         <div className="text-center p-8">
+                                             <h1 className="text-2xl font-bold text-white">Project Dashboard</h1>
+                                             <button onClick={() => audioInputRef.current?.click()} className="mt-4 px-6 py-3 bg-hyper-cyan text-deep-space font-bold rounded hover:bg-white transition-colors">Load Audio File</button>
+                                         </div>
+                                     )}
+                                     {activeTab === 'factory' && (
+                                         <div className="space-y-4">
+                                             {FACTORY_PRESETS.map(p => (
+                                                <button key={p.id} onClick={() => { onLoadPreset(p); setIsOpen(false); }} className="w-full text-left p-3 bg-white/5 hover:bg-white/10 rounded border border-white/5 text-white flex justify-between">
+                                                    <span>{p.name}</span>
+                                                    <span className="text-xs text-white/50">PRESET</span>
+                                                </button>
+                                             ))}
+                                         </div>
+                                     )}
+                                     {activeTab === 'community' && renderList(publicPresets)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </>
+        );
+    }
+
+    const isCentered = variant === 'centered';
 
     return (
         <>
@@ -408,11 +635,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             <input type="file" accept="audio/*" multiple ref={bulkUploadRef} onChange={handleBulkUploadChange} className="hidden" />
 
             {/* --- TOP BAR (Always Visible) --- */}
-            <div className="w-full bg-deep-space/80 backdrop-blur-md border-b border-white/10 p-2 sm:px-4 flex items-center justify-between sticky top-0 z-40 rounded-xl mb-4 shadow-lg">
+            <div className={`w-full bg-deep-space/80 backdrop-blur-md border-b border-white/10 p-2 sm:px-4 flex items-center sticky top-0 z-40 rounded-xl mb-4 shadow-lg ${isCentered ? 'justify-center relative' : 'justify-between'} ${className || ''}`}>
                 
                 {/* Left: Project Info */}
-                <div className="flex items-center gap-3 flex-1 overflow-hidden">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)]">
+                <div className={`flex items-center gap-3 flex-1 overflow-hidden ${isCentered ? 'absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 max-w-[140px] md:max-w-[240px] hidden md:flex' : ''}`}>
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)] shrink-0">
                         FX
                     </div>
                     <div className="flex flex-col min-w-0">
@@ -428,10 +655,9 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     </div>
                 </div>
 
-                {/* Right: Actions */}
-                <div className="flex items-center gap-2 sm:gap-4">
-                    <Auth user={user} />
-
+                {/* Right/Center: Actions */}
+                <div className="flex items-center gap-2 sm:gap-4 z-10">
+                    
                     <button 
                         type="button"
                         onClick={() => setIsOpen(true)}

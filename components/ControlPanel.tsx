@@ -11,12 +11,6 @@ interface ControlPanelProps {
     onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
     onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
     disabled: boolean;
-    djActions: {
-        triggerStutter: (subdivision: '4n' | '8n' | '16n' | '32n', active: boolean) => void;
-        triggerTapeStop: (active: boolean) => void;
-        triggerReverse: (active: boolean) => void;
-        triggerFill: (type: 'scatter' | 'build' | 'break', active: boolean) => void;
-    };
     generateAiBeat: (complexity: number) => void;
     slices: Slice[];
     selectedSliceIndex: number | null;
@@ -62,12 +56,38 @@ const PowerButton = ({ active, onClick, disabled }: { active: boolean, onClick: 
     </Tooltip>
 );
 
+// Helper to reverse-calculate macro values from params for UI sync
+const getTextureFromParams = (grainSize: number) => {
+    // Logic: grainSize = 0.02 + (1 - val) * 0.48
+    // val = 1 - ((grainSize - 0.02) / 0.48)
+    const val = 1 - ((grainSize - 0.02) / 0.48);
+    return Math.max(0, Math.min(1, val));
+};
+
+const getSpaceFromParams = (reverb: any) => {
+    if (!reverb.isActive) return 0;
+    // Logic: wet = val * 1.2
+    return Math.min(1, reverb.wet / 1.2); 
+};
+
+const getEchoFromParams = (delay: any) => {
+    if (!delay.isActive) return 0;
+    // Logic: wet = val
+    return delay.wet;
+};
+
+const getGritFromParams = (distortion: any) => {
+    if (!distortion.isActive) return 0;
+    // Logic: amount = val
+    return distortion.amount;
+};
+
+
 const ControlPanel: React.FC<ControlPanelProps> = memo(({ 
     params, 
     onParamChange, 
     onEffectParamChange, 
     disabled, 
-    djActions, 
     generateAiBeat,
     slices, 
     selectedSliceIndex,
@@ -193,98 +213,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         // ==========================================
         return (
             <div className="space-y-6 animate-in fade-in duration-500">
-                {/* 1. Macro Controls */}
-                <div className="bg-deep-space/50 p-6 rounded-2xl border border-white/5 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-6">
-                        <span className="text-2xl">🎛️</span>
-                        <h2 className="text-xl font-bold text-white uppercase tracking-widest">Sound Macros</h2>
-                    </div>
-                    
-                    {/* Grid updated to 5 columns for new Echo slider */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                         {/* Texture */}
-                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
-                            <span className="text-3xl mb-2">🌊</span>
-                            <label className="text-hyper-cyan font-bold uppercase tracking-widest text-xs">Texture</label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" 
-                                defaultValue={0.75}
-                                onChange={(e) => updateTextureMacro(parseFloat(e.target.value))}
-                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-hyper-cyan [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(0,246,255,0.5)]"
-                            />
-                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
-                                <span>Smooth</span>
-                                <span>Choppy</span>
-                            </div>
-                         </div>
-
-                         {/* Space (Reverb) */}
-                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
-                            <span className="text-3xl mb-2">🌌</span>
-                            <label className="text-purple-400 font-bold uppercase tracking-widest text-xs">Space</label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" 
-                                defaultValue={0}
-                                onChange={(e) => updateReverbMacro(parseFloat(e.target.value))}
-                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(192,132,252,0.5)]"
-                            />
-                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
-                                <span>Dry</span>
-                                <span>Cosmic</span>
-                            </div>
-                         </div>
-
-                         {/* Echo (Delay) */}
-                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
-                            <span className="text-3xl mb-2">🔁</span>
-                            <label className="text-blue-400 font-bold uppercase tracking-widest text-xs">Echo</label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" 
-                                defaultValue={0}
-                                onChange={(e) => updateDelayMacro(parseFloat(e.target.value))}
-                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(96,165,250,0.5)]"
-                            />
-                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
-                                <span>Dry</span>
-                                <span>Dub</span>
-                            </div>
-                         </div>
-
-                         {/* Dirt */}
-                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
-                            <span className="text-3xl mb-2">🔥</span>
-                            <label className="text-orange-500 font-bold uppercase tracking-widest text-xs">Grit</label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" 
-                                defaultValue={0}
-                                onChange={(e) => updateDirtMacro(parseFloat(e.target.value))}
-                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(249,115,22,0.5)]"
-                            />
-                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
-                                <span>Clean</span>
-                                <span>Dirty</span>
-                            </div>
-                         </div>
-
-                         {/* Chaos */}
-                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
-                            <span className="text-3xl mb-2">🎲</span>
-                            <label className="text-plasma-pink font-bold uppercase tracking-widest text-xs">Glitch</label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" 
-                                value={params.glitch?.chaos || 0}
-                                onChange={(e) => updateChaosMacro(parseFloat(e.target.value))}
-                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-plasma-pink [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(255,0,170,0.5)]"
-                            />
-                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
-                                <span>Safe</span>
-                                <span>Chaos</span>
-                            </div>
-                         </div>
-                    </div>
-                </div>
-
-                {/* 2. Magic Beat Generator (Simplified) */}
+                {/* 1. Magic Beat Generator (Moved to top) */}
                 <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 p-6 rounded-2xl border border-white/10 flex flex-col md:flex-row items-center gap-6">
                     <div className="flex-1 text-center md:text-left">
                         <h3 className="text-2xl font-bold text-white mb-2">✨ Magic Pattern Generator</h3>
@@ -312,44 +241,95 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     </div>
                 </div>
 
-                {/* 3. Performance Pads (Simplified) */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <button 
-                        onMouseDown={() => djActions.triggerStutter('8n', true)}
-                        onMouseUp={() => djActions.triggerStutter('8n', false)}
-                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('8n', true); }}
-                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('8n', false); }}
-                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-hyper-cyan hover:bg-hyper-cyan hover:text-deep-space transition-all active:scale-95 shadow-lg"
-                    >
-                        🔁 Stutter
-                    </button>
-                    <button 
-                        onMouseDown={() => djActions.triggerReverse(true)} 
-                        onMouseUp={() => djActions.triggerReverse(false)}
-                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerReverse(true); }}
-                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerReverse(false); }}
-                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-yellow-400 hover:bg-yellow-400 hover:text-deep-space transition-all active:scale-95 shadow-lg"
-                    >
-                        Rewind ⏪
-                    </button>
-                    <button 
-                        onMouseDown={() => djActions.triggerTapeStop(true)} 
-                        onMouseUp={() => djActions.triggerTapeStop(false)}
-                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerTapeStop(true); }}
-                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerTapeStop(false); }}
-                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-red-500 hover:bg-red-500 hover:text-white transition-all active:scale-95 shadow-lg"
-                    >
-                        STOP 🛑
-                    </button>
-                     <button 
-                        onMouseDown={() => djActions.triggerFill('scatter', true)}
-                        onMouseUp={() => djActions.triggerFill('scatter', false)}
-                        onTouchStart={(e) => { e.preventDefault(); djActions.triggerFill('scatter', true); }}
-                        onTouchEnd={(e) => { e.preventDefault(); djActions.triggerFill('scatter', false); }}
-                        className="h-24 bg-nebula-blue/50 rounded-xl border border-white/10 text-2xl font-bold text-purple-400 hover:bg-purple-500 hover:text-white transition-all active:scale-95 shadow-lg"
-                    >
-                        Fill 💥
-                    </button>
+                {/* 2. Macro Controls */}
+                <div className="bg-deep-space/50 p-6 rounded-2xl border border-white/5 shadow-2xl">
+                    <div className="flex items-center gap-2 mb-6">
+                        <span className="text-2xl">🎛️</span>
+                        <h2 className="text-xl font-bold text-white uppercase tracking-widest">Sound Macros</h2>
+                    </div>
+                    
+                    {/* Grid updated to 5 columns for new Echo slider */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                         {/* Texture */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🌊</span>
+                            <label className="text-hyper-cyan font-bold uppercase tracking-widest text-xs">Texture</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={getTextureFromParams(params.grainSize)}
+                                onChange={(e) => updateTextureMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-hyper-cyan [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(0,246,255,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Smooth</span>
+                                <span>Choppy</span>
+                            </div>
+                         </div>
+
+                         {/* Space (Reverb) */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🌌</span>
+                            <label className="text-purple-400 font-bold uppercase tracking-widest text-xs">Space</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={getSpaceFromParams(params.reverb)}
+                                onChange={(e) => updateReverbMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(192,132,252,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Dry</span>
+                                <span>Cosmic</span>
+                            </div>
+                         </div>
+
+                         {/* Echo (Delay) */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🔁</span>
+                            <label className="text-blue-400 font-bold uppercase tracking-widest text-xs">Echo</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={getEchoFromParams(params.delay)}
+                                onChange={(e) => updateDelayMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(96,165,250,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Dry</span>
+                                <span>Dub</span>
+                            </div>
+                         </div>
+
+                         {/* Dirt */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🔥</span>
+                            <label className="text-orange-500 font-bold uppercase tracking-widest text-xs">Grit</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={getGritFromParams(params.distortion)}
+                                onChange={(e) => updateDirtMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(249,115,22,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Clean</span>
+                                <span>Dirty</span>
+                            </div>
+                         </div>
+
+                         {/* Chaos */}
+                         <div className="bg-[#151a23] p-4 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner">
+                            <span className="text-3xl mb-2">🎲</span>
+                            <label className="text-plasma-pink font-bold uppercase tracking-widest text-xs">Glitch</label>
+                            <input 
+                                type="range" min="0" max="1" step="0.01" 
+                                value={params.glitch?.chaos || 0}
+                                onChange={(e) => updateChaosMacro(parseFloat(e.target.value))}
+                                className="w-full h-4 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-plasma-pink [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(255,0,170,0.5)]"
+                            />
+                            <div className="flex justify-between w-full text-[9px] text-star-dust uppercase font-bold mt-1">
+                                <span>Safe</span>
+                                <span>Chaos</span>
+                            </div>
+                         </div>
+                    </div>
                 </div>
             </div>
         );
@@ -362,143 +342,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         <div className="space-y-6 animate-in fade-in duration-500">
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* DJ Performance Section */}
-                <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-plasma-pink/50 shadow-lg shadow-plasma-pink/10">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                            <span className="text-plasma-pink">●</span> Live FX
-                            <InfoIcon text="Real-time DJ FX. Press and hold to freeze the sequencer step and apply effects. Release to resume sequence." />
-                        </h3>
-                        <div className="w-32">
-                            <Slider label="BPM" min={60} max={200} step={1} value={params.bpm} onChange={(v) => onParamChange('bpm', v)} disabled={disabled} unit="" tooltip="Master Tempo" defaultValue={120} />
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-6 gap-1.5 mb-2">
-                        <Tooltip text="Tape Stop">
-                            <button 
-                                onMouseDown={() => djActions.triggerTapeStop(true)} 
-                                onMouseUp={() => djActions.triggerTapeStop(false)}
-                                onMouseLeave={() => djActions.triggerTapeStop(false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerTapeStop(true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerTapeStop(false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-gradient-to-br from-red-900 to-red-600 rounded font-bold text-white shadow-md active:scale-95 active:brightness-125 transition-all border-b-2 border-red-950 active:border-b-0 active:mt-0.5"
-                            >
-                                STOP
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="Reverse">
-                            <button 
-                                onMouseDown={() => djActions.triggerReverse(true)} 
-                                onMouseUp={() => djActions.triggerReverse(false)}
-                                onMouseLeave={() => djActions.triggerReverse(false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerReverse(true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerReverse(false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-gradient-to-br from-yellow-700 to-yellow-500 rounded font-bold text-white shadow-md active:scale-95 active:brightness-125 transition-all border-b-2 border-yellow-900 active:border-b-0 active:mt-0.5"
-                            >
-                                REV
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="1/4 Stutter">
-                            <button 
-                                onMouseDown={() => djActions.triggerStutter('4n', true)}
-                                onMouseUp={() => djActions.triggerStutter('4n', false)}
-                                onMouseLeave={() => djActions.triggerStutter('4n', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('4n', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('4n', false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-nebula-blue hover:bg-hyper-cyan/20 rounded font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
-                            >
-                                1/4
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="1/8 Stutter">
-                            <button 
-                                onMouseDown={() => djActions.triggerStutter('8n', true)}
-                                onMouseUp={() => djActions.triggerStutter('8n', false)}
-                                onMouseLeave={() => djActions.triggerStutter('8n', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('8n', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('8n', false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-nebula-blue hover:bg-hyper-cyan/20 rounded font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
-                            >
-                                1/8
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="1/16 Stutter">
-                            <button 
-                                onMouseDown={() => djActions.triggerStutter('16n', true)}
-                                onMouseUp={() => djActions.triggerStutter('16n', false)}
-                                onMouseLeave={() => djActions.triggerStutter('16n', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('16n', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('16n', false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-nebula-blue hover:bg-hyper-cyan/20 rounded font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
-                            >
-                                1/16
-                            </button>
-                        </Tooltip>
-                         <Tooltip text="1/32 Stutter">
-                            <button 
-                                onMouseDown={() => djActions.triggerStutter('32n', true)}
-                                onMouseUp={() => djActions.triggerStutter('32n', false)}
-                                onMouseLeave={() => djActions.triggerStutter('32n', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerStutter('32n', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerStutter('32n', false); }}
-                                disabled={disabled}
-                                className="w-full h-12 text-[10px] bg-nebula-blue hover:bg-hyper-cyan/20 rounded font-mono text-hyper-cyan border border-hyper-cyan/30 active:bg-hyper-cyan active:text-black transition-all"
-                            >
-                                1/32
-                            </button>
-                        </Tooltip>
-                    </div>
-
-                    {/* Fills Section */}
-                    <div className="grid grid-cols-3 gap-1.5 mt-1.5">
-                        <Tooltip text="Randomized Slices (Chaos)">
-                            <button 
-                                onMouseDown={() => djActions.triggerFill('scatter', true)}
-                                onMouseUp={() => djActions.triggerFill('scatter', false)}
-                                onMouseLeave={() => djActions.triggerFill('scatter', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerFill('scatter', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerFill('scatter', false); }}
-                                disabled={disabled}
-                                className="w-full h-8 text-[9px] bg-purple-900/50 hover:bg-purple-800 rounded font-bold text-purple-300 border border-purple-500/30 active:bg-purple-500 active:text-white transition-all uppercase"
-                            >
-                                Scatter
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="Rising Snare Roll">
-                            <button 
-                                onMouseDown={() => djActions.triggerFill('build', true)}
-                                onMouseUp={() => djActions.triggerFill('build', false)}
-                                onMouseLeave={() => djActions.triggerFill('build', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerFill('build', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerFill('build', false); }}
-                                disabled={disabled}
-                                className="w-full h-8 text-[9px] bg-purple-900/50 hover:bg-purple-800 rounded font-bold text-purple-300 border border-purple-500/30 active:bg-purple-500 active:text-white transition-all uppercase"
-                            >
-                                Build
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="Syncopated Breakbeat">
-                            <button 
-                                onMouseDown={() => djActions.triggerFill('break', true)}
-                                onMouseUp={() => djActions.triggerFill('break', false)}
-                                onMouseLeave={() => djActions.triggerFill('break', false)}
-                                onTouchStart={(e) => { e.preventDefault(); djActions.triggerFill('break', true); }}
-                                onTouchEnd={(e) => { e.preventDefault(); djActions.triggerFill('break', false); }}
-                                disabled={disabled}
-                                className="w-full h-8 text-[9px] bg-purple-900/50 hover:bg-purple-800 rounded font-bold text-purple-300 border border-purple-500/30 active:bg-purple-500 active:text-white transition-all uppercase"
-                            >
-                                Break
-                            </button>
-                        </Tooltip>
-                    </div>
-                </div>
-
+                
                 {/* Slice Properties Section */}
                 <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/20 shadow-lg shadow-white/5 flex flex-col">
                      <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
@@ -747,6 +591,17 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         </div>
                     </div>
                 </div>
+
+                {/* BPM & Global Controls - Moved here since DJ FX removed */}
+                <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/10 shadow-lg flex items-center justify-between">
+                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <span className="text-white">⏱</span> Global
+                    </h3>
+                    <div className="w-1/2">
+                         <Slider label="BPM" min={60} max={200} step={1} value={params.bpm} onChange={(v) => onParamChange('bpm', v)} disabled={disabled} unit="" tooltip="Master Tempo" defaultValue={120} />
+                    </div>
+                </div>
+
             </div>
 
             {/* Standard Controls */}
@@ -760,6 +615,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         
                         <Slider label="Attack" min={0.001} max={1.0} step={0.001} value={params.attack} onChange={(v) => onParamChange('attack', v)} disabled={disabled} unit="s" tooltip="Grain amplitude envelope attack time" defaultValue={0.005} />
                         <Slider label="Release" min={0.001} max={2.0} step={0.001} value={params.release} onChange={(v) => onParamChange('release', v)} disabled={disabled} unit="s" tooltip="Grain amplitude envelope release time" defaultValue={0.1} />
+                        <Slider label="Sustain" min={0} max={2.0} step={0.01} value={params.sustain} onChange={(v) => onParamChange('sustain', v)} disabled={disabled} unit="s" tooltip="Length of grain sustain phase" defaultValue={0.5} />
                     </div>
                 </EffectSection>
 

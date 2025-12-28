@@ -58,7 +58,10 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
             .or(filter)
             .order('created_at', { ascending: false });
 
-        if (presetError) throw presetError;
+        if (presetError) {
+             console.warn("Error fetching presets:", presetError);
+             // Don't throw, just use empty array to allow app to function
+        }
 
         // 2. Fetch Samples
         const { data: samplesRaw, error: sampleError } = await supabase
@@ -67,7 +70,9 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
             .or(filter)
             .order('created_at', { ascending: false });
 
-        if (sampleError) throw sampleError;
+        if (sampleError) {
+            console.warn("Error fetching samples:", sampleError);
+        }
 
         // 3. Process Presets
         const allPresets: CloudItem[] = (presetsRaw as any[] || []).map(p => ({
@@ -116,8 +121,10 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
             factorySamples
         };
 
-    } catch (e) {
-        console.error("Error fetching library:", e);
+    } catch (e: any) {
+        // Improved error logging to handle non-Error objects
+        const msg = e instanceof Error ? e.message : (typeof e === 'string' ? e : JSON.stringify(e));
+        console.error("Critical error fetching library:", msg);
         return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
     }
 };

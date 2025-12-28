@@ -1,23 +1,239 @@
 
-import React from 'react';
-import { useState, useRef, useEffect, useCallback } from 'react';
-import type { GranularSynthParams, EffectParams, AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type { AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample } from '../types';
 import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
 
-declare const Tone: any; // Using Tone.js from CDN
+declare const Tone: any;
 
-// Improved Defaults - Only Compressor (Med) is active by default
+// --- INLINED WORKLET CODE ---
+// We inline this to avoid 404s and path resolution issues.
+// Use anonymous class expression + try-catch to robustly handle shared WorkletScopes.
+const GRANULAR_WORKLET_CODE = `
+try {
+    registerProcessor('granular-engine', class extends AudioWorkletProcessor {
+        constructor() {
+            super();
+            this.bufferL = null;
+            this.bufferR = null;
+            this.sampleRate = 44100;
+
+            // Transport
+            this.currentSample = 0;
+            this.isPlaying = false;
+            this.bpm = 120;
+            this.stepCount = 16;
+            this.currentStep = -1;
+            this.nextStepTime = 0;
+            
+            // Data
+            this.steps = [];
+            this.slices = [];
+            
+            // Voices (Grains)
+            this.grains = [];
+            this.maxGrains = 64; 
+
+            // Params
+            this.params = {
+                grainSize: 0.1,
+                overlap: 0.05,
+                playbackRate: 1.0,
+                detune: 0,
+                volume: 1.0,
+                glitch: { chaos: 0, allowReverse: false, allowOctaveJump: false, pitchShift: true }
+            };
+
+            this.port.onmessage = (e) => this.handleMessage(e.data);
+        }
+
+        handleMessage(data) {
+            if (data.type === 'load') {
+                this.bufferL = data.bufferL;
+                this.bufferR = data.bufferR;
+                this.sampleRate = data.sampleRate || 44100;
+            } else if (data.type === 'play') {
+                this.isPlaying = data.value;
+                if (!this.isPlaying) {
+                    this.grains = [];
+                }
+            } else if (data.type === 'sequencer') {
+                this.steps = data.steps;
+                this.stepCount = data.stepCount;
+                this.bpm = data.bpm;
+            } else if (data.type === 'slices') {
+                this.slices = data.slices;
+            } else if (data.type === 'params') {
+                if (data.params) {
+                    this.params = { ...this.params, ...data.params };
+                    if (data.params.glitch) {
+                        this.params.glitch = { ...this.params.glitch, ...data.params.glitch };
+                    }
+                }
+            }
+        }
+
+        spawnGrain(sliceIndex, velocity = 1.0, ratchetCount = 1) {
+            if (!this.bufferL || !this.slices[sliceIndex]) return;
+
+            const slice = this.slices[sliceIndex];
+            if (!slice.isActive) return;
+
+            const grain = {
+                active: true,
+                position: slice.offset * this.sampleRate, 
+                startPosition: slice.offset * this.sampleRate,
+                duration: 0, 
+                age: 0, 
+                speed: this.params.playbackRate,
+                amp: velocity * this.params.volume * (slice.level || 1.0),
+                attack: 0,
+                release: 0,
+                isReverse: slice.reverse || false
+            };
+
+            const g = this.params.glitch;
+            if (g && g.chaos > 0 && Math.random() < g.chaos) {
+                 if (g.allowReverse && Math.random() < 0.4) grain.isReverse = !grain.isReverse;
+                 
+                 if (g.allowOctaveJump && Math.random() < 0.5) {
+                     grain.speed *= (Math.random() > 0.5 ? 2.0 : 0.5);
+                 }
+            }
+            
+            const detuneMult = Math.pow(2, this.params.detune / 1200);
+            grain.speed *= detuneMult;
+
+            if (this.params.grainSize < 0.15) {
+                 grain.duration = this.params.grainSize * this.sampleRate;
+            } else {
+                 grain.duration = slice.duration * this.sampleRate;
+                 if (ratchetCount > 1) {
+                     grain.duration /= ratchetCount;
+                 }
+            }
+            
+            const attackS = Math.max(0.001, this.params.attack || 0.002);
+            const releaseS = Math.max(0.001, this.params.release || 0.005);
+            grain.attack = attackS * this.sampleRate;
+            grain.release = releaseS * this.sampleRate;
+            
+            if (grain.duration < grain.attack + grain.release) {
+                grain.duration = grain.attack + grain.release + 500;
+            }
+
+            const emptyIdx = this.grains.findIndex(g => !g.active);
+            if (emptyIdx >= 0) {
+                this.grains[emptyIdx] = grain;
+            } else if (this.grains.length < this.maxGrains) {
+                this.grains.push(grain);
+            } else {
+                this.grains[0] = grain; 
+            }
+        }
+
+        process(inputs, outputs, parameters) {
+            const outputL = outputs[0][0];
+            const outputR = outputs[0][1];
+            
+            if (!outputL) return true;
+            
+            const bufferSize = outputL.length;
+
+            for (let i = 0; i < bufferSize; i++) {
+                if (this.isPlaying) {
+                    if (this.currentSample >= this.nextStepTime) {
+                        this.currentStep = (this.currentStep + 1) % this.stepCount;
+                        const samplesPerBeat = (this.sampleRate * 60) / this.bpm;
+                        const samplesPerStep = samplesPerBeat / 4;
+                        this.nextStepTime += samplesPerStep;
+
+                        this.port.postMessage({ type: 'step', value: this.currentStep });
+
+                        if (this.steps[this.currentStep]) {
+                            const stepData = this.steps[this.currentStep];
+                            if (stepData.active) {
+                                const repeats = stepData.ratchet || 1;
+                                this.spawnGrain(stepData.sliceIndex, 1.0, repeats);
+                            }
+                        }
+                    }
+                    this.currentSample++;
+                }
+
+                let left = 0;
+                let right = 0;
+
+                for (let g = 0; g < this.grains.length; g++) {
+                    const grain = this.grains[g];
+                    if (!grain.active) continue;
+
+                    if (grain.age >= grain.duration) {
+                        grain.active = false;
+                        continue;
+                    }
+
+                    let pos = grain.position;
+                    let idx = Math.floor(pos);
+                    let frac = pos - idx;
+                    
+                    if (idx < 0) idx = 0;
+                    
+                    if (this.bufferL && idx < this.bufferL.length - 1) {
+                        const l1 = this.bufferL[idx];
+                        const l2 = this.bufferL[idx + 1];
+                        const r1 = this.bufferR ? this.bufferR[idx] : l1;
+                        const r2 = this.bufferR ? this.bufferR[idx + 1] : l2;
+                        
+                        let sampL = l1 + frac * (l2 - l1);
+                        let sampR = r1 + frac * (r2 - r1);
+                        
+                        let env = 1.0;
+                        if (grain.age < grain.attack) {
+                            env = grain.age / grain.attack;
+                        } else if (grain.age > grain.duration - grain.release) {
+                            env = (grain.duration - grain.age) / grain.release;
+                        }
+                        
+                        left += sampL * env * grain.amp;
+                        right += sampR * env * grain.amp;
+                    }
+
+                    if (grain.isReverse) {
+                        grain.position -= grain.speed;
+                    } else {
+                        grain.position += grain.speed;
+                    }
+                    grain.age++;
+                }
+
+                if (left > 1.0) left = 1.0; else if (left < -1.0) left = -1.0;
+                if (right > 1.0) right = 1.0; else if (right < -1.0) right = -1.0;
+
+                outputL[i] = left;
+                if (outputR) outputR[i] = right;
+            }
+
+            return true;
+        }
+    });
+} catch(e) {
+    // Ignore duplicate registration errors (if Worklet Global Scope is shared)
+}
+`;
+
+// Improved Defaults
 const initialParams: AllParams = {
-  grainSize: 0.08,  // Tighter grain (80ms) for percussion
-  overlap: 0.05,    // Smoother crossfade (50ms)
+  grainSize: 0.12,  
+  overlap: 0.05,    
   detune: 0,
   playbackRate: 1,
   bpm: 120,
-  attack: 0.005,    // Safe default attack (5ms) to prevent clicks
-  release: 0.1,     // 100ms Release for tight tails
+  attack: 0.005,    
+  release: 0.1,     
+  sustain: 0.5,     
   reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
   delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
   filter: { 
@@ -31,23 +247,23 @@ const initialParams: AllParams = {
       isSynced: true,
       syncValue: '4n'
   },
-  distortion: { isActive: true, amount: 1.0, wet: 0.1 }, // Updated Default: Enabled, High Drive, Low Mix
-  compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 }, // Med Preset Default
+  distortion: { isActive: true, amount: 0.0, wet: 0 }, 
+  compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
   bitCrusher: { isActive: false, bits: 8, wet: 0 },
   glitch: { 
       chaos: 0, 
       allowReverse: false, 
       allowOctaveJump: true,
-      allowRatchet: true,
-      pitchShift: true, // Default to preserving length
+      allowRatchet: true, 
+      pitchShift: true, 
       allowFormant: true 
   }
 };
 
 const generateDefaultSteps = (count: number): SequencerStep[] => {
   return Array(count).fill(0).map((_, i) => ({
-    active: i % 2 === 0, // More active steps by default
-    sliceIndex: i, // Map steps to slices sequentially
+    active: i % 2 === 0, 
+    sliceIndex: i, 
     ratchet: 1
   }));
 };
@@ -72,17 +288,27 @@ export const useAudioEngine = () => {
     editMode: 'trigger'
   });
 
-  const sequenceRef = useRef<any>(null);
+  // REFS
   const sequencerRef = useRef(sequencer);
   const paramsRef = useRef(params); 
-  const slicesRef = useRef(slices); // Ref to hold latest slices
-  const player = useRef<any>(null);
+  const slicesRef = useRef(slices);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // WORKLET NODES
+  const workletNode = useRef<AudioWorkletNode | null>(null);
+  
+  // PREVIEW PLAYER (Keep separate for simple scrubbing)
   const previewPlayer = useRef<any>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [sliceLoopState, setSliceLoopState] = useState<{index: number | null, isLooping: boolean}>({ index: null, isLooping: false });
 
   const effects = useRef({
+    gain: null as any, // Master Gain for Worklet
     reverb: null as any, 
+    reverbLP: null as any,
+    reverbHP: null as any,
+    reverbGain: null as any,
+    dryGain: null as any,
     delay: null as any, 
     filter: null as any, 
     dcBlocker: null as any,
@@ -95,17 +321,9 @@ export const useAudioEngine = () => {
     compressor: null as any
   });
   
-  // Performance state for DJ FX
-  const djLoopRef = useRef<any>(null);
-  const isDjModeRef = useRef(false);
-  const lastPlayedSliceRef = useRef<Slice | null>(null);
-  const reverseRef = useRef(false);
-
-  // Safe Parameter Setter Helper
+  // Helper to safely set Tone.js params
   const setToneParam = useCallback((target: any, param: string, value: number, rampTime?: number) => {
       if (!target || target[param] === undefined) return;
-      
-      // Check if it's a Signal (has .value and it's not just a property named value)
       if (target[param] && typeof target[param] === 'object' && 'value' in target[param]) {
           if (rampTime && typeof target[param].rampTo === 'function') {
                target[param].rampTo(value, rampTime);
@@ -113,84 +331,160 @@ export const useAudioEngine = () => {
                target[param].value = value;
           }
       } else {
-          // It's a primitive or we are forcing assignment
           target[param] = value;
       }
   }, []);
 
-  useEffect(() => {
-    sequencerRef.current = sequencer;
-  }, [sequencer]);
+  useEffect(() => { sequencerRef.current = sequencer; }, [sequencer]);
+  useEffect(() => { paramsRef.current = params; }, [params]);
+  useEffect(() => { slicesRef.current = slices; }, [slices]);
 
+  // --- INITIALIZATION ---
   useEffect(() => {
-      paramsRef.current = params;
-  }, [params]);
-
-  useEffect(() => {
-      slicesRef.current = slices;
-  }, [slices]);
-
-  useEffect(() => {
+    let active = true;
     const setupAudio = async () => {
       try {
-          Tone.Transport.bpm.value = params.bpm;
+          // Explicitly create a native AudioContext. 
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const nativeContext = new AudioContextClass();
           
+          // Force Tone.js to use this context.
+          Tone.setContext(nativeContext);
+          audioContextRef.current = nativeContext;
+          
+          const targetContext = nativeContext;
+
+          // Feature detect AudioWorklet support
+          if (!targetContext.audioWorklet) {
+              console.error("AudioWorklet not supported in this browser");
+              return;
+          }
+
+          // Load Worklet Module via Blob URL
+          const blob = new Blob([GRANULAR_WORKLET_CODE], { type: 'application/javascript' });
+          const workletUrl = URL.createObjectURL(blob);
+
+          try {
+            await targetContext.audioWorklet.addModule(workletUrl);
+          } catch (e: any) {
+             // Catch errors (e.g. duplicate registration if shared scope, although anonymous class prevents syntax error)
+             console.warn("Worklet addModule warning:", e);
+          }
+          
+          // Clean up URL (safe after await, even if addModule failed or succeeded)
+          // URL.revokeObjectURL(workletUrl); 
+          
+          if (!active) {
+              nativeContext.close().catch(() => {});
+              return;
+          }
+
+          // Instantiate Worklet Node
+          try {
+            workletNode.current = new AudioWorkletNode(targetContext, 'granular-engine', {
+                numberOfInputs: 0,
+                numberOfOutputs: 1,
+                outputChannelCount: [2]
+            });
+            
+            // Handle Messages from Worklet (Visuals)
+            workletNode.current.port.onmessage = (event) => {
+                if (event.data.type === 'step') {
+                     setSequencer(prev => {
+                         if (prev.currentStep === event.data.value) return prev;
+                         return { ...prev, currentStep: event.data.value };
+                     });
+                }
+            };
+
+            // SYNC INITIAL STATE
+            workletNode.current.port.postMessage({
+                type: 'sequencer',
+                steps: sequencerRef.current.steps,
+                stepCount: sequencerRef.current.stepCount,
+                bpm: paramsRef.current.bpm
+            });
+            
+            workletNode.current.port.postMessage({
+                type: 'params',
+                params: {
+                    grainSize: paramsRef.current.grainSize,
+                    overlap: paramsRef.current.overlap,
+                    playbackRate: paramsRef.current.playbackRate,
+                    detune: paramsRef.current.detune,
+                    glitch: paramsRef.current.glitch
+                }
+            });
+
+            workletNode.current.port.postMessage({
+                type: 'slices',
+                slices: slicesRef.current
+            });
+
+          } catch(e) {
+              console.error("Failed to create AudioWorkletNode", e);
+              // Fallback
+              alert("Audio Engine failed to start. Please reload.");
+              return;
+          }
+
           previewPlayer.current = new Tone.Player().toDestination();
+          
+          // --- EFFECT CHAIN SETUP ---
+          effects.current.gain = new Tone.Gain(1);
 
-          effects.current.reverb = new Tone.Reverb({
-            decay: params.reverb.decay,
-            wet: params.reverb.wet,
-          }).toDestination();
+          // Reverb Chain
+          effects.current.reverb = new Tone.Reverb({ decay: params.reverb.decay });
+          effects.current.reverb.wet.value = 1; 
+          effects.current.reverb.generate().catch((e: any) => console.warn("Reverb gen", e));
 
+          effects.current.reverbLP = new Tone.Filter(3000, "lowpass", -12);
+          effects.current.reverbHP = new Tone.Filter(500, "highpass", -12);
+          effects.current.dryGain = new Tone.Gain(1).toDestination();
+          effects.current.reverbGain = new Tone.Gain(0).toDestination();
+
+          effects.current.reverb.connect(effects.current.reverbLP);
+          effects.current.reverbLP.connect(effects.current.reverbHP);
+          effects.current.reverbHP.connect(effects.current.reverbGain);
+
+          // Delay
           effects.current.delay = new Tone.FeedbackDelay({
             delayTime: params.delay.delayTime,
             feedback: params.delay.feedback,
             wet: params.delay.wet,
-          }).connect(effects.current.reverb);
-
-          // AutoFilter Chain Construction
+          });
           
-          // 1. The main filter node
+          effects.current.delay.connect(effects.current.dryGain);
+          effects.current.delay.connect(effects.current.reverb);
+
+          // Filter & Modulation
           effects.current.filter = new Tone.Filter({
             frequency: params.filter.frequency,
             Q: params.filter.q,
             type: params.filter.type,
           });
 
-          // 2. DC Blocker / Safety Filter (HighPass @ 10Hz)
-          effects.current.dcBlocker = new Tone.Filter({
-              frequency: 10,
-              type: 'highpass',
-              rolloff: -24,
-              Q: 0.1 
-          }).connect(effects.current.delay);
-
+          effects.current.dcBlocker = new Tone.Filter({ frequency: 10, type: 'highpass', rolloff: -24 }).connect(effects.current.delay);
           effects.current.filter.connect(effects.current.dcBlocker);
 
-          // 3. Envelope Follower Branch
           effects.current.filterFollower = new Tone.Follower(0.05); 
           effects.current.filterEnvDepth = new Tone.Gain(0);
           effects.current.filterFollower.connect(effects.current.filterEnvDepth);
           effects.current.filterEnvDepth.connect(effects.current.filter.frequency);
 
-          // 4. LFO Branch
           effects.current.filterLFO = new Tone.LFO(1, -1, 1).start();
           effects.current.filterLFODepth = new Tone.Gain(0);
           effects.current.filterLFO.connect(effects.current.filterLFODepth);
           effects.current.filterLFODepth.connect(effects.current.filter.frequency);
 
-          effects.current.bitCrusher = new Tone.BitCrusher({
-              bits: params.bitCrusher.bits,
-              wet: params.bitCrusher.wet
-          });
-          // Fan out: BitCrusher connects to Filter (Audio) AND Follower (Modulation Source)
+          // Dynamics / Distortion
+          effects.current.bitCrusher = new Tone.BitCrusher({ bits: params.bitCrusher.bits, wet: params.bitCrusher.wet });
           effects.current.bitCrusher.connect(effects.current.filter);
           effects.current.bitCrusher.connect(effects.current.filterFollower);
 
           effects.current.distortion = new Tone.Distortion(params.distortion.amount).connect(effects.current.bitCrusher);
           effects.current.distortion.wet.value = params.distortion.wet;
 
-          // Replace Tape Saturation with Compressor
           effects.current.compressor = new Tone.Compressor({
               threshold: params.compressor.threshold,
               ratio: params.compressor.ratio,
@@ -198,130 +492,129 @@ export const useAudioEngine = () => {
               release: params.compressor.release
           }).connect(effects.current.distortion);
 
+          // CONNECT WORKLET TO CHAIN
+          if (workletNode.current) {
+               const dest = effects.current.compressor;
+               try {
+                   if (Tone.connect) {
+                       Tone.connect(workletNode.current, dest);
+                   } else {
+                       const rawDest = dest.input || dest;
+                       workletNode.current.connect(rawDest);
+                   }
+               } catch (connErr) {
+                   console.error("Failed to connect Worklet to Effect Chain", connErr);
+                   try {
+                       workletNode.current.connect(targetContext.destination);
+                   } catch(e) {}
+               }
+          }
+
           setIsReady(true);
       } catch (e) {
           console.error("Audio initialization failed", e);
-          setIsReady(true);
+          setIsReady(true); 
       }
     };
-    setupAudio();
+
+    const timer = setTimeout(() => setIsReady(true), 3000); 
+    setupAudio().then(() => clearTimeout(timer));
+
     return () => {
-      player.current?.dispose();
+      active = false;
+      clearTimeout(timer);
       previewPlayer.current?.dispose();
-      sequenceRef.current?.dispose();
-      if (djLoopRef.current) djLoopRef.current.dispose();
+      workletNode.current?.disconnect();
       Object.values(effects.current).forEach((effect: any) => effect?.dispose());
-      Tone.Transport.stop();
-      Tone.Transport.cancel();
+      
+      // Strict cleanup to avoid context limits
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close().catch(() => {});
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Parameter Update Logic
-  const updateParams = useCallback((newParams: Partial<AllParams>) => {
-    // 1. Calculate new state
-    const updated = { ...paramsRef.current, ...newParams };
-    
-    // 2. Sync Ref immediately for Audio Loop access
-    paramsRef.current = updated;
+  // --- PARAM SYNC ---
+  const syncParamsToWorklet = useCallback(() => {
+      if (!workletNode.current) return;
+      workletNode.current.port.postMessage({
+          type: 'params',
+          params: {
+              grainSize: params.grainSize,
+              overlap: params.overlap,
+              playbackRate: params.playbackRate,
+              detune: params.detune,
+              glitch: params.glitch
+          }
+      });
+      // Also sync BPM if changed
+      workletNode.current.port.postMessage({
+          type: 'sequencer',
+          steps: sequencer.steps,
+          stepCount: sequencer.stepCount,
+          bpm: params.bpm
+      });
+  }, [params, sequencer]);
 
-    // 3. Update React State
+  const updateParams = useCallback((newParams: Partial<AllParams>) => {
+    const updated = { ...paramsRef.current, ...newParams };
+    paramsRef.current = updated;
     setParams(updated);
 
-    // 4. Apply Side Effects to Tone.js Nodes
+    // Apply Side Effects to Tone.js Nodes (Effect Rack)
     const efx = effects.current;
 
-    if (newParams.bpm !== undefined) {
-        Tone.Transport.bpm.value = updated.bpm;
-    }
+    if (newParams.bpm !== undefined) Tone.Transport.bpm.value = updated.bpm;
     
-    if (player.current && !player.current.disposed) {
-        // Change detection: Only update if explicitly in newParams to prevent redundant audio engine resets
-        if (newParams.grainSize !== undefined) player.current.grainSize = updated.grainSize;
-        if (newParams.overlap !== undefined) player.current.overlap = updated.overlap;
-        
-        // Use setToneParam for safety against crashes
-        if (!isDjModeRef.current) {
-            if (newParams.playbackRate !== undefined) {
-                setToneParam(player.current, 'playbackRate', updated.playbackRate);
-            }
-            if (newParams.detune !== undefined) {
-                setToneParam(player.current, 'detune', updated.detune);
-            }
-        }
-        
-        // Use 1ms minimum floor to prevent clicks
-        if (newParams.attack !== undefined) player.current.fadeIn = Math.max(0.001, updated.attack); 
-        if (newParams.release !== undefined) player.current.fadeOut = Math.max(0.001, updated.release);
-    }
-    
-    // Effects Updates
+    // Reverb
     if (efx.reverb && newParams.reverb) {
-            const rev = updated.reverb;
-            let decay = rev.decay;
-            if (rev.isSynced) {
-                try {
-                decay = Tone.Time(rev.syncValue).toSeconds();
-                } catch(e) {
-                    console.warn("Invalid sync value", rev.syncValue);
-                }
-            }
-            efx.reverb.decay = Math.max(0.1, Math.min(decay, 10));
-            // Toggle On/Off Logic (Use Mix)
-            setToneParam(efx.reverb, 'wet', rev.isActive ? rev.wet : 0); 
+        const rev = updated.reverb;
+        let decay = rev.decay;
+        if (rev.isSynced) {
+            try { decay = Tone.Time(rev.syncValue).toSeconds(); } catch(e) {}
+        }
+        efx.reverb.decay = Math.max(0.1, Math.min(decay, 10));
+        const mix = rev.isActive ? rev.wet : 0;
+        if (efx.dryGain) setToneParam(efx.dryGain, 'gain', 1 - mix, 0.1);
+        if (efx.reverbGain) setToneParam(efx.reverbGain, 'gain', mix, 0.1);
     }
-
+    
+    // Delay
     if (efx.delay && newParams.delay) {
-            const del = updated.delay;
-            if (del.isSynced) {
-            setToneParam(efx.delay, 'delayTime', Tone.Time(del.syncValue).toSeconds());
-            } else {
-            setToneParam(efx.delay, 'delayTime', del.delayTime);
-            }
-            setToneParam(efx.delay, 'feedback', del.feedback);
-             // Toggle On/Off Logic (Use Mix)
-            setToneParam(efx.delay, 'wet', del.isActive ? del.wet : 0);
+        const del = updated.delay;
+        if (del.isSynced) setToneParam(efx.delay, 'delayTime', Tone.Time(del.syncValue).toSeconds());
+        else setToneParam(efx.delay, 'delayTime', del.delayTime);
+        setToneParam(efx.delay, 'feedback', del.feedback);
+        setToneParam(efx.delay, 'wet', del.isActive ? del.wet : 0);
     }
 
+    // Filter
     if (newParams.filter && efx.filter) {
-            const f = updated.filter;
-            efx.filter.type = f.type;
-            
-            if (efx.filterLFO) {
-                if (f.isSynced) {
-                    efx.filterLFO.frequency.value = f.syncValue;
-                } else {
-                    efx.filterLFO.frequency.value = f.lfoRate;
-                }
-            }
+        const f = updated.filter;
+        efx.filter.type = f.type;
+        if (efx.filterLFO) efx.filterLFO.frequency.value = f.isSynced ? Tone.Time(f.syncValue).toSeconds() : f.lfoRate; 
 
-            // Filter Bypass Logic
-            if (!f.isActive) {
-                if (f.type === 'lowpass') setToneParam(efx.filter, 'frequency', 20000);
-                else if (f.type === 'highpass') setToneParam(efx.filter, 'frequency', 0);
-                else setToneParam(efx.filter, 'frequency', f.frequency);
-
-                setToneParam(efx.filterEnvDepth, 'gain', 0);
-                setToneParam(efx.filterLFODepth, 'gain', 0);
-            } else {
-                setToneParam(efx.filter, 'frequency', f.frequency);
-                setToneParam(efx.filter, 'Q', f.q);
-                setToneParam(efx.filterEnvDepth, 'gain', f.envDepth);
-                setToneParam(efx.filterLFODepth, 'gain', f.lfoDepth);
-            }
+        if (!f.isActive) {
+            setToneParam(efx.filter, 'frequency', f.type === 'lowpass' ? 20000 : 0);
+            setToneParam(efx.filterEnvDepth, 'gain', 0);
+            setToneParam(efx.filterLFODepth, 'gain', 0);
+        } else {
+            setToneParam(efx.filter, 'frequency', f.frequency);
+            setToneParam(efx.filter, 'Q', f.q);
+            setToneParam(efx.filterEnvDepth, 'gain', f.envDepth);
+            setToneParam(efx.filterLFODepth, 'gain', f.lfoDepth);
+        }
     }
-
+    
+    // Distortion, BitCrush, Compressor
     if (newParams.distortion && efx.distortion) {
-            efx.distortion.distortion = updated.distortion.amount;
-            setToneParam(efx.distortion, 'wet', updated.distortion.isActive ? updated.distortion.wet : 0);
+        efx.distortion.distortion = updated.distortion.amount;
+        setToneParam(efx.distortion, 'wet', updated.distortion.isActive ? updated.distortion.wet : 0);
     }
-
     if (newParams.bitCrusher && efx.bitCrusher) {
         setToneParam(efx.bitCrusher, 'bits', updated.bitCrusher.bits);
         setToneParam(efx.bitCrusher, 'wet', updated.bitCrusher.isActive ? updated.bitCrusher.wet : 0);
     }
-
-    // Compressor Update
     if (newParams.compressor && efx.compressor) {
         const cmp = updated.compressor;
         if (cmp.isActive) {
@@ -334,140 +627,58 @@ export const useAudioEngine = () => {
             setToneParam(efx.compressor.ratio, 'value', 1);
         }
     }
-  }, [setToneParam]);
+
+    // Worklet Sync
+    if (workletNode.current) {
+         workletNode.current.port.postMessage({
+             type: 'params',
+             params: {
+                 grainSize: updated.grainSize,
+                 overlap: updated.overlap,
+                 playbackRate: updated.playbackRate,
+                 detune: updated.detune,
+                 glitch: updated.glitch
+             }
+         });
+         // BPM update
+         if (newParams.bpm) {
+             workletNode.current.port.postMessage({
+                type: 'sequencer',
+                steps: sequencer.steps,
+                stepCount: sequencer.stepCount,
+                bpm: updated.bpm
+            });
+         }
+    }
+  }, [sequencer, setToneParam]);
 
 
-  // Sequencer Loop
+  // --- SEQUENCER SYNC ---
+  // Whenever sequencer state changes, update worklet
   useEffect(() => {
-    if (sequenceRef.current) sequenceRef.current.dispose();
-    if (!audioBuffer) return;
-
-    const indices = Array.from({ length: sequencer.stepCount }, (_, i) => i);
-
-    sequenceRef.current = new Tone.Sequence((time: number, index: number) => {
-        const currentSeq = sequencerRef.current;
-        const currentParams = paramsRef.current;
-        const currentSlices = slicesRef.current; 
-        
-        let actualStepIndex = index;
-        const length = currentSeq.stepCount;
-
-        switch (currentSeq.mode) {
-            case 'backward': actualStepIndex = length - 1 - index; break;
-            case 'random': actualStepIndex = Math.floor(Math.random() * length); break;
-            case 'pendulum': /* To implement if needed */ break;
-        }
-
-        if (actualStepIndex < 0 || actualStepIndex >= currentSeq.steps.length) return;
-
-        Tone.Draw.schedule(() => {
-            setSequencer(prev => ({ ...prev, currentStep: actualStepIndex }));
-        }, time);
-
-        const stepData = currentSeq.steps[actualStepIndex];
-        
-        if (stepData.active && currentSlices.length > 0) {
-             const slice = currentSlices[stepData.sliceIndex % currentSlices.length];
-             if (slice && slice.isActive) {
-                 lastPlayedSliceRef.current = slice;
-             }
-        }
-
-        if (stepData.active && player.current && !player.current.disposed && currentSlices.length > 0) {
-             const slice = currentSlices[stepData.sliceIndex % currentSlices.length];
-             if (slice && slice.isActive) {
-                 
-                 if (isDjModeRef.current) return;
-
-                 // 1. Glitch Chaos Logic
-                 let playbackRate = currentParams.playbackRate;
-                 let reverse = reverseRef.current !== (slice.reverse || false);
-                 let detune = currentParams.detune;
-                 let repeats = stepData.ratchet || 1;
-                 
-                 player.current.grainSize = currentParams.grainSize;
-                 player.current.overlap = currentParams.overlap;
-
-                 if (currentParams.glitch.chaos > 0 && Math.random() < currentParams.glitch.chaos) {
-                     const roll = Math.random();
-                     
-                     if (currentParams.glitch.allowRatchet && Math.random() < 0.4) {
-                         repeats = Math.floor(Math.random() * 3) + 2; 
-                     }
-
-                     if (currentParams.glitch.allowFormant && Math.random() < 0.4) {
-                         player.current.grainSize = (Math.random() * 0.1) + 0.02;
-                         player.current.overlap = Math.random() * 0.1;
-                     }
-
-                     if (currentParams.glitch.allowReverse && roll < 0.3) {
-                         reverse = !reverse;
-                     } 
-                     else if (currentParams.glitch.allowOctaveJump && roll < 0.6) {
-                         if (currentParams.glitch.pitchShift) {
-                             const isKick = slice.type === 'kick';
-                             const shift = isKick ? 1200 : (Math.random() > 0.5 ? 1200 : -1200);
-                             detune += shift;
-                         } else {
-                             playbackRate *= (Math.random() > 0.5 ? 2.0 : 0.5);
-                         }
-                     } 
-                     else {
-                         if (currentParams.glitch.pitchShift) {
-                             detune += (Math.random() * 400) - 200;
-                         } else {
-                             playbackRate *= (0.8 + Math.random() * 0.4);
-                         }
-                     }
-                 }
-
-                 setToneParam(player.current, 'playbackRate', playbackRate);
-                 player.current.reverse = reverse;
-                 setToneParam(player.current, 'detune', detune);
-
-                 const attack = (slice.fadeIn !== undefined && slice.fadeIn >= 0) ? slice.fadeIn : currentParams.attack;
-                 const release = (slice.fadeOut !== undefined && slice.fadeOut >= 0) ? slice.fadeOut : currentParams.release;
-                 
-                 player.current.fadeIn = Math.max(0.001, attack);
-                 player.current.fadeOut = Math.max(0.001, release);
-
-                 const levelDb = slice.level <= 0 ? -Infinity : 20 * Math.log10(slice.level);
-                 setToneParam(player.current, 'volume', levelDb); 
-
-                 const stepDuration = Tone.Time("16n").toSeconds();
-                 const retriggerInterval = stepDuration / repeats;
-
-                 for(let i = 0; i < repeats; i++) {
-                     const triggerTime = time + (i * retriggerInterval);
-                     player.current.stop(triggerTime);
-                     player.current.start(triggerTime, slice.offset, slice.duration / repeats); 
-                 }
-             }
-        }
-
-    }, indices, "16n").start(0);
-
-    if (isPlaying && Tone.Transport.state !== 'started') Tone.Transport.start();
-
-    return () => sequenceRef.current?.dispose();
-  }, [sequencer.stepCount, audioBuffer, isPlaying, setToneParam]);
+      if (!workletNode.current) return;
+      workletNode.current.port.postMessage({
+          type: 'sequencer',
+          steps: sequencer.steps,
+          stepCount: sequencer.stepCount,
+          bpm: params.bpm
+      });
+  }, [sequencer.steps, sequencer.stepCount, sequencer.mode, params.bpm]);
+  
+  // Whenever slices change, update worklet
+  useEffect(() => {
+      if (!workletNode.current) return;
+      workletNode.current.port.postMessage({
+          type: 'slices',
+          slices: slices
+      });
+  }, [slices]);
 
 
+  // --- LOADING AUDIO ---
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string) => {
     setIsLoading(true);
 
-    if (djLoopRef.current) {
-        djLoopRef.current.dispose();
-        djLoopRef.current = null;
-    }
-    isDjModeRef.current = false;
-    reverseRef.current = false;
-
-    if (player.current) {
-      player.current.stop();
-      player.current.dispose();
-      player.current = null;
-    }
     if (previewPlayer.current) {
         previewPlayer.current.stop();
         setIsPreviewPlaying(false);
@@ -476,57 +687,36 @@ export const useAudioEngine = () => {
     
     try {
       const url = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
-      
       let filename = 'Default';
-      if (nameOverride) {
-          filename = nameOverride;
-      } else if (audioFile instanceof File) {
-          filename = audioFile.name;
-      } else if (typeof audioFile === 'string') {
-          filename = audioFile.split('/').pop()?.split('?')[0] || 'Default';
-      }
+      if (nameOverride) filename = nameOverride;
+      else if (audioFile instanceof File) filename = audioFile.name;
+      else if (typeof audioFile === 'string') filename = audioFile.split('/').pop()?.split('?')[0] || 'Default';
       setSampleName(filename);
 
-      const bufferPromise = new Promise<any>((resolve, reject) => {
-          const buff = new Tone.Buffer(url, () => resolve(buff), (err: any) => reject(err));
-      });
-
-      const buffer = await Promise.race([bufferPromise, new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 10000))]) as any;
+      // Correctly load buffer
+      const buffer = new Tone.Buffer();
+      await buffer.load(url);
       
-      let rawBuffer = buffer.get();
-      // Use imported utility
+      let rawBuffer = buffer.get(); // Get the native AudioBuffer
+      
+      // Safety check
+      if (!rawBuffer) throw new Error("Audio Buffer failed to decode");
+      
       rawBuffer = removeLeadingSilence(rawBuffer);
-      
       const processedBuffer = new Tone.Buffer(rawBuffer);
+
+      let currentSlices = slices;
+      let currentSequencer = sequencer;
 
       if (!preserveSettings) {
           let detectedBpm = 0;
-          if (filename) {
-              const explicitMatch = filename.match(/(\d{2,3})\s*bpm/i);
-              if (explicitMatch) {
-                  const val = parseInt(explicitMatch[1]);
-                  if (val >= 50 && val <= 200) detectedBpm = val;
-              }
-              
-              if (!detectedBpm) {
-                   const numbers = filename.match(/\d+/g);
-                   if (numbers) {
-                       const valid = numbers.map(n => parseInt(n)).find(n => n >= 50 && n <= 200);
-                       if (valid) detectedBpm = valid;
-                   }
-              }
-          }
+          if (filename.match(/(\d{2,3})\s*bpm/i)) detectedBpm = parseInt(filename.match(/(\d{2,3})\s*bpm/i)![1]);
+          if (!detectedBpm) detectedBpm = await detectBPM(rawBuffer);
 
-          if (!detectedBpm) {
-              detectedBpm = await detectBPM(rawBuffer);
-          }
-
-          const beatDuration = 60 / (detectedBpm || 120);
-          // Use imported utility
           const newSlices = generateTransientSlices(processedBuffer, detectedBpm || 120, 0, processedBuffer.duration);
           setSlices(newSlices);
+          currentSlices = newSlices;
           setSelectedSliceIndex(0);
-          if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
           setSequencer(prev => {
             const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
@@ -534,263 +724,195 @@ export const useAudioEngine = () => {
                 sliceIndex: i % (newSlices.length || 1),
                 ratchet: 1
             }));
-            return { ...prev, steps: newSteps, currentStep: -1 };
+            const newState = { ...prev, steps: newSteps, currentStep: -1 };
+            currentSequencer = newState;
+            return newState;
           });
 
-          // COMPLETE RESET OF PARAMETERS
-          const resetParams: AllParams = {
-              ...initialParams,
-              bpm: detectedBpm || 120,
-              grainSize: beatDuration / 8, 
-              overlap: 0.05, 
-              attack: 0.005,
-              release: 0.1,
-              delay: { 
-                  ...initialParams.delay, 
-                  delayTime: beatDuration * 0.75 
-              },
-              filter: initialParams.filter,
-              reverb: initialParams.reverb,
-              distortion: initialParams.distortion,
-              bitCrusher: initialParams.bitCrusher,
-              compressor: initialParams.compressor,
-              glitch: initialParams.glitch
-          };
-          
+          // Reset Params
+          const resetParams: AllParams = { ...initialParams, bpm: detectedBpm || 120 };
           updateParams(resetParams);
-      }
-
-      // Use the latest params (whether preserved or reset)
-      const currentParams = paramsRef.current;
-      
-      player.current = new Tone.GrainPlayer({
-        url: processedBuffer,
-        loop: false, 
-        grainSize: currentParams.grainSize,
-        overlap: currentParams.overlap,
-        playbackRate: currentParams.playbackRate,
-        detune: currentParams.detune,
-        fadeIn: Math.max(0.001, currentParams.attack),
-        fadeOut: Math.max(0.001, currentParams.release)
-      }).connect(effects.current.compressor); 
-      
-      if (player.current) {
-         player.current.grainSize = currentParams.grainSize;
-         player.current.overlap = currentParams.overlap;
-         player.current.playbackRate = currentParams.playbackRate;
-         player.current.detune = currentParams.detune;
-         player.current.fadeIn = Math.max(0.001, currentParams.attack);
-         player.current.fadeOut = Math.max(0.001, currentParams.release);
-         player.current.volume.value = 0;
       }
 
       setAudioBuffer(processedBuffer);
       
-      if (previewPlayer.current) {
-          previewPlayer.current.buffer = processedBuffer;
+      if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
+
+      // SEND TO WORKLET
+      if (workletNode.current) {
+          // Access underlying AudioBuffer directly
+          const nativeBuf = processedBuffer.get();
+          
+          if (nativeBuf && nativeBuf.numberOfChannels > 0) {
+              const chan0 = nativeBuf.getChannelData(0);
+              const chan1 = nativeBuf.numberOfChannels > 1 ? nativeBuf.getChannelData(1) : chan0;
+              
+              workletNode.current.port.postMessage({
+                  type: 'load',
+                  bufferL: chan0,
+                  bufferR: chan1,
+                  sampleRate: processedBuffer.sampleRate
+              });
+              
+              // FORCE SEQUENCER & SLICE UPDATE ON LOAD
+              // This is critical because the useEffect might not have fired yet
+              workletNode.current.port.postMessage({
+                  type: 'slices',
+                  slices: currentSlices
+              });
+              workletNode.current.port.postMessage({
+                  type: 'sequencer',
+                  steps: currentSequencer.steps,
+                  stepCount: currentSequencer.stepCount,
+                  bpm: paramsRef.current.bpm 
+              });
+          }
       }
 
       if (isPlaying) {
-        await Tone.start();
-        Tone.Transport.start();
+        if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: true });
+        if (Tone.Transport.state !== 'started') Tone.Transport.start();
       }
 
     } catch (error: any) {
       console.error("Error loading audio file:", error);
-      let msg = error?.message || "Unknown error";
-      if (typeof error === 'object' && error.target) {
-          msg = "Network or Format Error (404/CORs)";
-      }
-      alert(`Failed to load audio file: ${msg}. The URL might be broken.`);
+      alert("Failed to load audio file.");
     } finally {
       setIsLoading(false);
     }
-  }, [isPlaying, updateParams, setToneParam]); 
+  }, [isPlaying, updateParams, slices, sequencer]);
+
 
   const loadConstructionKit = useCallback(async (files: File[] | KitSample[], kitName: string) => {
       setIsLoading(true);
-      
-      if (djLoopRef.current) {
-          djLoopRef.current.dispose();
-          djLoopRef.current = null;
-      }
-      isDjModeRef.current = false;
-      reverseRef.current = false;
-
-      if (player.current) {
-        player.current.stop();
-        player.current.dispose();
-        player.current = null;
-      }
-      if (previewPlayer.current) {
-          previewPlayer.current.stop();
-          setIsPreviewPlaying(false);
-          setSliceLoopState({ index: null, isLooping: false });
-      }
+      if (previewPlayer.current) previewPlayer.current.stop();
 
       try {
           setSampleName(kitName);
-
           const buffers: { buffer: any, name: string, type: SliceType }[] = [];
           
           for (const item of files) {
               const url = item instanceof File ? URL.createObjectURL(item) : item.url;
               const name = item instanceof File ? item.name : item.name;
-              
               let type: SliceType = 'perc';
-              if (!(item instanceof File) && item.type) {
-                  type = item.type;
-              } else {
+              if (!(item instanceof File) && item.type) type = item.type;
+              else {
                   const lower = name.toLowerCase();
                   if (lower.includes('kick') || lower.includes('bd')) type = 'kick';
-                  else if (lower.includes('snare') || lower.includes('sd') || lower.includes('clap')) type = 'snare';
+                  else if (lower.includes('snare') || lower.includes('sd')) type = 'snare';
                   else if (lower.includes('hat') || lower.includes('hh')) type = 'hihat';
               }
 
               try {
-                  const buffer = await new Promise<any>((resolve, reject) => {
-                      const b = new Tone.Buffer(url, () => resolve(b), (e: any) => reject(e));
-                  });
+                  const buffer = new Tone.Buffer();
+                  await buffer.load(url);
                   buffers.push({ buffer: buffer.get(), name, type });
-              } catch (e: any) {
-                  console.warn(`Skipped loading sample: ${name} - ${e?.message || "Network Error"}`);
-              }
+              } catch (e) {}
           }
 
-          if (buffers.length === 0) {
-              throw new Error("No valid audio files found in this kit. Check your file paths or network connection.");
-          }
+          if (buffers.length === 0) throw new Error("No audio files");
 
           const padding = 0.1; 
           const totalDuration = buffers.reduce((acc, b) => acc + b.buffer.duration + padding, 0);
           const sampleRate = Tone.context.sampleRate;
           const masterBuffer = Tone.context.createBuffer(1, Math.ceil(totalDuration * sampleRate), sampleRate);
           const channelData = masterBuffer.getChannelData(0);
-
+          
           const newSlices: Slice[] = [];
           let currentOffset = 0;
 
           buffers.forEach((b, index) => {
               const bData = b.buffer.getChannelData(0);
               const startSample = Math.floor(currentOffset * sampleRate);
-              
               for (let i = 0; i < bData.length; i++) {
-                  if (startSample + i < channelData.length) {
-                      channelData[startSample + i] = bData[i];
-                  }
+                  if (startSample + i < channelData.length) channelData[startSample + i] = bData[i];
               }
-
               newSlices.push({
-                  id: index,
-                  offset: currentOffset,
-                  duration: b.buffer.duration,
-                  isActive: true,
-                  type: b.type,
-                  level: 1.0,
+                  id: index, offset: currentOffset, duration: b.buffer.duration, isActive: true, type: b.type, level: 1.0,
               });
-
               currentOffset += b.buffer.duration + padding;
           });
 
           const finalToneBuffer = new Tone.Buffer(masterBuffer);
-
           setAudioBuffer(finalToneBuffer);
           setSlices(newSlices);
           setSelectedSliceIndex(0);
-          if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
 
+          let currentSequencer = sequencer;
           setSequencer(prev => {
               const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
-                  ...step,
-                  active: i % 2 === 0, 
-                  sliceIndex: i % newSlices.length,
-                  ratchet: 1
+                  ...step, active: i % 2 === 0, sliceIndex: i % newSlices.length, ratchet: 1
               }));
-              return { ...prev, steps: newSteps, currentStep: -1 };
+              const newState = { ...prev, steps: newSteps, currentStep: -1 };
+              currentSequencer = newState;
+              return newState;
           });
 
-          // RESET PARAMETERS FOR KIT
-          const resetParams: AllParams = {
-              ...initialParams,
-              bpm: 120, 
-              grainSize: 0.05,
-              overlap: 0.025,
-              filter: initialParams.filter,
-              reverb: initialParams.reverb,
-              distortion: initialParams.distortion,
-              bitCrusher: initialParams.bitCrusher,
-              compressor: initialParams.compressor,
-              glitch: initialParams.glitch
-          };
+          const resetParams = { ...initialParams, bpm: 120 };
           updateParams(resetParams);
           
-          const currentParams = paramsRef.current;
+          if (previewPlayer.current) previewPlayer.current.buffer = finalToneBuffer;
 
-          player.current = new Tone.GrainPlayer({
-              url: finalToneBuffer,
-              grainSize: currentParams.grainSize, 
-              overlap: currentParams.overlap,  
-              playbackRate: currentParams.playbackRate,
-              detune: currentParams.detune,
-              fadeIn: 0.001,   
-              fadeOut: 0.01    
-          }).connect(effects.current.compressor); 
-          
-          if (player.current) {
-            player.current.grainSize = currentParams.grainSize;
-            player.current.overlap = currentParams.overlap;
-            player.current.playbackRate = currentParams.playbackRate;
-            player.current.detune = currentParams.detune;
-            player.current.fadeIn = 0.001;
-            player.current.fadeOut = 0.01;
-          }
-
-          if (previewPlayer.current) {
-            previewPlayer.current.buffer = finalToneBuffer;
-          }
-
-          if (isPlaying) {
-            if (Tone.Transport.state !== 'started') Tone.Transport.start();
+          // SEND TO WORKLET
+          if (workletNode.current) {
+            workletNode.current.port.postMessage({
+                type: 'load',
+                bufferL: masterBuffer.getChannelData(0),
+                bufferR: masterBuffer.getChannelData(0),
+                sampleRate: sampleRate
+            });
+            workletNode.current.port.postMessage({ type: 'slices', slices: newSlices });
+            workletNode.current.port.postMessage({
+                  type: 'sequencer',
+                  steps: currentSequencer.steps,
+                  stepCount: currentSequencer.stepCount,
+                  bpm: 120
+            });
           }
 
       } catch (error: any) {
-          console.error("Error loading construction kit", error);
-          alert(`Failed to load kit: ${error.message || "Unknown error"}.`);
+          alert(`Failed to load kit: ${error.message}.`);
       } finally {
           setIsLoading(false);
       }
-  }, [isPlaying, updateParams]);
+  }, [updateParams, sequencer]);
+
 
   const togglePlay = useCallback(async () => {
-    if (!player.current) return;
-    if (Tone.context.state !== 'running') await Tone.start();
+    // 1. Ensure Context is Running (User Interaction Requirement)
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+    }
+    
+    await Tone.start();
 
+    // 2. Toggle State
     if (isPlaying) {
+      if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: false });
       Tone.Transport.stop();
-      player.current.stop();
       setIsPlaying(false);
       setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
-      
-      isDjModeRef.current = false;
-      if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
-
     } else {
+      if (workletNode.current) {
+          // Send Play command
+          workletNode.current.port.postMessage({ type: 'play', value: true });
+      }
       Tone.Transport.start();
       setIsPlaying(true);
       setSequencer(prev => ({ ...prev, isPlaying: true }));
     }
   }, [isPlaying]);
 
+
+  // --- SIMPLE PREVIEW FUNCTIONS (Use Main Thread Player) ---
   const togglePreviewOriginal = useCallback(() => {
       if (!previewPlayer.current || !previewPlayer.current.buffer.loaded) return;
-      
       if (isPreviewPlaying) {
           previewPlayer.current.stop();
           setIsPreviewPlaying(false);
           setSliceLoopState({ index: null, isLooping: false });
       } else {
           setSliceLoopState({ index: null, isLooping: false });
-          
           previewPlayer.current.loop = true;
           previewPlayer.current.loopStart = 0;
           previewPlayer.current.loopEnd = previewPlayer.current.buffer.duration;
@@ -801,11 +923,9 @@ export const useAudioEngine = () => {
 
   const playSliceRaw = useCallback((index: number) => {
       if (!previewPlayer.current || !slices[index]) return;
-      
       previewPlayer.current.stop();
       setIsPreviewPlaying(false);
       setSliceLoopState({ index: null, isLooping: false });
-
       const s = slices[index];
       previewPlayer.current.loop = false;
       previewPlayer.current.start(Tone.now(), s.offset, s.duration);
@@ -813,51 +933,36 @@ export const useAudioEngine = () => {
 
   const toggleSliceLoop = useCallback((index: number) => {
       if (!previewPlayer.current || !slices[index]) return;
-
       if (sliceLoopState.index === index && sliceLoopState.isLooping) {
           previewPlayer.current.stop();
           setSliceLoopState({ index: null, isLooping: false });
       } else {
           previewPlayer.current.stop();
           setIsPreviewPlaying(false);
-
           const s = slices[index];
           previewPlayer.current.loopStart = s.offset;
           previewPlayer.current.loopEnd = s.offset + s.duration;
           previewPlayer.current.loop = true;
           previewPlayer.current.start(Tone.now(), s.offset);
-          
           setSliceLoopState({ index, isLooping: true });
       }
   }, [slices, sliceLoopState]);
 
 
-  // --- Slicing & Editing ---
-
+  // --- EDITING ---
   const sliceRegion = useCallback((start: number, end: number) => {
     if (!audioBuffer) return;
-    
     const rawBuffer = audioBuffer.get();
-    
     const newSlices = [{
-            id: 0,
-            offset: start,
-            duration: end - start,
-            isActive: true,
-            type: classifySlice(rawBuffer, start, end - start),
-            level: 1.0,
-            reverse: false,
+            id: 0, offset: start, duration: end - start, isActive: true,
+            type: classifySlice(rawBuffer, start, end - start), level: 1.0, reverse: false,
     }];
-
     setSlices(newSlices);
     setSelectedSliceIndex(0);
-    if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
-
+    // Sync sequencer steps
     setSequencer(prev => {
         const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
-            ...step,
-            sliceIndex: i % newSlices.length,
-            ratchet: 1
+            ...step, sliceIndex: i % newSlices.length, ratchet: 1
         }));
         return { ...prev, steps: newSteps, currentStep: -1 };
     });
@@ -868,13 +973,9 @@ export const useAudioEngine = () => {
     const newSlices = generateTransientSlices(audioBuffer, params.bpm, 0, audioBuffer.duration);
     setSlices(newSlices);
     setSelectedSliceIndex(0);
-    if (newSlices.length > 0) lastPlayedSliceRef.current = newSlices[0];
-
     setSequencer(prev => {
         const newSteps = generateDefaultSteps(prev.stepCount).map((step, i) => ({
-            ...step,
-            sliceIndex: i % (newSlices.length || 1),
-            ratchet: 1
+            ...step, sliceIndex: i % (newSlices.length || 1), ratchet: 1
         }));
         return { ...prev, steps: newSteps, currentStep: -1 };
     });
@@ -886,6 +987,7 @@ export const useAudioEngine = () => {
           newSlices[index] = { ...newSlices[index], ...changes };
           return newSlices;
       });
+      // Preview logic update
       if (sliceLoopState.index === index && sliceLoopState.isLooping && previewPlayer.current) {
           const s = { ...slices[index], ...changes };
           previewPlayer.current.loopStart = s.offset;
@@ -893,334 +995,144 @@ export const useAudioEngine = () => {
       }
   }, [slices, sliceLoopState]);
 
-  const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
-  
-  const toggleSliceActive = useCallback((index: number) => {
-     updateSlice(index, { isActive: !slices[index].isActive });
-  }, [slices, updateSlice]);
-
-  const scrub = useCallback((pos: number) => {}, []);
-
-  // --- DJ Actions ---
-  const djActions = {
-      triggerStutter: useCallback((subdivision: '4n'|'8n'|'16n'|'32n', active: boolean) => {
-          if (active) {
-               isDjModeRef.current = true;
-               if (Tone.Transport.state !== 'started') {
-                   Tone.Transport.start();
-                   setIsPlaying(true);
-                   setSequencer(prev => ({ ...prev, isPlaying: true }));
-               }
-
-               if (djLoopRef.current) { djLoopRef.current.dispose(); }
-               
-               const slice = lastPlayedSliceRef.current || slices[0];
-
-               if (slice && player.current) {
-                   player.current.stop(); 
-                   
-                   setToneParam(player.current, 'playbackRate', params.playbackRate);
-                   player.current.reverse = false;
-
-                   djLoopRef.current = new Tone.Loop((time: number) => {
-                       player.current.stop(time);
-                       player.current.start(time, slice.offset, slice.duration);
-                   }, subdivision).start(); 
-               }
-          } else {
-               isDjModeRef.current = false;
-               if (djLoopRef.current) {
-                   djLoopRef.current.dispose();
-                   djLoopRef.current = null;
-               }
-               if (player.current) {
-                    setToneParam(player.current, 'playbackRate', params.playbackRate);
-                    player.current.reverse = false;
-               }
-          }
-      }, [params.playbackRate, slices, setToneParam]),
-
-      triggerTapeStop: useCallback((active: boolean) => {
-           if (!player.current) return;
-           if (active) {
-               isDjModeRef.current = true;
-               if (Tone.Transport.state !== 'started') {
-                   Tone.Transport.start();
-                   setIsPlaying(true);
-                   setSequencer(prev => ({ ...prev, isPlaying: true }));
-               }
-               if (djLoopRef.current) { djLoopRef.current.dispose(); }
-
-               const slice = lastPlayedSliceRef.current || slices[0];
-               
-               if (slice) {
-                   player.current.stop();
-
-                   setToneParam(player.current, 'playbackRate', 0.001, 0.8);
-                   
-                   djLoopRef.current = new Tone.Loop((time: number) => {
-                       player.current.stop(time);
-                       player.current.start(time, slice.offset, slice.duration);
-                   }, "4n").start();
-               }
-           } else {
-               isDjModeRef.current = false;
-               if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
-               setToneParam(player.current, 'playbackRate', params.playbackRate, 0.2);
-           }
-      }, [params.playbackRate, slices, setToneParam]),
-
-      triggerReverse: useCallback((active: boolean) => {
-           if (!player.current) return;
-           if (active) {
-               isDjModeRef.current = true;
-               player.current.reverse = true;
-               if (Tone.Transport.state !== 'started') {
-                   Tone.Transport.start();
-                   setIsPlaying(true);
-                   setSequencer(prev => ({ ...prev, isPlaying: true }));
-               }
-               
-               if (djLoopRef.current) { djLoopRef.current.dispose(); }
-               
-               const slice = lastPlayedSliceRef.current || slices[0];
-               if (slice) {
-                   player.current.stop();
-                   
-                   djLoopRef.current = new Tone.Loop((time: number) => {
-                       player.current.stop(time);
-                       player.current.start(time, slice.offset, slice.duration);
-                   }, "8n").start();
-               }
-
-           } else {
-               isDjModeRef.current = false;
-               player.current.reverse = false;
-               if (djLoopRef.current) {
-                   djLoopRef.current.dispose();
-                   djLoopRef.current = null;
-               }
-           }
-      }, [slices]),
-
-      triggerFill: useCallback((type: 'scatter' | 'build' | 'break', active: boolean) => {
-        if (active) {
-            isDjModeRef.current = true;
-            if (Tone.Transport.state !== 'started') {
-                   Tone.Transport.start();
-                   setIsPlaying(true);
-                   setSequencer(prev => ({ ...prev, isPlaying: true }));
-            }
-            if (djLoopRef.current) { djLoopRef.current.dispose(); }
-
-            const activeSlices = slices.filter(s => s.isActive);
-            const pool = activeSlices.length > 0 ? activeSlices : slices;
-            if (pool.length === 0 || !player.current) return;
-
-            const kicks = pool.filter(s => s.type === 'kick');
-            const snares = pool.filter(s => s.type === 'snare');
-            const hats = pool.filter(s => s.type === 'hihat');
-
-            player.current.stop();
-            player.current.reverse = false;
-            setToneParam(player.current, 'playbackRate', params.playbackRate);
-
-            player.current.volume.value = 0;
-
-            let counter = 0;
-
-            if (type === 'build') {
-                 const s = snares.length > 0 ? snares[0] : (pool[Math.floor(pool.length/2)] || pool[0]);
-                 
-                 djLoopRef.current = new Tone.Loop((time: number) => {
-                     player.current.stop(time);
-                     
-                     const pos = counter % 16;
-                     
-                     const pitchRamp = 1 + (pos / 16);
-                     setToneParam(player.current, 'playbackRate', params.playbackRate * pitchRamp);
-                     
-                     const volRamp = -24 + ((pos / 15) * 26);
-                     player.current.volume.value = volRamp;
-
-                     player.current.start(time, s.offset, s.duration / pitchRamp);
-                     counter++;
-                 }, "16n").start();
-
-            } else if (type === 'scatter') {
-                 djLoopRef.current = new Tone.Loop((time: number) => {
-                     player.current.stop(time);
-                     player.current.volume.value = 0; 
-                     
-                     const s = pool[Math.floor(Math.random() * pool.length)];
-                     
-                     const reverse = Math.random() > 0.7;
-                     const octave = Math.random() > 0.8 ? 2 : (Math.random() > 0.8 ? 0.5 : 1);
-                     
-                     player.current.reverse = reverse;
-                     setToneParam(player.current, 'playbackRate', params.playbackRate * octave);
-                     
-                     player.current.start(time, s.offset, s.duration);
-                 }, "16n").start();
-
-            } else if (type === 'break') {
-                 const patterns = [
-                     ['k', 'h', 's', 'k', 'h', 'k', 's', 'h'], 
-                     ['k', 'k', 's', null, 'k', null, 's', 'k'], 
-                     ['k', 'h', 'k', 'h', 's', 'h', 's', 'k'] 
-                 ];
-                 const pat = patterns[Math.floor(Math.random() * patterns.length)];
-                 const subdivision = "8n"; 
-                 
-                 djLoopRef.current = new Tone.Loop((time: number) => {
-                     player.current.stop(time);
-                     player.current.volume.value = 0; 
-                     
-                     const step = counter % 8;
-                     const type = pat[step];
-                     
-                     if (!type && Math.random() > 0.5 && hats.length > 0) {
-                         const h = hats[Math.floor(Math.random()*hats.length)];
-                         setToneParam(player.current, 'playbackRate', params.playbackRate);
-                         player.current.reverse = false;
-                         player.current.start(time, h.offset, h.duration);
-                     } else if (type) {
-                         let s = pool[0];
-                         if (type === 'k' && kicks.length) s = kicks[Math.floor(Math.random()*kicks.length)];
-                         if (type === 's' && snares.length) s = snares[Math.floor(Math.random()*snares.length)];
-                         if (type === 'h' && hats.length) s = hats[Math.floor(Math.random()*hats.length)];
-                         
-                         setToneParam(player.current, 'playbackRate', params.playbackRate);
-                         player.current.reverse = false;
-                         player.current.start(time, s.offset, s.duration);
-                     }
-                     
-                     counter++;
-                 }, subdivision).start();
-            }
-
-        } else {
-            isDjModeRef.current = false;
-            if (djLoopRef.current) { djLoopRef.current.dispose(); djLoopRef.current = null; }
-            if (player.current) {
-                 setToneParam(player.current, 'playbackRate', params.playbackRate);
-                 setToneParam(player.current, 'detune', params.detune); 
-                 player.current.reverse = false;
-                 player.current.volume.rampTo(0, 0.1);
-            }
-        }
-    }, [slices, params.playbackRate, params.detune, setToneParam])
-  };
-
-  // --- Generator ---
-
   const generateAiBeat = useCallback((complexity: number) => {
       if (slices.length === 0) return;
+
+      // Helper to find slice indices by type
+      const getSlicesByType = (t: SliceType) => slices.map((s, i) => ({...s, originalIndex: i})).filter(s => s.type === t);
+      const kicks = getSlicesByType('kick');
+      const snares = getSlicesByType('snare');
+      const hats = getSlicesByType('hihat');
+      const percs = getSlicesByType('perc');
       
-      const activeSlices = slices.filter(s => s.isActive);
-      const pool = activeSlices.length > 0 ? activeSlices : slices;
+      const getRandomSliceIndex = (type: SliceType) => {
+          let candidates = [];
+          if (type === 'kick') candidates = kicks;
+          else if (type === 'snare') candidates = snares;
+          else if (type === 'hihat') candidates = hats;
+          else candidates = percs;
 
-      const kicks = pool.filter(s => s.type === 'kick');
-      const snares = pool.filter(s => s.type === 'snare');
-      const hats = pool.filter(s => s.type === 'hihat');
-      const percs = pool.filter(s => s.type === 'perc');
+          // Fallback if specific type not found
+          if (candidates.length === 0) candidates = slices.map((s, i) => ({...s, originalIndex: i}));
+          
+          const selection = candidates[Math.floor(Math.random() * candidates.length)];
+          return selection ? selection.originalIndex : 0;
+      };
+
+      const steps = Array(sequencer.stepCount).fill(null).map((_, i) => ({
+          active: false,
+          sliceIndex: 0,
+          ratchet: 1
+      }));
+
+      // --- LOGIC SELECTOR ---
       
-      const getKick = () => kicks.length > 0 ? kicks[Math.floor(Math.random() * kicks.length)].id : (pool[0]?.id || 0);
-      const getSnare = () => snares.length > 0 ? snares[Math.floor(Math.random() * snares.length)].id : (pool[0]?.id || 0);
-      const getHat = () => hats.length > 0 ? hats[Math.floor(Math.random() * hats.length)].id : (pool[0]?.id || 0);
-      const getAny = () => pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)].id : 0;
-
-      const newSteps = Array(sequencer.steps.length).fill(0).map((_, i) => {
-          const step = i % 16; 
-          let active = false;
-          let sliceId = 0;
-          let ratchet = 1;
-
-          if (complexity < 0.34) {
-              if (step % 4 === 0) {
-                  active = true;
-                  if (step === 4 || step === 12) {
-                      sliceId = getSnare(); 
-                  } else {
-                      sliceId = getKick();  
-                  }
-              }
-              if (step % 4 === 2) {
-                  active = true;
-                  sliceId = getHat();
-              }
-              if (!active && Math.random() < (complexity * 1.5)) {
-                   active = true;
-                   sliceId = Math.random() > 0.5 ? getHat() : (percs.length ? percs[0].id : getHat());
-              }
-          } 
-          else if (complexity < 0.67) {
-              if (step === 0) { active = true; sliceId = getKick(); }
-              if (step === 4 || step === 12) { active = true; sliceId = getSnare(); }
-              
-              const syncopationLevel = (complexity - 0.34) * 3; 
-
-              if (!active && step === 8) {
-                   if (Math.random() > 0.3) { active = true; sliceId = getKick(); }
-              }
-
-              if (!active && (step === 2 || step === 3 || step === 7 || step === 10 || step === 11 || step === 14)) {
-                   if (Math.random() < 0.15 + (syncopationLevel * 0.25)) {
-                       active = true;
-                       sliceId = getKick();
-                   }
-              }
-
-              if (!active) {
-                   if (step % 2 === 0) {
-                       active = true;
-                       sliceId = getHat();
-                   } 
-                   else if (Math.random() < 0.2 + (syncopationLevel * 0.5)) {
-                       active = true;
-                       sliceId = getHat();
-                       if (Math.random() < 0.3) ratchet = Math.random() > 0.5 ? 2 : 3;
-                   }
-              }
+      // 1. HOUSE (Steady) - Complexity 0.0 - 0.35
+      if (complexity <= 0.35) {
+          const intense = complexity / 0.35; 
+          
+          // Four on the floor
+          for (let i = 0; i < steps.length; i+=4) {
+              steps[i] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
           }
-          else {
-              if (step === 0) { active = true; sliceId = getKick(); }
-              if (step === 4 || step === 12) { active = true; sliceId = getSnare(); }
-
-              if (!active) {
-                  const chaosLevel = (complexity - 0.67) * 3; 
-                  if (Math.random() < 0.5 + (chaosLevel * 0.4)) {
-                      active = true;
-                      sliceId = getAny();
-                      
-                      if (Math.random() < 0.3 + (chaosLevel * 0.3)) {
-                          ratchet = Math.floor(Math.random() * 4) + 1;
-                      }
-                  }
+          
+          // Snares on 5 and 13 (index 4 and 12)
+          steps[4] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+          steps[12] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+          
+          // Off-beat Hats (2, 6, 10, 14) -> index 2, 6, 10, 14
+          for (let i = 2; i < steps.length; i+=4) {
+              if (Math.random() < 0.8 + (intense * 0.2)) {
+                   steps[i] = { active: true, sliceIndex: getRandomSliceIndex('hihat'), ratchet: 1 };
               }
           }
           
-          return { active, sliceIndex: active ? sliceId : 0, ratchet };
-      });
+          // Ghost notes / Percs
+          for (let i = 0; i < steps.length; i++) {
+              if (!steps[i].active && Math.random() < intense * 0.4) {
+                  steps[i] = { active: true, sliceIndex: getRandomSliceIndex('perc'), ratchet: 1 };
+              }
+          }
+      } 
+      // 2. HIP HOP / BREAKBEAT (Dynamic) - Complexity 0.35 - 0.7
+      else if (complexity <= 0.7) {
+          const intense = (complexity - 0.35) / 0.35;
+          
+          // Kicks: 1 is mandatory. Others syncopated.
+          steps[0] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
+          
+          // Common breakbeat kick spots
+          if (Math.random() > 0.5) {
+              steps[10] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
+          } else {
+              steps[7] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
+          }
+          if (Math.random() < intense) {
+               steps[14] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
+          }
 
-      setSequencer(prev => ({ ...prev, steps: newSteps }));
-  }, [slices, sequencer.steps.length]);
+          // Snares: 5 and 13 (Backbeat)
+          steps[4] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+          steps[12] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+          
+          // Ghost Snares
+          if (Math.random() < 0.3 + (intense * 0.3)) {
+              steps[15] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+          }
 
-  // --- Preset Management ---
+          // Hi-Hats: 8th notes or 16th notes
+          for (let i = 0; i < steps.length; i+=2) {
+              if (!steps[i].active || (steps[i].active && i % 4 !== 0)) { // Don't overwrite main kicks/snares
+                  steps[i] = { active: true, sliceIndex: getRandomSliceIndex('hihat'), ratchet: 1 };
+              }
+          }
+          
+          // Fills
+          for (let i = 0; i < steps.length; i++) {
+              if (!steps[i].active && Math.random() < intense * 0.3) {
+                   steps[i] = { active: true, sliceIndex: getRandomSliceIndex('perc'), ratchet: Math.random() > 0.7 ? 2 : 1 };
+              }
+          }
+      }
+      // 3. HYPERPOP / CHAOS (Chaos) - Complexity 0.7 - 1.0
+      else {
+          const intense = (complexity - 0.7) / 0.3;
+          
+          // High density
+          for (let i = 0; i < steps.length; i++) {
+              if (Math.random() < 0.6 + (intense * 0.4)) {
+                  // Random slice type logic
+                  const r = Math.random();
+                  let type: SliceType = 'perc';
+                  if (r < 0.2) type = 'kick';
+                  else if (r < 0.4) type = 'snare';
+                  else if (r < 0.7) type = 'hihat';
+                  
+                  // Ratchets common in hyperpop
+                  let ratchet = 1;
+                  if (Math.random() < 0.3 + (intense * 0.5)) {
+                      ratchet = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
+                  }
+                  
+                  steps[i] = { active: true, sliceIndex: getRandomSliceIndex(type), ratchet };
+              }
+          }
+          
+          // Ensure basics exist though, to keep it musical
+          if (!steps[0].active) steps[0] = { active: true, sliceIndex: getRandomSliceIndex('kick'), ratchet: 1 };
+          if (!steps[4].active) steps[4] = { active: true, sliceIndex: getRandomSliceIndex('snare'), ratchet: 1 };
+      }
 
+      setSequencer(prev => ({ ...prev, steps }));
+  }, [slices, sequencer.stepCount]);
+
+  // --- PRESETS ---
   const exportPreset = useCallback(async (name: string): Promise<string> => {
       const preset: Preset = {
           id: crypto.randomUUID(),
-          name,
-          date: Date.now(),
-          params,
-          sequencer: {
-              steps: sequencer.steps,
-              stepCount: sequencer.stepCount,
-              mode: sequencer.mode
-          },
-          slices,
-          sampleName,
+          name, date: Date.now(), params,
+          sequencer: { steps: sequencer.steps, stepCount: sequencer.stepCount, mode: sequencer.mode },
+          slices, sampleName,
       };
       return JSON.stringify(preset);
   }, [params, sequencer, slices, sampleName]);
@@ -1233,23 +1145,14 @@ export const useAudioEngine = () => {
   const loadPreset = useCallback(async (preset: Preset) => {
       const mergedParams = { ...initialParams, ...preset.params };
       paramsRef.current = mergedParams;
-      
       if (preset.audioData) {
           const blob = base64ToBlob(preset.audioData);
-          const url = URL.createObjectURL(blob);
-          await loadAudioFile(url, true);
-      } 
-      else if (preset.sampleUrl) {
+          await loadAudioFile(URL.createObjectURL(blob), true);
+      } else if (preset.sampleUrl) {
           await loadAudioFile(preset.sampleUrl, true, preset.sampleName);
       }
-
       setParams(mergedParams);
-      
-      if (preset.slices && preset.slices.length > 0) {
-          setSlices(preset.slices);
-          if (preset.slices.length > 0) lastPlayedSliceRef.current = preset.slices[0];
-      }
-
+      if (preset.slices && preset.slices.length > 0) setSlices(preset.slices);
       const seqData = preset.sequencer || { steps: [], stepCount: 16, mode: 'forward' };
       setSequencer(prev => ({
           ...prev,
@@ -1258,9 +1161,7 @@ export const useAudioEngine = () => {
           mode: seqData.mode || 'forward',
           currentStep: -1
       }));
-
       setSampleName(preset.sampleName || 'Imported Preset');
-      
       updateParams(mergedParams);
   }, [loadAudioFile, updateParams]);
 
@@ -1269,12 +1170,11 @@ export const useAudioEngine = () => {
           const preset: Preset = JSON.parse(jsonString);
           await loadPreset(preset);
       } catch (e) {
-          console.error("Import failed", e);
-          alert("Failed to import preset. Invalid file.");
+          alert("Failed to import preset.");
       }
   }, [loadPreset]);
 
-  // State Wrappers
+  // State Setters
   const updateSequencerStep = useCallback((idx: number, chg: Partial<SequencerStep>) => {
       setSequencer(p => { 
           const s = [...p.steps]; 
@@ -1282,9 +1182,7 @@ export const useAudioEngine = () => {
           return {...p, steps: s}
       });
   }, []);
-
   const setSequencerMode = useCallback((m: SequencerMode) => setSequencer(p => ({...p, mode: m})), []);
-  
   const setSequencerStepCount = useCallback((c: 8 | 16 | 32) => {
       setSequencer(p => {
         let newSteps = [...p.steps];
@@ -1293,22 +1191,17 @@ export const useAudioEngine = () => {
         return {...p, stepCount: c, steps: newSteps};
     });
   }, []);
-
   const setSequencerEditMode = useCallback((m: 'trigger' | 'ratchet') => setSequencer(p => ({...p, editMode: m})), []);
-
   const randomizePattern = useCallback(() => generateAiBeat(Math.random()), [generateAiBeat]);
+  const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
+  const toggleSliceActive = useCallback((index: number) => updateSlice(index, { isActive: !slices[index].isActive }), [slices, updateSlice]);
+  const scrub = useCallback((pos: number) => {}, []);
 
   return {
     isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName,
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub,
-    updateSequencerStep,
-    setSequencerMode,
-    setSequencerStepCount,
-    setSequencerEditMode,
-    randomizePattern, 
-    generateAiBeat,
-    selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice,
-    djActions,
+    updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode,
+    randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice,
     exportPreset, importPreset, loadPreset, getAudioWav,
     togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState
   };

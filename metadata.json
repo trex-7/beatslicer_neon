@@ -1,5 +1,7 @@
 {
   "name": "Granular Synth FX",
-  "description": "An advanced granular synthesizer and real-time effects processor built with React, Tone.js, and Tailwind CSS. Load your own audio or use the default sample to explore textural soundscapes.",
-  "requestFramePermissions": []
+  "description": "An advanced granular synthesizer and real-time effects processor built with React, Tone.js, and AudioWorklet for sample-accurate timing.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

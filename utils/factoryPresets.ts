@@ -22,6 +22,7 @@ const createPreset = (
         bpm: 120,
         attack: 0.005,    // Updated
         release: 0.1,     // Updated
+        sustain: 0.5,     // Added missing sustain property
         reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
         delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
         filter: { 

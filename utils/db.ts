@@ -60,7 +60,6 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
 
         if (presetError) {
              console.warn("Error fetching presets:", presetError);
-             // Don't throw, just use empty array to allow app to function
         }
 
         // 2. Fetch Samples
@@ -87,7 +86,8 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
                 sequencer: p.sequencer_data || { steps: [], stepCount: 16, mode: 'forward' },
                 slices: p.slices_data || [],
                 sampleUrl: p.samples?.url || '',
-                sampleName: p.samples?.title || 'Unknown Sample'
+                sampleName: p.samples?.title || 'Unknown Sample',
+                sampleId: p.sample_id
             }
         }));
 
@@ -122,7 +122,6 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
         };
 
     } catch (e: any) {
-        // Improved error logging to handle non-Error objects
         const msg = e instanceof Error ? e.message : (typeof e === 'string' ? e : JSON.stringify(e));
         console.error("Critical error fetching library:", msg);
         return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
@@ -138,7 +137,8 @@ export const saveCloudPreset = async (
     slices: Slice[],
     userId: string,
     sampleId?: string,
-    isFactory: boolean = false
+    isFactory: boolean = false,
+    isPublic: boolean = false
 ): Promise<boolean> => {
     if (!supabase) return false;
 
@@ -150,7 +150,7 @@ export const saveCloudPreset = async (
             sequencer_data: sequencer,
             slices_data: slices,
             sample_id: sampleId,
-            is_public: isFactory,
+            is_public: isPublic,
             is_factory: isFactory
         });
 
@@ -166,7 +166,6 @@ export const saveCloudPreset = async (
 
 const getStoragePathFromUrl = (fullUrl: string): string | null => {
     try {
-        // Expected format: .../storage/v1/object/public/audio-assets/PATH_TO_FILE
         const marker = '/audio-assets/';
         if (fullUrl.includes(marker)) {
             const parts = fullUrl.split(marker);
@@ -178,11 +177,24 @@ const getStoragePathFromUrl = (fullUrl: string): string | null => {
     }
 };
 
+export const updateSampleTitle = async (id: string, newTitle: string): Promise<boolean> => {
+    if (!supabase) return false;
+    try {
+        const { error } = await supabase
+            .from('samples')
+            .update({ title: newTitle })
+            .eq('id', id);
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error updating sample title:", e);
+        return false;
+    }
+};
+
 export const deleteCloudPreset = async (id: string): Promise<DeleteResult> => {
     if (!supabase) return { success: false, error: "Database not configured" };
     try {
-        // Use count: 'exact' and NO .select().
-        // This avoids RLS errors where you have permission to Delete but not Select.
         const { error, count } = await supabase
             .from('presets')
             .delete({ count: 'exact' })
@@ -190,7 +202,6 @@ export const deleteCloudPreset = async (id: string): Promise<DeleteResult> => {
 
         if (error) throw error;
 
-        // If count is 0, it means the row didn't exist or RLS hid it completely.
         if (count === null || count === 0) {
             return { success: false, error: "Permission Denied or Not Found. (Row count: 0)" };
         }
@@ -209,8 +220,6 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
     let storageSuccess = false;
     let errors: string[] = [];
 
-    // 1. Storage Deletion (Attempt aggressive cleanup first)
-    // We try this regardless of DB success to ensure we don't leave orphans if DB is weird
     if (url) {
         const storagePath = getStoragePathFromUrl(url);
         if (storagePath) {
@@ -220,14 +229,12 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
             
             if (storageError) {
                 console.warn("Storage delete failed:", storageError.message);
-                // Don't fail the whole operation yet, storage might be strict
             } else {
                 storageSuccess = true;
             }
         }
     }
 
-    // 2. DB Deletion
     try {
         const { error, count } = await supabase
             .from('samples')
@@ -235,7 +242,7 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
             .eq('id', id);
 
         if (error) {
-            if (error.code === '23503') { // Foreign Key Violation
+            if (error.code === '23503') { 
                 throw new Error("Cannot delete: This sample is used by existing presets.");
             }
             throw error;
@@ -250,15 +257,8 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
         errors.push(e.message || "DB Error");
     }
 
-    // Success definition:
-    // If DB deleted, we are good.
-    // If Storage deleted but DB failed (maybe RLS blocks DB but not Storage?), we partial success?
-    // Let's be strict: DB record gone is the main requirement.
-    
     if (dbSuccess) return { success: true };
 
-    // If we failed DB but cleaned storage, it's a messy state, but effectively "gone" for the user?
-    // No, the item will reappear in the list because DB row exists.
     return { 
         success: false, 
         error: errors.join(", ") 
@@ -299,23 +299,42 @@ export const deleteBulkSamples = async (ids: string[]): Promise<boolean> => {
 
 // --- Storage ---
 
-export const uploadSampleToCloud = async (file: File | Blob, fileName: string, userId: string, isFactory: boolean = false): Promise<{ publicUrl: string, id: string } | null> => {
+export const uploadSampleToCloud = async (
+    file: File | Blob, 
+    fileName: string, 
+    userId: string, 
+    isFactory: boolean = false,
+    kitName?: string,
+    isPublic: boolean = false
+): Promise<{ publicUrl: string, id: string } | null> => {
     if (!supabase) {
         console.error("Supabase not initialized");
         return null;
     }
 
     try {
-        const randomSuffix = Math.random().toString(36).substring(2, 8);
         const prefix = isFactory ? 'factory' : userId;
         const cleanName = fileName.replace(/[^a-z0-9.]/gi, '_');
-        const storagePath = `${prefix}/${Date.now()}_${randomSuffix}_${cleanName}`;
+        
+        let storagePath = '';
+        let title = fileName;
+
+        if (kitName) {
+            const cleanKitName = kitName.replace(/[^a-z0-9.]/gi, '_');
+            storagePath = `${prefix}/kits/${cleanKitName}/${cleanName}`;
+            title = `${kitName} - ${fileName}`;
+        } else {
+            const randomSuffix = Math.random().toString(36).substring(2, 8);
+            storagePath = `${prefix}/${Date.now()}_${randomSuffix}_${cleanName}`;
+        }
 
         console.log(`[Upload] Starting storage upload for ${fileName} to ${storagePath}`);
 
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('audio-assets')
-            .upload(storagePath, file);
+            .upload(storagePath, file, {
+                upsert: true
+            });
 
         if (uploadError) {
             console.error("[Upload] Storage Error:", uploadError.message);
@@ -325,11 +344,12 @@ export const uploadSampleToCloud = async (file: File | Blob, fileName: string, u
         const { data } = supabase.storage.from('audio-assets').getPublicUrl(storagePath);
         const publicUrl = data.publicUrl;
 
+        // Create Database Entry
         const { data: sampleData, error: dbError } = await supabase.from('samples').insert({
             user_id: userId,
-            title: fileName,
+            title: title,
             url: publicUrl,
-            is_public: isFactory,
+            is_public: isPublic || isFactory,
             is_factory: isFactory
         }).select('id').single();
 

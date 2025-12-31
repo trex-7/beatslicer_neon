@@ -1,3 +1,4 @@
+
 import type { Preset, AllParams, SequencerState } from '../types';
 
 // Helper to create a base preset structure
@@ -36,7 +37,7 @@ const createPreset = (
             isSynced: true,
             syncValue: '4n'
         },
-        distortion: { isActive: true, amount: 1.0, wet: 0.1 },
+        distortion: { isActive: true, amount: 1.0, wet: 0.04 },
         compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
         bitCrusher: { isActive: false, bits: 8, wet: 0 },
         glitch: { 

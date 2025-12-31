@@ -6,112 +6,127 @@ export function classifySlice(buffer: AudioBuffer, start: number, duration: numb
     const sampleRate = buffer.sampleRate;
     
     const startIndex = Math.floor(start * sampleRate);
-    const endIndex = Math.min(channelData.length, Math.floor((start + duration) * sampleRate));
-    
-    // Analyze up to 100ms. Kicks/Snares reveal their character in the first 50-100ms.
-    const analysisLength = Math.min(endIndex - startIndex, Math.floor(sampleRate * 0.1));
-    
-    if (analysisLength <= 0) return 'perc';
+    // Analyze mostly the transient attack (first 100ms) or the whole slice if shorter
+    const analysisLen = Math.min(Math.floor(duration * sampleRate), Math.floor(sampleRate * 0.12));
+    const endIndex = startIndex + analysisLen;
 
+    if (analysisLen < 64) return 'perc';
+
+    // -- Energy Accumulators --
+    let totalSq = 0;
+    let subSq = 0;
+    let midSq = 0;
+    let highSq = 0;
     let zeroCrossings = 0;
-    let totalEnergy = 0;
-    let lowEnergy = 0;
-    let highEnergy = 0;
-    let peakAmp = 0;
-    
-    // Filter Setup
-    // 1. Low Pass @ 500Hz (Captures Kick body and Snare fundamental)
-    const lpCutoff = 500;
+
+    // -- Filter Coefficients (1-pole RC) --
     const dt = 1.0 / sampleRate;
-    const lpRc = 1.0 / (lpCutoff * 2 * Math.PI);
-    const lpAlpha = dt / (lpRc + dt);
+    // Helper to calculate LPF alpha: alpha = dt / (RC + dt)
+    const calcLpAlpha = (cutoff: number) => {
+        const rc = 1.0 / (cutoff * 2 * Math.PI);
+        return dt / (rc + dt);
+    };
 
-    // 2. High Pass @ 5000Hz (Captures Hi-Hat sizzle and Snare wires)
-    const hpCutoff = 5000;
-    const hpRc = 1.0 / (hpCutoff * 2 * Math.PI);
-    const hpAlpha = hpRc / (hpRc + dt);
-    
-    // Filter State
-    let lpOut = 0;
-    let hpOut = 0;
-    let hpPrevIn = 0;
+    // 1. SUB Band: LPF @ 150 Hz (Deep bass only)
+    const alphaSub = calcLpAlpha(150);
+    let subSample = 0;
 
-    // Initialize with first sample to reduce transient error
+    // 2. MID Band: BPF ~250 Hz to ~2000 Hz
+    // Implemented as HPF @ 250 -> LPF @ 2000
+    // HPF Alpha = RC / (RC + dt) = 1 - LPF_Alpha
+    const alphaMidHP = 1 - calcLpAlpha(250); 
+    const alphaMidLP = calcLpAlpha(2000);
+    let midHPSample = 0;
+    let midSample = 0;
+    let midPrevInput = 0;
+
+    // 3. HIGH Band: HPF @ 5000 Hz (Sizzle / Noise)
+    const alphaHigh = 1 - calcLpAlpha(5000);
+    let highSample = 0;
+    let highPrevInput = 0;
+
+    // Initialize filter states to avoid transient spike at t=0
     if (startIndex > 0) {
-        lpOut = channelData[startIndex - 1];
-        hpPrevIn = channelData[startIndex - 1];
+        const pre = channelData[startIndex - 1];
+        subSample = pre;
+        midPrevInput = pre;
+        highPrevInput = pre;
     }
 
-    for (let i = 0; i < analysisLength; i++) {
-        const sample = channelData[startIndex + i];
-        const prevSample = i > 0 ? channelData[startIndex + i - 1] : hpPrevIn;
+    for (let i = 0; i < analysisLen; i++) {
+        const raw = channelData[startIndex + i];
         
-        // 1. Zero Crossing Rate (Noise Proxy)
-        if ((sample >= 0 && prevSample < 0) || (sample < 0 && prevSample >= 0)) {
-            zeroCrossings++;
+        // Total RMS
+        totalSq += raw * raw;
+
+        // Zero Crossings
+        if (i > 0) {
+            const prev = channelData[startIndex + i - 1];
+            if ((raw >= 0 && prev < 0) || (raw < 0 && prev >= 0)) zeroCrossings++;
         }
-        
-        // 2. Total RMS Energy & Peak
-        const sq = sample * sample;
-        totalEnergy += sq;
-        if (Math.abs(sample) > peakAmp) peakAmp = Math.abs(sample);
 
-        // 3. Low Frequency Energy (1-pole LPF)
-        // y[i] = y[i-1] + α * (x[i] - y[i-1])
-        lpOut = lpOut + lpAlpha * (sample - lpOut);
-        lowEnergy += lpOut * lpOut;
+        // -- Filter Processing --
 
-        // 4. High Frequency Energy (1-pole HPF)
-        // y[i] = α * (y[i-1] + x[i] - x[i-1])
-        hpOut = hpAlpha * (hpOut + sample - hpPrevIn);
-        hpPrevIn = sample;
-        highEnergy += hpOut * hpOut;
+        // Sub LPF
+        subSample = subSample + alphaSub * (raw - subSample);
+        subSq += subSample * subSample;
+
+        // Mid HPF -> LPF
+        // y[i] = alpha * (y[i-1] + x[i] - x[i-1])
+        midHPSample = alphaMidHP * (midHPSample + raw - midPrevInput);
+        midPrevInput = raw;
+        // then LPF
+        midSample = midSample + alphaMidLP * (midHPSample - midSample);
+        midSq += midSample * midSample;
+
+        // High HPF
+        highSample = alphaHigh * (highSample + raw - highPrevInput);
+        highPrevInput = raw;
+        highSq += highSample * highSample;
     }
 
     // Safety check for silence
-    if (totalEnergy < 0.000001) return 'perc';
+    if (totalSq < 0.000001) return 'perc';
 
-    const zcr = zeroCrossings / analysisLength;
-    const lowRatio = lowEnergy / totalEnergy;
-    const highRatio = highEnergy / totalEnergy;
-    
+    // Ratios relative to total energy
+    const subRatio = subSq / totalSq;
+    const midRatio = midSq / totalSq;
+    const highRatio = highSq / totalSq;
+    const zcr = zeroCrossings / analysisLen;
+
     // --- Classification Logic ---
 
-    // 1. KICK: Dominant Low End
-    // Kicks have massive energy below 500Hz (> 75%) and very little high freq content.
-    if (lowRatio > 0.75) {
-        return 'kick';
-    }
+    // 1. KICK DETECTION
+    // Kicks are heavily dominated by sub energy.
+    // Deep Kick: > 50% Sub energy
+    if (subRatio > 0.50) return 'kick';
+    // Punchy Kick: Moderate sub but very little high end
+    if (subRatio > 0.35 && highRatio < 0.05) return 'kick';
 
-    // 2. HI-HAT: High Freq + Low Body
-    // Hats have very little energy < 500Hz (< 20%).
-    // They have significant Highs (> 30%) OR just lots of noise (High ZCR).
-    if (lowRatio < 0.20) {
-        if (highRatio > 0.30 || zcr > 0.15) {
-            return 'hihat';
-        }
-    }
+    // 2. HI-HAT DETECTION
+    // Hats are dominated by high frequencies or pure noise (ZCR).
+    // Open Hat / Crash: Significant high band energy
+    if (highRatio > 0.30) return 'hihat';
+    // Closed Hat / Noise burst: High ZCR and low bass
+    if (zcr > 0.15 && subRatio < 0.1) return 'hihat';
+    // Thin metallic sound
+    if (highRatio > 0.15 && midRatio < 0.2 && subRatio < 0.05) return 'hihat';
 
-    // 3. SNARE: "Loud Noise" (Body + Wires)
-    // Snares are the middle ground. They have Body (200-500Hz) unlike Hats, 
-    // but they also have Noise/Highs (Wires) unlike Kicks/Toms.
-    if (lowRatio >= 0.20 && lowRatio <= 0.75) {
-        // If it has decent body AND decent noise/highs, it's a snare.
-        // Toms usually have body but low ZCR/Highs.
-        if (zcr > 0.05 || highRatio > 0.05) {
-            return 'snare';
-        }
-        // Body without noise -> likely a Tom or low Perc
-        return 'perc'; 
-    }
-
-    // 4. Fallback Cases
+    // 3. SNARE DETECTION
+    // Snares are "Broadband": they have body (Mid) AND snap (High).
+    // Standard Snare: Good Mid presence + some Highs
+    if (midRatio > 0.25 && highRatio > 0.05) return 'snare';
+    // Boxy/Fat Snare: High Mid energy, decent Sub, but not a Kick
+    if (midRatio > 0.40 && subRatio < 0.35) return 'snare';
     
-    // Chunkier Hats (Open Hats) might have more low-mids but still lots of highs
-    if (highRatio > 0.4 && zcr > 0.1) {
-        return 'hihat';
-    }
+    // 4. PERC / TOM DETECTION
+    // Toms usually have resonance (Mid) but lack the "wires" (High) of a snare
+    if (midRatio > 0.30 && highRatio < 0.05) return 'perc';
 
-    // Ambiguous
+    // Fallbacks for ambiguous sounds
+    if (subRatio > midRatio && subRatio > highRatio) return 'kick';
+    if (highRatio > midRatio) return 'hihat';
+    
+    // Default
     return 'perc';
 }

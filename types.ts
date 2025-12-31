@@ -113,6 +113,7 @@ export interface SequencerState {
   currentStep: number;
   isPlaying: boolean;
   editMode: 'trigger' | 'ratchet';
+  playbackBehavior: 'reset' | 'continue';
 }
 
 export interface Preset {
@@ -128,6 +129,7 @@ export interface Preset {
   slices: Slice[];
   sampleName: string;
   sampleUrl?: string;
+  sampleId?: string;
   audioData?: string; // base64
 }
 

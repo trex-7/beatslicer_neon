@@ -10,6 +10,7 @@ export interface CloudItem {
     url?: string;
     author?: string;
     isFactory?: boolean;
+    isPublic?: boolean;
     _userId?: string;
 }
 
@@ -33,54 +34,66 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
     if (!supabase) return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
 
     try {
-        // Construct filter: Public/Factory OR Owned by User
-        const filter = userId 
-            ? `is_public.eq.true,is_factory.eq.true,user_id.eq.${userId}` 
-            : `is_public.eq.true,is_factory.eq.true`;
-
-        // 1. Fetch Presets
-        const { data: presetsRaw, error: presetError } = await supabase
+        // We split the query into two parts to ensure robust fetching regardless of complex OR filter limitations or RLS quirks on mixed conditions.
+        
+        // 1. Fetch Public & Factory Items (Visible to everyone)
+        const publicPresetsPromise = supabase
             .from('presets')
             .select(`
-                id, 
-                name, 
-                user_id, 
-                parameters, 
-                sequencer_data, 
-                slices_data, 
-                sample_id,
-                is_public,
-                is_factory,
-                created_at,
+                id, name, user_id, parameters, sequencer_data, slices_data, sample_id, is_public, is_factory, created_at,
                 profiles(username),
                 samples(url, title)
             `)
-            .or(filter)
+            .or('is_public.eq.true,is_factory.eq.true')
             .order('created_at', { ascending: false });
 
-        if (presetError) {
-             console.warn("Error fetching presets:", presetError);
-        }
-
-        // 2. Fetch Samples
-        const { data: samplesRaw, error: sampleError } = await supabase
+        const publicSamplesPromise = supabase
             .from('samples')
             .select('id, title, url, user_id, is_public, is_factory, profiles(username)')
-            .or(filter)
+            .or('is_public.eq.true,is_factory.eq.true')
             .order('created_at', { ascending: false });
 
-        if (sampleError) {
-            console.warn("Error fetching samples:", sampleError);
+        // 2. Fetch User Items (If logged in) - Explicitly fetch by user_id to guarantee owner visibility
+        let userPresetsPromise = Promise.resolve({ data: [], error: null } as any);
+        let userSamplesPromise = Promise.resolve({ data: [], error: null } as any);
+
+        if (userId) {
+            userPresetsPromise = supabase
+                .from('presets')
+                .select(`
+                    id, name, user_id, parameters, sequencer_data, slices_data, sample_id, is_public, is_factory, created_at,
+                    profiles(username),
+                    samples(url, title)
+                `)
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+
+            userSamplesPromise = supabase
+                .from('samples')
+                .select('id, title, url, user_id, is_public, is_factory, profiles(username)')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
         }
 
-        // 3. Process Presets
-        const allPresets: CloudItem[] = (presetsRaw as any[] || []).map(p => ({
+        const [publicPresetsRes, publicSamplesRes, userPresetsRes, userSamplesRes] = await Promise.all([
+            publicPresetsPromise,
+            publicSamplesPromise,
+            userPresetsPromise,
+            userSamplesPromise
+        ]);
+
+        if (publicPresetsRes.error) console.warn("Public Presets Error:", publicPresetsRes.error);
+        if (userPresetsRes.error) console.warn("User Presets Error:", userPresetsRes.error);
+
+        // Helper to map DB row to CloudItem
+        const mapPreset = (p: any): CloudItem => ({
             id: p.id,
             label: p.name || 'Untitled Preset',
             type: 'preset',
-            author: p.profiles?.username || 'Anon',
+            author: p.profiles?.username || (p.user_id ? `User ${p.user_id.slice(0,6)}` : 'Anon'),
             _userId: p.user_id,
             isFactory: p.is_factory,
+            isPublic: p.is_public,
             data: {
                 params: p.parameters || {},
                 sequencer: p.sequencer_data || { steps: [], stepCount: 16, mode: 'forward' },
@@ -89,28 +102,43 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
                 sampleName: p.samples?.title || 'Unknown Sample',
                 sampleId: p.sample_id
             }
-        }));
+        });
 
-        // 4. Process Samples
-        const allSamples: CloudItem[] = (samplesRaw as any[] || []).map(s => ({
+        const mapSample = (s: any): CloudItem => ({
             id: s.id,
             label: s.title || 'Untitled Sample',
             type: 'sample',
             url: s.url,
-            author: s.profiles?.username || 'Anon',
+            author: s.profiles?.username || (s.user_id ? `User ${s.user_id.slice(0,6)}` : 'Anon'),
             _userId: s.user_id,
-            isFactory: s.is_factory
-        }));
+            isFactory: s.is_factory,
+            isPublic: s.is_public
+        });
 
-        // 5. Categorize
+        // Combine and Deduplicate
+        // Use a Map to ensure unique items by ID (if an item is both Public AND Mine, it appears in both queries)
+        const presetMap = new Map<string, CloudItem>();
+        (publicPresetsRes.data || []).forEach((p: any) => presetMap.set(p.id, mapPreset(p)));
+        (userPresetsRes.data || []).forEach((p: any) => presetMap.set(p.id, mapPreset(p)));
+
+        const sampleMap = new Map<string, CloudItem>();
+        (publicSamplesRes.data || []).forEach((s: any) => sampleMap.set(s.id, mapSample(s)));
+        (userSamplesRes.data || []).forEach((s: any) => sampleMap.set(s.id, mapSample(s)));
+
+        const allPresets = Array.from(presetMap.values());
+        const allSamples = Array.from(sampleMap.values());
+
+        // 5. Categorize for UI
         const factoryPresets = allPresets.filter(p => p.isFactory);
         const factorySamples = allSamples.filter(s => s.isFactory);
 
-        const userPresets = userId ? allPresets.filter((p: any) => p._userId === userId && !p.isFactory) : [];
-        const userSamples = userId ? allSamples.filter((s: any) => s._userId === userId && !s.isFactory) : [];
+        // User lists contain items OWNED by the user (excluding factory items they might own technically, though rare)
+        const userPresets = userId ? allPresets.filter(p => p._userId === userId && !p.isFactory) : [];
+        const userSamples = userId ? allSamples.filter(s => s._userId === userId && !s.isFactory) : [];
 
-        const publicPresets = allPresets.filter((p: any) => !p.isFactory && (!userId || p._userId !== userId));
-        const publicSamples = allSamples.filter((s: any) => !s.isFactory && (!userId || s._userId !== userId));
+        // Public lists contain items NOT factory, and NOT owned by current user (to avoid duplication in the UI lists)
+        const publicPresets = allPresets.filter(p => !p.isFactory && (!userId || p._userId !== userId));
+        const publicSamples = allSamples.filter(s => !s.isFactory && (!userId || s._userId !== userId));
 
         return {
             userPresets,
@@ -122,13 +150,12 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
         };
 
     } catch (e: any) {
-        const msg = e instanceof Error ? e.message : (typeof e === 'string' ? e : JSON.stringify(e));
-        console.error("Critical error fetching library:", msg);
+        console.error("Critical error fetching library:", e);
         return { publicPresets: [], publicSamples: [], userPresets: [], userSamples: [], factoryPresets: [], factorySamples: [] };
     }
 };
 
-// --- Saving ---
+// --- Saving & Updating ---
 
 export const saveCloudPreset = async (
     name: string,
@@ -150,7 +177,7 @@ export const saveCloudPreset = async (
             sequencer_data: sequencer,
             slices_data: slices,
             sample_id: sampleId,
-            is_public: isPublic,
+            is_public: isPublic || isFactory, // Force public if factory
             is_factory: isFactory
         });
 
@@ -161,6 +188,56 @@ export const saveCloudPreset = async (
         return false;
     }
 };
+
+export const updateCloudPreset = async (
+    id: string,
+    name: string,
+    params: AllParams,
+    sequencer: any,
+    slices: Slice[],
+    isPublic: boolean
+): Promise<boolean> => {
+    if (!supabase) return false;
+
+    try {
+        const { error } = await supabase
+            .from('presets')
+            .update({
+                name: name,
+                parameters: params,
+                sequencer_data: sequencer,
+                slices_data: slices,
+                is_public: isPublic,
+                created_at: new Date().toISOString() // Update timestamp
+            })
+            .eq('id', id);
+
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error updating preset:", e);
+        return false;
+    }
+};
+
+export const renameCloudItem = async (type: 'preset' | 'sample' | 'kit', id: string, newName: string): Promise<boolean> => {
+    if (!supabase) return false;
+    try {
+        const table = type === 'preset' ? 'presets' : 'samples';
+        const col = type === 'preset' ? 'name' : 'title';
+        
+        const { error } = await supabase
+            .from(table)
+            .update({ [col]: newName })
+            .eq('id', id);
+
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error(`Error renaming ${type}:`, e);
+        return false;
+    }
+}
 
 // --- Deletion & Helpers ---
 
@@ -174,21 +251,6 @@ const getStoragePathFromUrl = (fullUrl: string): string | null => {
         return null;
     } catch (e) {
         return null;
-    }
-};
-
-export const updateSampleTitle = async (id: string, newTitle: string): Promise<boolean> => {
-    if (!supabase) return false;
-    try {
-        const { error } = await supabase
-            .from('samples')
-            .update({ title: newTitle })
-            .eq('id', id);
-        if (error) throw error;
-        return true;
-    } catch (e) {
-        console.error("Error updating sample title:", e);
-        return false;
     }
 };
 

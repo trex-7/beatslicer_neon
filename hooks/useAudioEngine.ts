@@ -103,10 +103,17 @@ try {
                      grain.duration /= ratchetCount;
                  }
             }
-            const attackS = Math.max(0.001, this.params.attack || 0.002);
-            const releaseS = Math.max(0.001, this.params.release || 0.005);
+            
+            // Enveloping: Slice overrides Global if defined
+            const effectiveAttack = (typeof slice.fadeIn === 'number') ? slice.fadeIn : this.params.attack;
+            const effectiveRelease = (typeof slice.fadeOut === 'number') ? slice.fadeOut : this.params.release;
+
+            const attackS = Math.max(0.001, effectiveAttack || 0.002);
+            const releaseS = Math.max(0.001, effectiveRelease || 0.005);
+            
             grain.attack = attackS * this.sampleRate;
             grain.release = releaseS * this.sampleRate;
+            
             if (grain.duration < grain.attack + grain.release) {
                 grain.duration = grain.attack + grain.release + 500;
             }
@@ -254,6 +261,7 @@ export const useAudioEngine = () => {
   const [params, setParams] = useState<AllParams>(initialParams);
   const [sampleName, setSampleName] = useState<string>('Default');
   const [currentSampleId, setCurrentSampleId] = useState<string | null>(null);
+  const [currentPresetId, setCurrentPresetId] = useState<string | null>(null); // New state to track preset ID
   
   const [slices, setSlices] = useState<Slice[]>([]);
   const [selectedSliceIndex, setSelectedSliceIndex] = useState<number | null>(null);
@@ -363,7 +371,7 @@ export const useAudioEngine = () => {
                 }
             };
             workletNode.current.port.postMessage({ type: 'sequencer', steps: sequencerRef.current.steps, stepCount: sequencerRef.current.stepCount, bpm: paramsRef.current.bpm });
-            workletNode.current.port.postMessage({ type: 'params', params: { grainSize: paramsRef.current.grainSize, overlap: paramsRef.current.overlap, playbackRate: paramsRef.current.playbackRate, detune: paramsRef.current.detune, glitch: paramsRef.current.glitch } });
+            workletNode.current.port.postMessage({ type: 'params', params: { grainSize: paramsRef.current.grainSize, overlap: paramsRef.current.overlap, playbackRate: paramsRef.current.playbackRate, detune: paramsRef.current.detune, glitch: paramsRef.current.glitch, attack: paramsRef.current.attack, release: paramsRef.current.release } });
             workletNode.current.port.postMessage({ type: 'slices', slices: slicesRef.current });
 
           } catch(e) {
@@ -548,7 +556,7 @@ export const useAudioEngine = () => {
     }
 
     if (workletNode.current) {
-         workletNode.current.port.postMessage({ type: 'params', params: { grainSize: updated.grainSize, overlap: updated.overlap, playbackRate: updated.playbackRate, detune: updated.detune, glitch: updated.glitch } });
+         workletNode.current.port.postMessage({ type: 'params', params: { grainSize: updated.grainSize, overlap: updated.overlap, playbackRate: updated.playbackRate, detune: updated.detune, glitch: updated.glitch, attack: updated.attack, release: updated.release } });
          if (newParams.bpm) {
              workletNode.current.port.postMessage({ type: 'sequencer', steps: sequencer.steps, stepCount: sequencer.stepCount, bpm: updated.bpm });
          }
@@ -581,6 +589,7 @@ export const useAudioEngine = () => {
       else if (typeof audioFile === 'string') filename = audioFile.split('/').pop()?.split('?')[0] || 'Default';
       setSampleName(filename);
       setCurrentSampleId(cloudId || null); // Set cloud ID if present
+      setCurrentPresetId(null); // Clear preset ID on new file load
 
       const buffer = new Tone.Buffer();
       await buffer.load(url);
@@ -652,6 +661,8 @@ export const useAudioEngine = () => {
       try {
           setSampleName(kitName);
           setCurrentSampleId(null); // Kits generate new composite audio
+          setCurrentPresetId(null);
+          
           const buffers: { buffer: any, name: string, type: SliceType }[] = [];
           
           for (const item of files) {
@@ -909,9 +920,13 @@ export const useAudioEngine = () => {
   }, [slices, sequencer.stepCount]);
 
   const exportPreset = useCallback(async (name: string): Promise<string> => {
+      // Ensure strict separation of data to prevent circular reference errors during JSON.stringify
+      const cleanParams = JSON.parse(JSON.stringify(params));
+      
       const preset: Preset = {
           id: crypto.randomUUID(),
-          name, date: Date.now(), params,
+          name, date: Date.now(), 
+          params: cleanParams,
           sequencer: { steps: sequencer.steps, stepCount: sequencer.stepCount, mode: sequencer.mode },
           slices, sampleName,
       };
@@ -925,45 +940,25 @@ export const useAudioEngine = () => {
       const cycleDuration = totalBeats * secondsPerBeat;
       const renderDuration = cycleDuration * 2; 
 
-      // Safely retrieve the native buffer or use the Tone buffer
-      // Tone.AudioBuffer .get() usually returns the native AudioBuffer
       const toneBufferObj = audioBuffer; 
       const originalBuffer = toneBufferObj.get ? toneBufferObj.get() : toneBufferObj;
-      
       const channels = originalBuffer.numberOfChannels;
       const sampleRate = originalBuffer.sampleRate;
-      
       const chan0 = originalBuffer.getChannelData(0);
       const chan1 = channels > 1 ? originalBuffer.getChannelData(1) : chan0;
 
       const renderedBuffer = await Tone.Offline(async (toneCtx: any) => {
           let nativeCtx = toneCtx;
-          
-          // Robust Context Unwrapping
-          // Tone.js versions might wrap context differently (rawContext, _context)
-          // We need to find the native OfflineAudioContext to pass to AudioWorkletNode
-          if (nativeCtx && typeof nativeCtx.rawContext !== 'undefined') {
-              nativeCtx = nativeCtx.rawContext;
-          } else if (nativeCtx && typeof nativeCtx._context !== 'undefined') {
-              nativeCtx = nativeCtx._context;
-          }
+          if (nativeCtx && typeof nativeCtx.rawContext !== 'undefined') nativeCtx = nativeCtx.rawContext;
+          else if (nativeCtx && typeof nativeCtx._context !== 'undefined') nativeCtx = nativeCtx._context;
 
-          // Verify instance type (BaseAudioContext covers both AudioContext and OfflineAudioContext)
-          // Use window.BaseAudioContext to check prototype chain
-          if (!(nativeCtx instanceof window.BaseAudioContext)) {
-              // Try one more fallback if toneCtx itself was the native one (rare but possible in some shims)
-              if (toneCtx instanceof window.BaseAudioContext) {
-                  nativeCtx = toneCtx;
-              } else {
-                  console.error("Tone.Offline context is not a BaseAudioContext:", nativeCtx);
-                  throw new Error("Failed to get native OfflineAudioContext for AudioWorklet.");
-              }
+          if (!nativeCtx.audioWorklet) {
+              console.error("AudioWorklet missing in OfflineContext");
           }
 
           const blob = new Blob([GRANULAR_WORKLET_CODE], { type: 'application/javascript' });
           const workletUrl = URL.createObjectURL(blob);
-          
-          await nativeCtx.audioWorklet.addModule(workletUrl);
+          try { await nativeCtx.audioWorklet.addModule(workletUrl); } catch(e) {}
 
           const workletNode = new AudioWorkletNode(nativeCtx, 'granular-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
           const gain = new Tone.Gain({ context: toneCtx, gain: 1 }).toDestination();
@@ -1019,18 +1014,35 @@ export const useAudioEngine = () => {
               bitCrusherDry.gain.value = 1 - params.bitCrusher.wet;
           }
 
+          const cleanParams = JSON.parse(JSON.stringify({ 
+              grainSize: params.grainSize, 
+              overlap: params.overlap, 
+              playbackRate: params.playbackRate, 
+              detune: params.detune, 
+              glitch: params.glitch,
+              attack: params.attack, 
+              release: params.release
+          }));
+
           workletNode.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: sampleRate });
-          workletNode.port.postMessage({ type: 'params', params: { grainSize: params.grainSize, overlap: params.overlap, playbackRate: params.playbackRate, detune: params.detune, glitch: params.glitch } });
+          workletNode.port.postMessage({ type: 'params', params: cleanParams });
           workletNode.port.postMessage({ type: 'sequencer', steps: sequencer.steps, stepCount: sequencer.stepCount, bpm: params.bpm });
           workletNode.port.postMessage({ type: 'slices', slices: slices });
           workletNode.port.postMessage({ type: 'play', value: true });
 
       }, renderDuration);
 
-      // renderedBuffer is a Tone.AudioBuffer, need to convert to native for audioBufferToWav if needed
       const finalBuffer = renderedBuffer.get ? renderedBuffer.get() : renderedBuffer;
       return audioBufferToWav(finalBuffer);
   }, [audioBuffer, params, sequencer, slices]);
+
+  // NEW: Get Source Audio (Raw)
+  const getSourceAudio = useCallback(async (): Promise<Blob | null> => {
+      if (!audioBuffer) return null;
+      // Handle Tone wrapper
+      const rawBuffer = audioBuffer.get ? audioBuffer.get() : audioBuffer;
+      return audioBufferToWav(rawBuffer);
+  }, [audioBuffer]);
 
   const loadPreset = useCallback(async (preset: Preset) => {
       const mergedParams = { ...initialParams, ...preset.params };
@@ -1043,7 +1055,6 @@ export const useAudioEngine = () => {
           const blob = base64ToBlob(preset.audioData);
           await loadAudioFile(URL.createObjectURL(blob), true);
       } else if (preset.sampleUrl) {
-          // If we have a sample ID, track it so we don't re-upload duplicates
           if (preset.sampleId) loadedId = preset.sampleId;
           await loadAudioFile(preset.sampleUrl, true, preset.sampleName, loadedId || undefined);
       }
@@ -1059,6 +1070,13 @@ export const useAudioEngine = () => {
           currentStep: -1
       }));
       setSampleName(preset.sampleName || 'Imported Preset');
+      // Use the actual preset ID from the DB if available, otherwise it's just a local/imported one without a cloud ID
+      if (preset.id && !preset.id.startsWith('fp_') && !preset.audioData) { // Assuming factory presets start with fp_ or shouldn't be overwritten
+           setCurrentPresetId(preset.id);
+      } else {
+           setCurrentPresetId(null);
+      }
+
       updateParams(mergedParams);
   }, [loadAudioFile, updateParams]);
 
@@ -1103,11 +1121,11 @@ export const useAudioEngine = () => {
   }, []);
 
   return {
-    isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId,
+    isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId, currentPresetId,
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub,
     updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior,
     randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice,
-    exportPreset, importPreset, loadPreset, getAudioWav,
+    exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio,
     togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState
   };
 };

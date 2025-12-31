@@ -1,4 +1,5 @@
 
+
 class GranularEngine extends AudioWorkletProcessor {
     constructor() {
         super();
@@ -112,9 +113,13 @@ class GranularEngine extends AudioWorkletProcessor {
              }
         }
         
-        // Enveloping
-        const attackS = Math.max(0.001, this.params.attack || 0.002);
-        const releaseS = Math.max(0.001, this.params.release || 0.005);
+        // Enveloping - Prioritize Slice Override, Fallback to Global
+        const effectiveAttack = (typeof slice.fadeIn === 'number') ? slice.fadeIn : this.params.attack;
+        const effectiveRelease = (typeof slice.fadeOut === 'number') ? slice.fadeOut : this.params.release;
+
+        const attackS = Math.max(0.001, effectiveAttack || 0.002);
+        const releaseS = Math.max(0.001, effectiveRelease || 0.005);
+        
         grain.attack = attackS * this.sampleRate;
         grain.release = releaseS * this.sampleRate;
         
@@ -166,14 +171,6 @@ class GranularEngine extends AudioWorkletProcessor {
                         const stepData = this.steps[this.currentStep];
                         if (stepData.active) {
                             const repeats = stepData.ratchet || 1;
-                            
-                            // Simple Ratchet Implementation
-                            // For true polyrhythmic ratchets we need a queue, 
-                            // but for stability we trigger immediately and let grain duration handle the 'stutter' feel
-                            // or ideally, trigger multiple times.
-                            // To keep CPU low: trigger once, but modify grain to 'stutter' sound if needed.
-                            // Actually, let's just trigger the first one. 
-                            // Complex ratcheting in a single block requires sub-sample scheduling or lookahead.
                             this.spawnGrain(stepData.sliceIndex, 1.0, repeats, 0);
                         }
                     }

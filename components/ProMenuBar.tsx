@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import Auth from './Auth';
@@ -137,17 +138,6 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
         }
     };
 
-    const handleSaveJson = async () => {
-        const json = await onSavePreset(projectName);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${projectName.replace(/\s+/g, '_')}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
     return (
         <div className="fixed top-0 left-0 w-full h-10 bg-[#0f1319] border-b border-white/10 z-50 flex items-center justify-between px-3 select-none backdrop-blur-md">
             
@@ -164,11 +154,8 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 <MenuDropdown label="FILE">
                     <MenuItem label="New Project" onClick={() => { if(confirm('Clear all settings?')) window.location.reload(); }} />
                     <MenuDivider />
-                    <MenuItem label="Open Library" onClick={onOpenLibrary} shortcut="Cmd+O" />
-                    <MenuItem label="Import Preset JSON..." onClick={onImportPreset} />
-                    <MenuDivider />
-                    <MenuItem label="Save Preset JSON" onClick={handleSaveJson} shortcut="Cmd+S" />
-                    <MenuItem label="Save to Cloud..." onClick={onSaveToCloud} disabled={!user} />
+                    <MenuItem label="Browse Database" onClick={onOpenLibrary} shortcut="Cmd+O" />
+                    <MenuItem label="Save to Database..." onClick={onSaveToCloud} disabled={!user} shortcut="Cmd+S" />
                     <MenuDivider />
                     <MenuItem label="Export WAV" onClick={handleDownloadWav} />
                     <MenuItem label="Export Project ZIP" onClick={handleExportZip} />

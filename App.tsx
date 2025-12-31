@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
@@ -27,6 +28,7 @@ const App: React.FC = () => {
         selectedSliceIndex,
         sampleName,
         currentSampleId,
+        currentPresetId,
         loadAudioFile,
         loadConstructionKit,
         togglePlay, 
@@ -48,6 +50,7 @@ const App: React.FC = () => {
         importPreset,
         loadPreset,
         getAudioWav,
+        getSourceAudio,
         togglePreviewOriginal,
         isPreviewPlaying,
         playSliceRaw,
@@ -163,7 +166,8 @@ const App: React.FC = () => {
                 sequencer={sequencer}
                 slices={slices}
                 currentSampleId={currentSampleId}
-                getAudioWav={getAudioWav}
+                currentPresetId={currentPresetId}
+                getAudioBlob={getSourceAudio}
             />
 
             {/* Library Manager (Controlled via State in Pro Mode) */}

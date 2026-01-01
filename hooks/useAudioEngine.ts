@@ -114,7 +114,14 @@ try {
                      
                      // 2. OCTAVE JUMP / PITCH SCRAMBLE
                      if (g.allowOctaveJump && Math.random() < 0.6) {
-                         const multipliers = [0.5, 2.0, 4.0, 0.25];
+                         let multipliers = [0.5, 2.0, 4.0, 0.25];
+                         
+                         // PROTECT KICKS: Never pitch down kicks to avoid low-end mud.
+                         // Kicks can pitch UP (becoming snappy/glitchy percs), but not down.
+                         if (slice.type === 'kick') {
+                             multipliers = [2.0, 4.0];
+                         }
+
                          grain.speed *= multipliers[Math.floor(Math.random() * multipliers.length)];
                      }
 
@@ -124,7 +131,6 @@ try {
                      const jitterMax = 0.1 * this.sampleRate;
                      const jitter = (Math.random() - 0.5) * jitterMax * g.chaos;
                      grain.position += jitter;
-                     // Wrap position safely? usually fine if handled in process loop
                      
                      // 4. PAN JITTER
                      // Spread grains across stereo field
@@ -1144,9 +1150,9 @@ export const useAudioEngine = () => {
 
   const generateAiBeat = useCallback((complexity: number) => {
       // Complexity 0.0 -> 1.0
-      // 0.0: Basic House/Techno (Kick on 1/5/9/13, Snare on 5/13, Hats on offbeats)
-      // 0.5: Breakbeat / Syncopated
-      // 1.0: IDM / Glitch Chaos
+      // < 0.35: Basic House/Techno (Kick on 1/5/9/13, Snare on 5/13, Hats on offbeats)
+      // 0.35 - 0.75: HipHop / Funk (Syncopated Kicks, strong backbeat)
+      // > 0.75: IDM / Glitch Chaos
 
       const slices = slicesRef.current;
       if (slices.length === 0) return;
@@ -1165,49 +1171,95 @@ export const useAudioEngine = () => {
               let sliceIndex = 0;
               let ratchet = 1;
 
-              // Probability thresholds based on complexity
               const isDownbeat = i % 4 === 0; // 0, 4, 8, 12
-              const isBackbeat = i % 8 === 4; // 4, 12
-              const isOffbeat = i % 2 !== 0;  // 1, 3, 5...
+              const isBackbeat = i % 8 === 4; // 4, 12 (Beats 2 and 4)
+              const isEighth = i % 2 === 0;   // 0, 2, 4, 6...
+              const isSixteenth = i % 2 !== 0; // 1, 3, 5...
 
-              // 1. Determine Activation
-              if (complexity < 0.3) {
-                  // Solid Foundation
-                  if (isDownbeat) active = true;
-                  if (isOffbeat && Math.random() > 0.2) active = true; // Hats
+              if (complexity < 0.35) {
+                  // --- STEADY (House / Techno) ---
+                  if (isDownbeat) {
+                      active = true;
+                      sliceIndex = pick(kicks);
+                  }
+                  if (isBackbeat) {
+                      active = true;
+                      sliceIndex = pick(snares);
+                  }
+                  // Hats on off-beats (2, 6, 10, 14)
+                  if (isEighth && !isDownbeat) {
+                      active = true;
+                      sliceIndex = pick(hats);
+                  }
+              } else if (complexity < 0.75) {
+                  // --- DYNAMIC (Hip-Hop / Funk) ---
+                  
+                  // 1. Foundation: Kick on 1, Snare on 2 & 4
+                  if (i === 0) { 
+                      active = true; 
+                      sliceIndex = pick(kicks); 
+                  }
+                  else if (isBackbeat) { 
+                      active = true; 
+                      sliceIndex = pick(snares); 
+                  }
+                  
+                  // 2. Syncopated Kicks (The Funk)
+                  // Common spots: 7 (end of bar 2), 10 (and of 3), 11 (e of 3), 14 (and of 4)
+                  // Probability scales with complexity within this band
+                  const funkFactor = (complexity - 0.35) / 0.4; // 0 to 1
+                  
+                  if (!active) {
+                      // Kick logic
+                      const isSyncopatedKickSpot = [7, 10, 11, 14].includes(i);
+                      if (isSyncopatedKickSpot && Math.random() < (0.4 + funkFactor * 0.3)) {
+                          active = true;
+                          sliceIndex = pick(kicks);
+                      }
+                  }
+
+                  // 3. Hi-Hats (8ths usually, maybe 16ths)
+                  if (!active) {
+                      if (isEighth) {
+                          active = true;
+                          sliceIndex = pick(hats);
+                      } else if (Math.random() < funkFactor * 0.5) {
+                          // 16th note hats
+                          active = true;
+                          sliceIndex = pick(hats);
+                      }
+                  }
+
+                  // 4. Ghost Snares / Percs
+                  if (!active && Math.random() < 0.15) {
+                      active = true;
+                      sliceIndex = pick(snares.concat(percs));
+                  }
+
               } else {
-                  // Chaotic Density
-                  const density = 0.3 + (complexity * 0.4); // 0.3 to 0.7
+                  // --- CHAOS (Glitch / IDM) ---
+                  const chaosLevel = (complexity - 0.75) / 0.25; // 0 to 1
+                  const density = 0.4 + (chaosLevel * 0.5); 
+                  
                   active = Math.random() < density;
                   
-                  // Force Downbeats on lower-mid complexity
-                  if (complexity < 0.6 && isDownbeat) active = true;
-              }
+                  if (active) {
+                      // Heavily randomized selection
+                      const r = Math.random();
+                      if (r < 0.3) sliceIndex = pick(kicks);
+                      else if (r < 0.6) sliceIndex = pick(snares);
+                      else if (r < 0.8) sliceIndex = pick(hats);
+                      else sliceIndex = pick(percs);
 
-              // 2. Determine Instrument
-              if (active) {
-                  const rnd = Math.random();
-                  // Shift probabilities: Low complexity favors structure, High complexity favors random percs
-                  const kickProb = (isDownbeat ? 0.9 : 0.1) * (1 - complexity) + 0.2 * complexity; 
-                  const snareProb = (isBackbeat ? 0.9 : 0.1) * (1 - complexity) + 0.2 * complexity;
-
-                  if (rnd < kickProb) {
-                      sliceIndex = pick(kicks);
-                  } else if (rnd < kickProb + snareProb) {
-                      sliceIndex = pick(snares);
-                  } else {
-                      if (Math.random() < 0.5) sliceIndex = pick(hats);
-                      else sliceIndex = pick(percs.length ? percs : all);
+                      // Ratchets
+                      if (Math.random() < 0.3) {
+                          ratchet = Math.floor(Math.random() * 3) + 2;
+                      }
                   }
               }
 
-              // 3. Ratchets (The "Glitch" part of sequencing)
-              if (active && Math.random() < (complexity * complexity * 0.6)) {
-                  ratchet = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
-              }
-
-              // 4. Pure Chaos Injection (Overwrite types with random slices)
-              if (active && Math.random() < (complexity * 0.5)) {
+              // Fallback if type not found
+              if (active && slices[sliceIndex] === undefined) {
                   sliceIndex = pick(all);
               }
 

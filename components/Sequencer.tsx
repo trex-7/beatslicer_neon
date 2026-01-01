@@ -1,6 +1,6 @@
 
 import React from 'react';
-import type { SequencerState, SequencerMode, SequencerStep } from '../types';
+import type { SequencerState, SequencerMode, SequencerStep, Slice } from '../types';
 import Tooltip from './Tooltip';
 import InfoIcon from './InfoIcon';
 
@@ -15,6 +15,7 @@ interface SequencerProps {
     disabled: boolean;
     selectedSliceIndex: number | null;
     isProMode: boolean;
+    slices?: Slice[];
 }
 
 const Sequencer: React.FC<SequencerProps> = ({ 
@@ -27,7 +28,8 @@ const Sequencer: React.FC<SequencerProps> = ({
     onPlaybackBehaviorChange,
     disabled,
     selectedSliceIndex,
-    isProMode
+    isProMode,
+    slices = []
 }) => {
     
     const modes: SequencerMode[] = ['forward', 'backward', 'pendulum', 'random'];
@@ -50,22 +52,46 @@ const Sequencer: React.FC<SequencerProps> = ({
         }
     };
 
-    const handleSliceAssign = (stepIndex: number) => {
+    const handleSliceAssign = (stepIndex: number, e: React.MouseEvent) => {
+        e.stopPropagation();
         if (selectedSliceIndex !== null) {
             onStepChange(stepIndex, { sliceIndex: selectedSliceIndex });
         }
     };
 
-    // SEQUENCER LAYOUT STRATEGY:
-    // User wants standard sequencer steps (smaller, more linear).
-    // Mobile: 8 columns (2+ rows)
-    // Desktop: 16 columns (Linear 16-step view)
+    // Helper to get color class based on slice type
+    const getStepColorClass = (sliceIndex: number): string => {
+        const slice = slices[sliceIndex];
+        if (!slice) return 'bg-slate-500 border-slate-400';
+        
+        switch (slice.type) {
+            case 'kick': return 'bg-red-500 border-red-400';
+            case 'snare': return 'bg-yellow-500 border-yellow-400 text-deep-space';
+            case 'hihat': return 'bg-hyper-cyan border-cyan-200 text-deep-space';
+            case 'perc': return 'bg-purple-500 border-purple-400';
+            default: return 'bg-slate-500 border-slate-400';
+        }
+    };
+
+    const getStepShadow = (sliceIndex: number): string => {
+        const slice = slices[sliceIndex];
+        if (!slice) return '';
+        
+        switch (slice.type) {
+            case 'kick': return 'shadow-[0_0_15px_rgba(239,68,68,0.6)]';
+            case 'snare': return 'shadow-[0_0_15px_rgba(234,179,8,0.6)]';
+            case 'hihat': return 'shadow-[0_0_15px_rgba(0,246,255,0.6)]';
+            case 'perc': return 'shadow-[0_0_15px_rgba(168,85,247,0.6)]';
+            default: return '';
+        }
+    }
+
     const getGridClass = () => {
-        return 'grid-cols-8 lg:grid-cols-16 gap-1.5'; 
+        return 'grid-cols-8 lg:grid-cols-16 gap-2'; 
     };
 
     return (
-        <div className="bg-deep-space/60 p-3 sm:p-5 rounded-xl border border-white/5 shadow-2xl relative overflow-hidden">
+        <div className="bg-deep-space/60 p-4 rounded-xl border border-white/5 shadow-2xl relative overflow-hidden">
             {/* Background Glow */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-hyper-cyan/5 rounded-full blur-3xl -z-10 pointer-events-none"></div>
 
@@ -75,14 +101,14 @@ const Sequencer: React.FC<SequencerProps> = ({
                     <h3 className="text-xs font-bold text-hyper-cyan tracking-widest uppercase flex items-center gap-2">
                         <span className="w-2 h-2 bg-hyper-cyan rounded-full animate-pulse shadow-[0_0_8px_rgba(0,246,255,0.8)]"></span>
                         Sequencer
-                        <InfoIcon text="16-step sequencer. Left-click to toggle steps. In Pro mode, use Edit Mode to switch between Triggers (On/Off) and Ratchets (Note Repeats)." className="ml-1" />
+                        <InfoIcon text="Left-click pads to toggle. Bottom bar sets slice." className="ml-1" />
                     </h3>
                     
                     {isProMode && (
                         <div className="flex gap-2 items-center">
                             {/* Edit Mode Toggle */}
                             <div className="flex bg-[#0a0d14] rounded-lg border border-white/10 overflow-hidden shadow-inner scale-90 sm:scale-100 p-0.5">
-                                 <Tooltip text="Trigger Mode: Click steps to toggle On/Off">
+                                 <Tooltip text="Trigger Mode: Click pads to toggle On/Off">
                                     <button 
                                         onClick={() => onEditModeToggle('trigger')}
                                         className={`px-3 py-1 text-[10px] font-bold uppercase transition-all rounded ${currentEditMode === 'trigger' ? 'bg-white/10 text-white shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
@@ -90,7 +116,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                         Trig
                                     </button>
                                 </Tooltip>
-                                <Tooltip text="Ratchet Mode: Click steps to add rolls (2x, 3x, 4x)">
+                                <Tooltip text="Ratchet Mode: Click pads to add rolls (2x, 3x, 4x)">
                                     <button 
                                         onClick={() => onEditModeToggle('ratchet')}
                                         className={`px-3 py-1 text-[10px] font-bold uppercase transition-all rounded ${currentEditMode === 'ratchet' ? 'bg-plasma-pink/20 text-plasma-pink shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
@@ -100,7 +126,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                  </Tooltip>
                             </div>
                             
-                            {/* Playback Behavior Toggle (Added) */}
+                            {/* Playback Behavior Toggle */}
                             {onPlaybackBehaviorChange && (
                                 <div className="flex bg-[#0a0d14] rounded-lg border border-white/10 overflow-hidden shadow-inner scale-90 sm:scale-100 p-0.5">
                                     <Tooltip text="Reset: Start from Step 1 every time">
@@ -142,7 +168,6 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     {count}
                                 </button>
                             ))}
-                            <div className="ml-1"><InfoIcon text="Set sequence length" className="w-3 h-3 text-[8px]" /></div>
                         </div>
                      )}
 
@@ -163,7 +188,6 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     {m.substring(0, 3)}
                                 </button>
                             ))}
-                            <div className="ml-1"><InfoIcon text="Playback direction" className="w-3 h-3 text-[8px]" /></div>
                         </div>
                     )}
 
@@ -179,58 +203,63 @@ const Sequencer: React.FC<SequencerProps> = ({
                 </div>
             </div>
 
-            {/* Steps Grid - Compact Sequencer Style */}
+            {/* Steps Grid - Redesigned Pads */}
             <div className={`grid ${getGridClass()}`}>
                 {sequencer.steps.map((step, index) => {
                     const isActiveStep = sequencer.currentStep === index;
+                    const colorClass = getStepColorClass(step.sliceIndex);
+                    const shadowClass = getStepShadow(step.sliceIndex);
+                    
                     return (
-                        <div key={index} className="flex flex-col gap-1 relative group">
+                        <div key={index} className={`flex flex-col h-20 bg-[#12161d] rounded-lg border border-white/5 overflow-hidden relative group transition-all duration-100 ${isActiveStep ? 'ring-2 ring-white ring-offset-2 ring-offset-deep-space z-20 scale-105' : ''}`}>
+                            
+                            {/* Main Pad Area (Trigger) */}
                             <button
                                 onClick={() => handleStepClick(index, step)}
                                 disabled={disabled}
-                                className={`
-                                    w-full h-12 sm:h-14 rounded-md border transition-all duration-100 flex flex-col items-center justify-between py-1.5 relative touch-manipulation active:scale-95 overflow-hidden
+                                className={`flex-1 w-full flex items-center justify-center relative transition-all duration-100 outline-none
                                     ${step.active 
-                                        ? 'bg-hyper-cyan border-hyper-cyan text-deep-space shadow-[0_0_15px_rgba(0,246,255,0.4)] z-10' 
-                                        : 'bg-[#151921] border-white/5 hover:border-white/20 hover:bg-white/5 shadow-inner'
+                                        ? `${colorClass} border-b-0 text-white ${shadowClass}` 
+                                        : 'bg-white/5 hover:bg-white/10 text-white/20'
                                     }
-                                    ${isActiveStep ? 'ring-2 ring-white ring-offset-2 ring-offset-deep-space brightness-125 z-20' : ''}
                                 `}
                             >
-                                {/* Step Number */}
-                                <span className={`text-xs font-mono font-bold ${step.active ? 'text-deep-space/60' : 'text-white/20 group-hover:text-white/40'}`}>
+                                {/* Step Number (Subtle) */}
+                                <span className={`absolute top-1 left-1.5 text-[9px] font-mono font-bold ${step.active ? 'opacity-80 mix-blend-screen' : 'opacity-30'}`}>
                                     {index + 1}
                                 </span>
 
-                                {/* Center LED / Indicator */}
-                                <div className={`w-8 h-1.5 rounded-full transition-all duration-150 ${
-                                    step.active 
-                                    ? 'bg-deep-space/80 w-8' 
-                                    : (isActiveStep ? 'bg-white w-full' : 'bg-black/30 w-1.5')
-                                }`}></div>
-
-                                {/* Ratchet Indicator (Overlaid) */}
-                                {isProMode && step.active && step.ratchet && step.ratchet > 1 && (
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/10">
-                                        <span className="text-[10px] font-black text-white drop-shadow-md">x{step.ratchet}</span>
-                                    </div>
+                                {/* Center Indicator */}
+                                {step.active ? (
+                                    step.ratchet && step.ratchet > 1 ? (
+                                        <span className="text-sm font-black drop-shadow-md">x{step.ratchet}</span>
+                                    ) : (
+                                        <div className="w-2 h-2 bg-white rounded-full opacity-80 shadow-sm"></div>
+                                    )
+                                ) : (
+                                    <div className="w-1.5 h-1.5 bg-black/40 rounded-full"></div>
                                 )}
                             </button>
                             
-                            {/* Slice Assign (Mini Button) */}
+                            {/* Slice Assignment Bar (Bottom) */}
                             {isProMode && (
-                                <button 
-                                    onClick={() => handleSliceAssign(index)}
-                                    disabled={disabled}
-                                    className={`w-full py-0.5 text-[7px] font-bold font-mono rounded border transition-colors truncate
-                                        ${step.sliceIndex === selectedSliceIndex 
-                                            ? 'bg-white/20 text-white border-white/50' 
-                                            : 'bg-nebula-blue/10 text-white/20 border-white/5 hover:bg-white/5 hover:text-white/50'}
+                                <div 
+                                    onClick={(e) => handleSliceAssign(index, e)}
+                                    className={`
+                                        h-6 w-full flex items-center justify-center border-t cursor-pointer transition-colors
+                                        ${step.active ? `border-black/10 ${colorClass} brightness-90` : 'border-white/5 bg-black/40 hover:bg-white/10'}
                                     `}
-                                    title={`Assign Slice ${step.sliceIndex}`}
+                                    title={`Current Slice: ${step.sliceIndex}. Click to assign selected slice.`}
                                 >
-                                    S:{step.sliceIndex}
-                                </button>
+                                    {/* Highlight if this step matches current global selection */}
+                                    {selectedSliceIndex !== null && step.sliceIndex === selectedSliceIndex && (
+                                        <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white animate-pulse"></div>
+                                    )}
+                                    
+                                    <span className={`text-[9px] font-bold font-mono uppercase tracking-tight ${step.active ? 'opacity-90 mix-blend-hard-light' : 'text-star-dust/40'}`}>
+                                        SLICE {step.sliceIndex}
+                                    </span>
+                                </div>
                             )}
                         </div>
                     );

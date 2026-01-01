@@ -1,4 +1,5 @@
-import React, { useState, memo } from 'react';
+
+import React, { useState, memo, useCallback, useRef } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
 import EffectSection from './EffectSection';
@@ -51,35 +52,70 @@ const PowerButton = ({ active, onClick, disabled }: { active: boolean, onClick: 
     </Tooltip>
 );
 
-// New Collapsible Effect Unit Wrapper
+// Draggable Effect Unit Wrapper
 const EffectUnit = ({ 
+    id,
     title, 
     active, 
     onToggle, 
     children, 
     colorClass, 
     info,
-    disabled
+    disabled,
+    onDragStart,
+    onDragOver,
+    onDrop
 }: { 
+    id: string,
     title: string, 
     active: boolean, 
     onToggle: () => void, 
     children?: React.ReactNode, 
     colorClass: string,
     info: string,
-    disabled: boolean
+    disabled: boolean,
+    onDragStart: (e: React.DragEvent, id: string) => void,
+    onDragOver: (e: React.DragEvent) => void,
+    onDrop: (e: React.DragEvent, id: string) => void
 }) => {
     const [expanded, setExpanded] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    const handleHandleDragStart = (e: React.DragEvent) => {
+        // Set drag image to the whole unit if available
+        if (ref.current) {
+             e.dataTransfer.setDragImage(ref.current, 0, 0);
+        }
+        onDragStart(e, id);
+    };
 
     return (
-        <div className={`rounded-md border transition-all duration-300 overflow-hidden ${active ? 'bg-nebula-blue/30 border-white/10' : 'bg-[#0f1319] border-white/5 opacity-80'}`}>
+        <div 
+            ref={ref}
+            className={`rounded-md border transition-all duration-200 overflow-hidden mb-2 ${active ? 'bg-nebula-blue/30 border-white/10' : 'bg-[#0f1319] border-white/5 opacity-80'}`}
+            onDragOver={onDragOver}
+            onDrop={(e) => onDrop(e, id)}
+        >
             <div 
-                className="flex items-center justify-between p-2 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                className="flex items-center justify-between p-2 hover:bg-white/5 transition-colors select-none"
                 onClick={() => setExpanded(!expanded)}
             >
-                <div className="flex items-center gap-2 overflow-hidden">
-                    <span className={`text-[10px] transform transition-transform duration-200 ${expanded ? 'rotate-90' : ''} text-white/50`}>▶</span>
-                    <h4 className={`font-bold text-xs uppercase tracking-wider flex items-center gap-2 truncate ${colorClass}`}>
+                <div className="flex items-center gap-2 overflow-hidden flex-1">
+                    {/* Drag Handle - Draggable is ONLY here */}
+                    <div 
+                        className="text-white/30 mr-2 cursor-grab hover:text-white active:cursor-grabbing p-1 hover:bg-white/10 rounded"
+                        draggable={!disabled}
+                        onDragStart={handleHandleDragStart}
+                        onClick={(e) => e.stopPropagation()} // Prevent expand/collapse
+                        title="Drag to reorder"
+                    >
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M8 6h8v2H8zm0 10h8v2H8zm0-5h8v2H8z" />
+                        </svg>
+                    </div>
+                    
+                    <span className={`text-[10px] transform transition-transform duration-200 ${expanded ? 'rotate-90' : ''} text-white/50 cursor-pointer`}>▶</span>
+                    <h4 className={`font-bold text-xs uppercase tracking-wider flex items-center gap-2 truncate ${colorClass} cursor-pointer`}>
                         {title}
                     </h4>
                     <InfoIcon text={info} className="w-3 h-3 text-[8px]" />
@@ -94,7 +130,7 @@ const EffectUnit = ({
             </div>
             
             <div className={`transition-all duration-300 ease-in-out ${expanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="p-3 pt-0 border-t border-white/5 space-y-3 mt-2">
+                <div className="p-3 pt-0 border-t border-white/5 space-y-3 mt-2 cursor-default">
                     {children}
                 </div>
             </div>
@@ -102,7 +138,7 @@ const EffectUnit = ({
     );
 };
 
-// Helper to reverse-calculate macro values from params for UI sync
+// ... (Macros Helper Functions Unchanged) ...
 const getTextureFromParams = (grainSize: number) => {
     const val = 1 - ((grainSize - 0.02) / 0.48);
     return Math.max(0, Math.min(1, val));
@@ -140,12 +176,28 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     isProMode, 
     simpleView, 
     visibleSections, 
-    effectsLayout = 'grid' 
+    effectsLayout // Removed default to respect passed prop logic better or force usage
 }) => {
     
     const [aiComplexity, setAiComplexity] = useState(0);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
+
+    // --- CUSTOM GRAIN SIZE CURVE HANDLERS ---
+    const MIN_GRAIN = 0.01;
+    const MAX_GRAIN = 0.5;
+    
+    const getGrainSizeSliderValue = useCallback((seconds: number) => {
+        const pct = Math.sqrt((seconds - MIN_GRAIN) / (MAX_GRAIN - MIN_GRAIN));
+        return Math.max(0, Math.min(100, pct * 100));
+    }, []);
+
+    const onGrainSizeSliderChange = useCallback((val: number) => {
+        const pct = val / 100;
+        const seconds = MIN_GRAIN + (MAX_GRAIN - MIN_GRAIN) * (pct * pct);
+        onParamChange('grainSize', seconds);
+    }, [onParamChange]);
+
 
     // --- PRO MODE FUNCTIONS ---
 
@@ -177,7 +229,51 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         }
     };
 
-    // --- SIMPLE MODE MACROS ---
+    const applyFilterPreset = (type: 'wah' | 'quack' | 'down') => {
+        if (type === 'wah') {
+            onParamChange('filter', { ...params.filter, frequency: 200, q: 5, type: 'lowpass', envDepth: 3000, isActive: true });
+        } else if (type === 'quack') {
+            onParamChange('filter', { ...params.filter, frequency: 450, q: 3.5, type: 'bandpass', envDepth: 2000, isActive: true });
+        } else if (type === 'down') {
+            onParamChange('filter', { ...params.filter, frequency: 6000, q: 1.0, type: 'lowpass', envDepth: -4000, isActive: true });
+        }
+    };
+
+    const getSafeMinFrequency = () => {
+        if (params.filter.envDepth < 0) {
+            return Math.abs(params.filter.envDepth) + 200;
+        }
+        return 20;
+    };
+
+    // --- DRAG AND DROP HANDLERS ---
+    const handleDragStart = (e: React.DragEvent, id: string) => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault(); // Necessary to allow dropping
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e: React.DragEvent, targetId: string) => {
+        e.preventDefault();
+        const sourceId = e.dataTransfer.getData("text/plain");
+        if (sourceId === targetId) return;
+
+        const newOrder = [...params.order];
+        const sourceIndex = newOrder.indexOf(sourceId);
+        const targetIndex = newOrder.indexOf(targetId);
+
+        if (sourceIndex > -1 && targetIndex > -1) {
+            newOrder.splice(sourceIndex, 1);
+            newOrder.splice(targetIndex, 0, sourceId);
+            onParamChange('order', newOrder);
+        }
+    };
+
+    // --- SIMPLE MODE MACROS (Same as before) ---
     const updateTextureMacro = (val: number) => {
         const inv = 1 - val;
         onParamChange('grainSize', 0.02 + (inv * 0.48));
@@ -209,8 +305,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
     // --- RENDER ---
     if (!isProMode) {
-        // ... (Simple Mode code unchanged, omitting for brevity in this block, assume standard simple mode return)
-        // Re-implementing to ensure it's not lost:
+        // ... (Simple Mode code unchanged - preserving) ...
         const macroGridClass = simpleView === 'macros' ? "grid-cols-1 gap-4" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6";
         return (
             <div className="space-y-6 animate-in fade-in duration-500">
@@ -288,9 +383,176 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     const showEngine = !visibleSections || visibleSections.includes('engine');
     const showEffects = !visibleSections || visibleSections.includes('effects');
 
-    const effectsGridClass = effectsLayout === 'vertical' 
-        ? "grid-cols-1 gap-4" 
-        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6";
+    // MAPPING FOR EFFECTS RENDER
+    const renderEffect = (id: string) => {
+        switch (id) {
+            case 'compressor':
+                return (
+                    <EffectUnit 
+                        key="compressor" id="compressor"
+                        title="Compressor" 
+                        active={params.compressor?.isActive ?? true}
+                        onToggle={() => onEffectParamChange('compressor', 'isActive', !params.compressor?.isActive)}
+                        colorClass="text-orange-400"
+                        info="Dynamic range compression"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <div className="flex gap-1 mb-2">
+                            <button onClick={() => applyCompressorPreset('smooth')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Smooth</button>
+                            <button onClick={() => applyCompressorPreset('med')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Med</button>
+                            <button onClick={() => applyCompressorPreset('hard')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-red-300">Hard</button>
+                        </div>
+                        <Slider label="Thresh" min={-60} max={0} step={1} value={params.compressor?.threshold ?? -24} onChange={(v) => onEffectParamChange('compressor', 'threshold', v)} disabled={disabled} unit="dB" tooltip="Signal level above which compression starts" defaultValue={-24} />
+                        <Slider label="Ratio" min={1} max={20} step={0.5} value={params.compressor?.ratio ?? 4} onChange={(v) => onEffectParamChange('compressor', 'ratio', v)} disabled={disabled} unit=":1" tooltip="Amount of compression applied" defaultValue={4} />
+                    </EffectUnit>
+                );
+            case 'distortion':
+                return (
+                    <EffectUnit
+                        key="distortion" id="distortion"
+                        title="Distortion"
+                        active={params.distortion.isActive}
+                        onToggle={() => onEffectParamChange('distortion', 'isActive', !params.distortion.isActive)}
+                        colorClass="text-plasma-pink"
+                        info="Hard clipping distortion"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <Slider label="Drive" min={0} max={1} step={0.01} value={params.distortion.amount} onChange={(v) => onEffectParamChange('distortion', 'amount', v)} disabled={disabled} tooltip="Amount of hard clipping distortion" defaultValue={0} />
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.distortion.wet} onChange={(v) => onEffectParamChange('distortion', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for distortion" defaultValue={1} />
+                    </EffectUnit>
+                );
+            case 'bitCrusher':
+                return (
+                    <EffectUnit
+                        key="bitCrusher" id="bitCrusher"
+                        title="BitCrush"
+                        active={params.bitCrusher.isActive}
+                        onToggle={() => onEffectParamChange('bitCrusher', 'isActive', !params.bitCrusher.isActive)}
+                        colorClass="text-green-400"
+                        info="Lo-fi bit reduction"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <Slider label="Bits" min={1} max={16} step={1} value={params.bitCrusher?.bits ?? 8} onChange={(v) => onEffectParamChange('bitCrusher', 'bits', v)} disabled={disabled} tooltip="Bit depth reduction (Lower = Lo-fi)" defaultValue={4} />
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.bitCrusher?.wet ?? 0} onChange={(v) => onEffectParamChange('bitCrusher', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for bitcrusher" defaultValue={1} />
+                    </EffectUnit>
+                );
+            case 'filter':
+                return (
+                    <EffectUnit
+                        key="filter" id="filter"
+                        title="Mod Filter"
+                        active={params.filter.isActive}
+                        onToggle={() => onEffectParamChange('filter', 'isActive', !params.filter.isActive)}
+                        colorClass="text-hyper-cyan"
+                        info="Multi-mode filter with LFO"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <div className="flex gap-1 mb-2">
+                            <button onClick={() => applyFilterPreset('wah')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Wah</button>
+                            <button onClick={() => applyFilterPreset('quack')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-hyper-cyan">Quack</button>
+                            <button onClick={() => applyFilterPreset('down')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Down</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Slider label="Freq" min={getSafeMinFrequency()} max={15000} step={1} value={params.filter.frequency} onChange={(v) => onEffectParamChange('filter', 'frequency', v)} disabled={disabled} unit="" log tooltip="Base Cutoff Frequency" defaultValue={2000} />
+                            <Slider label="Res" min={0.1} max={30} step={0.1} value={params.filter.q} onChange={(v) => onEffectParamChange('filter', 'q', v)} disabled={disabled} tooltip="Resonance (Q) - higher peaks" defaultValue={1} />
+                        </div>
+                        <div className="pt-2 border-t border-white/10">
+                            <label className="text-[9px] font-bold text-star-dust/60 uppercase mb-1 block">Envelope</label>
+                            <Slider label="Env Mod" min={-8000} max={8000} step={10} value={params.filter.envDepth} onChange={(v) => onEffectParamChange('filter', 'envDepth', v)} disabled={disabled} tooltip="Envelope Depth. Pos=Wah, Neg=Reverse Wah" defaultValue={0} />
+                        </div>
+                        <div className="pt-2 border-t border-white/10">
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-[9px] font-bold text-star-dust/60 uppercase">LFO</label>
+                                <Tooltip text="Sync LFO to BPM">
+                                    <button onClick={() => onEffectParamChange('filter', 'isSynced', !params.filter.isSynced)} disabled={disabled} className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${params.filter.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/40 border-star-dust/20'}`}>SYNC</button>
+                                </Tooltip>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <Slider label="Depth" min={0} max={3000} step={10} value={params.filter.lfoDepth} onChange={(v) => onEffectParamChange('filter', 'lfoDepth', v)} disabled={disabled} tooltip="LFO Modulation Amount" defaultValue={0} />
+                                {params.filter.isSynced ? (
+                                    <select value={params.filter.syncValue} onChange={(e) => onEffectParamChange('filter', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-8 bg-nebula-blue text-[9px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
+                                        {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                    </select>
+                                ) : (
+                                    <Slider label="Rate" min={0.1} max={10} step={0.1} value={params.filter.lfoRate} onChange={(v) => onEffectParamChange('filter', 'lfoRate', v)} disabled={disabled} unit="Hz" tooltip="LFO Rate" defaultValue={1} />
+                                )}
+                            </div>
+                        </div>
+                    </EffectUnit>
+                );
+            case 'delay':
+                return (
+                    <EffectUnit
+                        key="delay" id="delay"
+                        title="Delay"
+                        active={params.delay.isActive}
+                        onToggle={() => onEffectParamChange('delay', 'isActive', !params.delay.isActive)}
+                        colorClass="text-hyper-cyan"
+                        info="Feedback delay line"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] font-medium text-star-dust/80">Time</label>
+                            <Tooltip text="Sync delay time to Master BPM">
+                                <button onClick={() => onEffectParamChange('delay', 'isSynced', !params.delay.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.delay.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
+                            </Tooltip>
+                        </div>
+                        {params.delay.isSynced ? (
+                            <select value={params.delay.syncValue} onChange={(e) => onEffectParamChange('delay', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none mb-2">
+                                {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        ) : (
+                            <Slider label="" min={0} max={1} step={0.01} value={params.delay.delayTime} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.375} precision={3} />
+                        )}
+                        <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay.feedback} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.2} />
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-white/10">
+                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.delay.lowCut} onChange={(v) => onEffectParamChange('delay', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for wet signal" defaultValue={20} precision={0} />
+                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.delay.highCut} onChange={(v) => onEffectParamChange('delay', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for wet signal" defaultValue={20000} precision={0} />
+                        </div>
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.delay.wet} onChange={(v) => onEffectParamChange('delay', 'wet', v)} disabled={disabled} tooltip="Volume of delayed signal" defaultValue={0} />
+                    </EffectUnit>
+                );
+            case 'reverb':
+                return (
+                    <EffectUnit
+                        key="reverb" id="reverb"
+                        title="Reverb"
+                        active={params.reverb.isActive}
+                        onToggle={() => onEffectParamChange('reverb', 'isActive', !params.reverb.isActive)}
+                        colorClass="text-hyper-cyan"
+                        info="Algorithmic reverb"
+                        disabled={disabled}
+                        onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                    >
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] font-medium text-star-dust/80">Decay</label>
+                            <Tooltip text="Sync reverb decay to Master BPM">
+                                <button onClick={() => onEffectParamChange('reverb', 'isSynced', !params.reverb.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.reverb.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
+                            </Tooltip>
+                        </div>
+                        {params.reverb.isSynced ? (
+                            <select value={params.reverb.syncValue} onChange={(e) => onEffectParamChange('reverb', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none mb-2">
+                                {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        ) : (
+                            <Slider label="" min={0.1} max={10} step={0.1} value={params.reverb.decay} onChange={(v) => onEffectParamChange('reverb', 'decay', v)} disabled={disabled} unit="s" tooltip="Duration of reverb tail" defaultValue={1.5} />
+                        )}
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-white/10">
+                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.reverb.lowCut} onChange={(v) => onEffectParamChange('reverb', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for reverb tail" defaultValue={20} precision={0} />
+                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.reverb.highCut} onChange={(v) => onEffectParamChange('reverb', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for reverb tail" defaultValue={20000} precision={0} />
+                        </div>
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.reverb.wet} onChange={(v) => onEffectParamChange('reverb', 'wet', v)} disabled={disabled} tooltip="Volume of reverb signal" defaultValue={0} />
+                    </EffectUnit>
+                );
+            default:
+                return null;
+        }
+    };
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
@@ -300,13 +562,13 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* Slice Properties Section */}
                     {showSlices && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/20 shadow-lg shadow-white/5 flex flex-col">
+                             {/* ... (Existing Slice UI unchanged) ... */}
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-white">◆</span> Slice Control
                                 <InfoIcon text="Select a slice to edit its properties, type, and envelope. Drag graph handles for micro-control." className="ml-2" />
                             </h3>
                             {currentSlice && selectedSliceIndex !== null ? (
                                 <div className="space-y-3 flex-1 flex flex-col">
-                                    {/* ... Slice Controls (unchanged) ... */}
                                     <div className="flex items-center justify-between border-b border-white/10 pb-2">
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm font-bold text-hyper-cyan">Slice #{currentSlice.id}</span>
@@ -375,7 +637,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* AI Beat Generator Section (Pro) */}
                     {showPattern && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
-                             {/* ... Pattern Gen Content (unchanged) ... */}
+                             {/* ... (Existing Pattern UI unchanged) ... */}
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-hyper-cyan">⚡</span> Pattern Gen
                                 <InfoIcon text="Algorithmic sequencer. Use the slider to shift probability from steady House beats to chaotic Glitch patterns." className="ml-2" />
@@ -388,7 +650,17 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         <span>Chaos</span>
                                     </div>
                                     <Tooltip text="Adjust complexity: Left for steady patterns, Right for chaotic sequences">
-                                        <input type="range" min="0" max="1" step="0.01" value={aiComplexity} onChange={(e) => setAiComplexity(parseFloat(e.target.value))} className="w-full h-3 bg-nebula-blue rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-hyper-cyan [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(0,246,255,0.5)] hover:[&::-webkit-slider-thumb]:scale-110 transition-all" onDoubleClick={() => setAiComplexity(0)} />
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01" 
+                                            value={aiComplexity} 
+                                            onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
+                                            style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
+                                            className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
+                                            onDoubleClick={() => setAiComplexity(0)} 
+                                        />
                                     </Tooltip>
                                 </div>
                                 <Tooltip text="Generate a new sequence based on the complexity slider">
@@ -430,7 +702,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* BPM & Engine & Global Controls */}
                     {showEngine && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/10 shadow-lg space-y-4">
-                             {/* ... Engine Content (unchanged) ... */}
+                             {/* ... (Existing Engine UI unchanged) ... */}
                              <div className="flex items-center gap-2 border-b border-white/10 pb-2 mb-2">
                                 <span className="text-xl">⚙️</span>
                                 <h3 className="text-lg font-bold text-white">Engine & Global</h3>
@@ -440,7 +712,21 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <div className="col-span-2 sm:col-span-1 bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
                                      <Slider label="BPM" min={60} max={200} step={1} value={params.bpm} onChange={(v) => onParamChange('bpm', v)} disabled={disabled} unit="" tooltip="Master Tempo" defaultValue={120} />
                                 </div>
-                                <Slider label="Grain Size" min={0.01} max={0.5} step={0.001} value={params.grainSize} onChange={(v) => onParamChange('grainSize', v)} disabled={disabled} unit="s" log tooltip="Duration of each audio grain" defaultValue={0.08} precision={3} />
+                                
+                                <Slider 
+                                    label="Grain Size" 
+                                    min={0} 
+                                    max={100} 
+                                    step={0.1} 
+                                    value={getGrainSizeSliderValue(params.grainSize)} 
+                                    onChange={onGrainSizeSliderChange} 
+                                    disabled={disabled} 
+                                    unit="s" 
+                                    tooltip="Duration of each audio grain (Non-linear scale)" 
+                                    defaultValue={getGrainSizeSliderValue(0.08)} 
+                                    precision={0}
+                                />
+                                
                                 <Slider label="Overlap" min={0.01} max={0.5} step={0.001} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" log tooltip="Crossfade duration" defaultValue={0.04} precision={3} />
                                 <Slider label="Detune" min={-1200} max={1200} step={1} value={params.detune} onChange={(v) => onParamChange('detune', v)} disabled={disabled} unit="cnt" tooltip="Pitch shift" defaultValue={0} />
                                 <Slider label="Rate" min={0.1} max={4} step={0.01} value={params.playbackRate} onChange={(v) => onParamChange('playbackRate', v)} disabled={disabled} unit="x" tooltip="Playback Speed" defaultValue={1.0} />
@@ -456,140 +742,11 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
             {/* Effects Rack */}
             {showEffects && (
                 <div className="bg-deep-space/50 p-2 sm:p-4 rounded-lg ring-1 ring-white/10 space-y-6">
-                    <EffectSection title="Effects Rack" info="Chain of audio effects for shaping tone, dynamics, and spatial ambience.">
-                         <div className={`grid ${effectsGridClass}`}>
-                             {/* Compressor */}
-                             <EffectUnit 
-                                title="Compressor" 
-                                active={params.compressor?.isActive ?? true}
-                                onToggle={() => onEffectParamChange('compressor', 'isActive', !params.compressor?.isActive)}
-                                colorClass="text-orange-400"
-                                info="Dynamic range compression"
-                                disabled={disabled}
-                             >
-                                <div className="flex gap-1 mb-2">
-                                    <button onClick={() => applyCompressorPreset('smooth')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Smooth</button>
-                                    <button onClick={() => applyCompressorPreset('med')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Med</button>
-                                    <button onClick={() => applyCompressorPreset('hard')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-red-300">Hard</button>
-                                </div>
-                                <Slider label="Thresh" min={-60} max={0} step={1} value={params.compressor?.threshold ?? -24} onChange={(v) => onEffectParamChange('compressor', 'threshold', v)} disabled={disabled} unit="dB" tooltip="Signal level above which compression starts" defaultValue={-24} />
-                                <Slider label="Ratio" min={1} max={20} step={0.5} value={params.compressor?.ratio ?? 4} onChange={(v) => onEffectParamChange('compressor', 'ratio', v)} disabled={disabled} unit=":1" tooltip="Amount of compression applied" defaultValue={4} />
-                            </EffectUnit>
-
-                            {/* Distortion */}
-                            <EffectUnit
-                                title="Distortion"
-                                active={params.distortion.isActive}
-                                onToggle={() => onEffectParamChange('distortion', 'isActive', !params.distortion.isActive)}
-                                colorClass="text-plasma-pink"
-                                info="Hard clipping distortion"
-                                disabled={disabled}
-                            >
-                                <Slider label="Drive" min={0} max={1} step={0.01} value={params.distortion.amount} onChange={(v) => onEffectParamChange('distortion', 'amount', v)} disabled={disabled} tooltip="Amount of hard clipping distortion" defaultValue={0} />
-                                <Slider label="Mix" min={0} max={1} step={0.01} value={params.distortion.wet} onChange={(v) => onEffectParamChange('distortion', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for distortion" defaultValue={1} />
-                            </EffectUnit>
-                            
-                             {/* BitCrusher */}
-                            <EffectUnit
-                                title="BitCrush"
-                                active={params.bitCrusher.isActive}
-                                onToggle={() => onEffectParamChange('bitCrusher', 'isActive', !params.bitCrusher.isActive)}
-                                colorClass="text-green-400"
-                                info="Lo-fi bit reduction"
-                                disabled={disabled}
-                            >
-                                <Slider label="Bits" min={1} max={16} step={1} value={params.bitCrusher?.bits ?? 8} onChange={(v) => onEffectParamChange('bitCrusher', 'bits', v)} disabled={disabled} tooltip="Bit depth reduction (Lower = Lo-fi)" defaultValue={4} />
-                                <Slider label="Mix" min={0} max={1} step={0.01} value={params.bitCrusher?.wet ?? 0} onChange={(v) => onEffectParamChange('bitCrusher', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for bitcrusher" defaultValue={1} />
-                            </EffectUnit>
-
-                            {/* Filter */}
-                            <EffectUnit
-                                title="Mod Filter"
-                                active={params.filter.isActive}
-                                onToggle={() => onEffectParamChange('filter', 'isActive', !params.filter.isActive)}
-                                colorClass="text-hyper-cyan"
-                                info="Multi-mode filter with LFO"
-                                disabled={disabled}
-                            >
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Slider label="Freq" min={20} max={15000} step={1} value={params.filter.frequency} onChange={(v) => onEffectParamChange('filter', 'frequency', v)} disabled={disabled} unit="" log tooltip="Base Cutoff Frequency" defaultValue={2000} />
-                                    <Slider label="Res" min={0.1} max={20} step={0.1} value={params.filter.q} onChange={(v) => onEffectParamChange('filter', 'q', v)} disabled={disabled} tooltip="Resonance (Q)" defaultValue={1} />
-                                </div>
-                                <div className="pt-2 border-t border-white/10">
-                                    <label className="text-[9px] font-bold text-star-dust/60 uppercase mb-1 block">Envelope</label>
-                                    <Slider label="Sens" min={0} max={5000} step={10} value={params.filter.envDepth} onChange={(v) => onEffectParamChange('filter', 'envDepth', v)} disabled={disabled} tooltip="Envelope Sensitivity (Auto-Wah)" defaultValue={0} />
-                                </div>
-                                <div className="pt-2 border-t border-white/10">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="text-[9px] font-bold text-star-dust/60 uppercase">LFO</label>
-                                        <Tooltip text="Sync LFO to BPM">
-                                            <button onClick={() => onEffectParamChange('filter', 'isSynced', !params.filter.isSynced)} disabled={disabled} className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${params.filter.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/40 border-star-dust/20'}`}>SYNC</button>
-                                        </Tooltip>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                         <Slider label="Depth" min={0} max={3000} step={10} value={params.filter.lfoDepth} onChange={(v) => onEffectParamChange('filter', 'lfoDepth', v)} disabled={disabled} tooltip="LFO Modulation Amount" defaultValue={0} />
-                                         {params.filter.isSynced ? (
-                                             <select value={params.filter.syncValue} onChange={(e) => onEffectParamChange('filter', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-8 bg-nebula-blue text-[9px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
-                                                 {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                                             </select>
-                                         ) : (
-                                            <Slider label="Rate" min={0.1} max={10} step={0.1} value={params.filter.lfoRate} onChange={(v) => onEffectParamChange('filter', 'lfoRate', v)} disabled={disabled} unit="Hz" tooltip="LFO Rate" defaultValue={1} />
-                                         )}
-                                    </div>
-                                </div>
-                            </EffectUnit>
-
-                            {/* Delay */}
-                            <EffectUnit
-                                title="Delay"
-                                active={params.delay.isActive}
-                                onToggle={() => onEffectParamChange('delay', 'isActive', !params.delay.isActive)}
-                                colorClass="text-hyper-cyan"
-                                info="Feedback delay line"
-                                disabled={disabled}
-                            >
-                                 <div className="flex justify-between items-center mb-1">
-                                    <label className="text-[10px] font-medium text-star-dust/80">Time</label>
-                                    <Tooltip text="Sync delay time to Master BPM">
-                                        <button onClick={() => onEffectParamChange('delay', 'isSynced', !params.delay.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.delay.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
-                                    </Tooltip>
-                                 </div>
-                                 {params.delay.isSynced ? (
-                                     <select value={params.delay.syncValue} onChange={(e) => onEffectParamChange('delay', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
-                                         {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                                     </select>
-                                 ) : (
-                                    <Slider label="" min={0} max={1} step={0.01} value={params.delay.delayTime} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.375} precision={3} />
-                                 )}
-                                <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay.feedback} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.2} />
-                                <Slider label="Mix" min={0} max={1} step={0.01} value={params.delay.wet} onChange={(v) => onEffectParamChange('delay', 'wet', v)} disabled={disabled} tooltip="Volume of delayed signal" defaultValue={0} />
-                            </EffectUnit>
-
-                             {/* Reverb */}
-                            <EffectUnit
-                                title="Reverb"
-                                active={params.reverb.isActive}
-                                onToggle={() => onEffectParamChange('reverb', 'isActive', !params.reverb.isActive)}
-                                colorClass="text-hyper-cyan"
-                                info="Algorithmic reverb"
-                                disabled={disabled}
-                            >
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-[10px] font-medium text-star-dust/80">Decay</label>
-                                    <Tooltip text="Sync reverb decay to Master BPM">
-                                        <button onClick={() => onEffectParamChange('reverb', 'isSynced', !params.reverb.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.reverb.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
-                                    </Tooltip>
-                                 </div>
-                                 {params.reverb.isSynced ? (
-                                     <select value={params.reverb.syncValue} onChange={(e) => onEffectParamChange('reverb', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
-                                         {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                                     </select>
-                                 ) : (
-                                    <Slider label="" min={0.1} max={10} step={0.1} value={params.reverb.decay} onChange={(v) => onEffectParamChange('reverb', 'decay', v)} disabled={disabled} unit="s" tooltip="Duration of reverb tail" defaultValue={1.5} />
-                                 )}
-                                <Slider label="Mix" min={0} max={1} step={0.01} value={params.reverb.wet} onChange={(v) => onEffectParamChange('reverb', 'wet', v)} disabled={disabled} tooltip="Volume of reverb signal" defaultValue={0} />
-                            </EffectUnit>
-                        </div>
+                    <EffectSection title="Effects Rack" info="Chain of audio effects. Drag to reorder the signal flow. Top is first, bottom is last.">
+                         {/* Vertical Stack with Reorder Support */}
+                         <div className="flex flex-col gap-2">
+                             {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
+                         </div>
                     </EffectSection>
                 </div>
             )}

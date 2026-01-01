@@ -34,6 +34,8 @@ export interface ReverbParams {
   wet: number;
   isSynced: boolean;
   syncValue: NoteSubdivision;
+  lowCut: number;
+  highCut: number;
 }
 
 export interface DelayParams {
@@ -43,6 +45,8 @@ export interface DelayParams {
   wet: number;
   isSynced: boolean;
   syncValue: NoteSubdivision;
+  lowCut: number;
+  highCut: number;
 }
 
 export interface FilterParams {
@@ -96,7 +100,9 @@ export interface EffectParams {
   glitch: GlitchParams;
 }
 
-export interface AllParams extends GranularSynthParams, EffectParams {}
+export interface AllParams extends GranularSynthParams, EffectParams {
+    order: string[];
+}
 
 export interface SequencerStep {
   active: boolean;

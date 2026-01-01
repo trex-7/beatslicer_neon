@@ -16,16 +16,16 @@ const createPreset = (
     }));
 
     const baseParams: AllParams = {
-        grainSize: 0.08,  // Updated to match punchy defaults
-        overlap: 0.04,    // Updated
+        grainSize: 0.06,  
+        overlap: 0.03,    
         detune: 0,
         playbackRate: 1,
         bpm: 120,
-        attack: 0.005,    // Updated
-        release: 0.1,     // Updated
-        sustain: 0.5,     // Added missing sustain property
-        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n' },
-        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n' },
+        attack: 0.002,    
+        release: 0.1,     
+        sustain: 0.5,     
+        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
+        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
         filter: { 
             isActive: false,
             frequency: 20000, 
@@ -37,17 +37,19 @@ const createPreset = (
             isSynced: true,
             syncValue: '4n'
         },
-        distortion: { isActive: true, amount: 1.0, wet: 0.04 },
+        distortion: { isActive: false, amount: 1.0, wet: 0.04 },
         compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
         bitCrusher: { isActive: false, bits: 8, wet: 0 },
         glitch: { 
             chaos: 0, 
             allowReverse: false, 
-            allowOctaveJump: true,
-            allowRatchet: true,
+            allowOctaveJump: true, 
+            allowRatchet: true, 
             pitchShift: true, // Default to preserving length
             allowFormant: true 
-        }
+        },
+        // Default Order: Compressor -> Distortion -> BitCrusher -> Filter -> Delay -> Reverb
+        order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
     };
 
     // Deep merge params roughly
@@ -116,10 +118,12 @@ export const FACTORY_PRESETS: Preset[] = [
             attack: 0.3,
             release: 0.8,
             detune: 0,
-            reverb: { isActive: true, decay: 5.0, wet: 0.5, isSynced: false, syncValue: '1m' },
-            delay: { isActive: true, delayTime: 0.5, feedback: 0.6, wet: 0.35, isSynced: true, syncValue: '4n' },
+            reverb: { isActive: true, decay: 5.0, wet: 0.5, isSynced: false, syncValue: '1m', lowCut: 200, highCut: 10000 },
+            delay: { isActive: true, delayTime: 0.5, feedback: 0.6, wet: 0.35, isSynced: true, syncValue: '4n', lowCut: 20, highCut: 20000 },
             filter: { isActive: true, frequency: 2500, q: 0.5, type: 'lowpass', envDepth: 500, lfoDepth: 500, lfoRate: 0.2, isSynced: false, syncValue: '1m' },
-            compressor: { isActive: true, threshold: -30, ratio: 2, attack: 0.1, release: 0.4 }
+            compressor: { isActive: true, threshold: -30, ratio: 2, attack: 0.1, release: 0.4 },
+            // Reverb before delay for washed out sound
+            order: ['filter', 'reverb', 'delay', 'compressor', 'distortion', 'bitCrusher'] 
         },
         { mode: 'pendulum' }
     ),
@@ -133,7 +137,8 @@ export const FACTORY_PRESETS: Preset[] = [
             detune: -200, // Down a tone
             compressor: { isActive: true, threshold: -20, ratio: 12, attack: 0.001, release: 0.1 },
             distortion: { isActive: true, amount: 0.8, wet: 0.3 },
-            filter: { isActive: true, frequency: 150, q: 2, type: 'highpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' } // Thin out bottom
+            filter: { isActive: true, frequency: 150, q: 2, type: 'highpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
+            order: ['bitCrusher', 'distortion', 'compressor', 'filter', 'delay', 'reverb']
         },
         { mode: 'forward' }
     ),
@@ -143,7 +148,7 @@ export const FACTORY_PRESETS: Preset[] = [
         {
             grainSize: 0.025, // Tiny grains
             overlap: 0.02,
-            delay: { isActive: true, delayTime: 0.1, feedback: 0.7, wet: 0.3, isSynced: true, syncValue: '32n' },
+            delay: { isActive: true, delayTime: 0.1, feedback: 0.7, wet: 0.3, isSynced: true, syncValue: '32n', lowCut: 20, highCut: 20000 },
             glitch: { 
                 chaos: 0.1, 
                 allowReverse: true, 

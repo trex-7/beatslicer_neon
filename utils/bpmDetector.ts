@@ -41,8 +41,8 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number> {
                 // Simple volume threshold approach
                 const peaks: number[] = [];
                 const threshold = 0.6; // High threshold to catch kicks/snares
-                // Minimum distance between peaks in samples (0.25s at 44.1k/4)
-                const minPeakDist = (0.25 * sampleRate) / step; 
+                // Minimum distance between peaks in samples (0.25s at 44.1k/4 => ~150ms lockout)
+                const minPeakDist = (0.15 * sampleRate) / step; 
                 
                 for (let i = 0; i < data.length - 1; i++) {
                     if (data[i] > threshold && data[i] > data[i-1] && data[i] > data[i+1]) {
@@ -53,9 +53,9 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number> {
                     }
                 }
 
-                if (peaks.length < 10) {
-                    console.warn("Not enough peaks detected for BPM analysis.");
-                    resolve(120); // Default
+                if (peaks.length < 8) {
+                    // Not enough peaks, return safe default or estimate
+                    resolve(120); 
                     return;
                 }
 
@@ -73,8 +73,7 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number> {
                         // Time = dist * step / sampleRate
                         const time = (dist * step) / sampleRate;
                         
-                        // Filter for realistic BPM range (60 to 180)
-                        // 60 BPM = 1s, 180 BPM = 0.33s
+                        // Filter for realistic BPM range (roughly 60 to 200)
                         if (time > 0.3 && time < 1.0) {
                              const bpmCandidate = 60 / time;
                              const roundedBpm = Math.round(bpmCandidate);
@@ -109,11 +108,17 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number> {
                 }
 
                 // 5. Final Constraint Check
-                // DJs usually work between 70-160.
-                // If we detect 140, it might be 70, or vice versa.
-                // We prefer the range 80-160.
-                if (bestBpm < 80) bestBpm *= 2;
-                if (bestBpm > 170) bestBpm /= 2;
+                // Adjust ranges to prevent "cut time" (half speed) feel.
+                // Trap/Dubstep is often detected as 70 but felt as 140.
+                // DnB is ~174.
+                // HipHop ~90.
+                
+                // Force double if detected < 95 (e.g. 70 -> 140, 90 -> 180)
+                // This assumes users prefer double-time resolution for slow beats (32nd notes become 16th steps)
+                if (bestBpm < 95) bestBpm *= 2;
+                
+                // If it ends up absurdly high (> 195), halve it (e.g. spurious double detection)
+                while (bestBpm > 195) bestBpm /= 2;
 
                 resolve(Math.round(bestBpm));
             } catch (e) {

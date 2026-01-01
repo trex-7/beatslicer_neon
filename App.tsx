@@ -293,6 +293,7 @@ const App: React.FC = () => {
                                             disabled={!audioBuffer || isLoading}
                                             selectedSliceIndex={selectedSliceIndex}
                                             isProMode={true}
+                                            slices={slices} // PASS SLICES HERE
                                        />
                                    </div>
 
@@ -466,6 +467,7 @@ const App: React.FC = () => {
                                                 disabled={!audioBuffer || isLoading}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 isProMode={false}
+                                                slices={slices} // PASS SLICES HERE
                                             />
                                         </CollapsibleSection>
                                     </div>

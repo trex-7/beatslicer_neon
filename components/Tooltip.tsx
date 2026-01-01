@@ -25,7 +25,7 @@ const Tooltip: React.FC<TooltipProps> = ({ text, children, position = 'top' }) =
     return (
         <div className="group relative flex flex-col items-center">
             {children}
-            <div className={`absolute ${positionClasses[position]} hidden group-hover:block w-max max-w-[200px] p-2 bg-deep-space border border-hyper-cyan/40 text-star-dust text-xs rounded shadow-[0_0_15px_rgba(0,246,255,0.15)] z-50 pointer-events-none text-center backdrop-blur-sm`}>
+            <div className={`absolute ${positionClasses[position]} hidden sm:group-hover:block w-max max-w-[200px] p-2 bg-deep-space border border-hyper-cyan/40 text-star-dust text-xs rounded shadow-[0_0_15px_rgba(0,246,255,0.15)] z-50 pointer-events-none text-center backdrop-blur-sm`}>
                 {text}
                 <div className={`absolute w-2 h-2 bg-deep-space border-hyper-cyan/40 transform rotate-45 ${arrowClasses[position]}`}></div>
             </div>

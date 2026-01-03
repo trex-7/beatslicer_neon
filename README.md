@@ -106,3 +106,103 @@ To make your own folders and files appear in the application pulldowns automatic
   ]
 }
 ```
+
+---
+
+## 💾 Database Schema (Supabase SQL)
+
+Copy and run this SQL in your Supabase SQL Editor to set up the necessary tables and policies.
+
+```sql
+-- 1. PROFILES TABLE (Extends Auth)
+create table public.profiles (
+  id uuid references auth.users not null primary key,
+  username text unique,
+  email text,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 2. SAMPLES TABLE
+create table public.samples (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) not null,
+  title text not null,
+  url text not null,
+  is_public boolean default false,
+  is_factory boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 3. PRESETS TABLE
+create table public.presets (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) not null,
+  name text not null,
+  parameters jsonb not null,
+  sequencer_data jsonb not null,
+  slices_data jsonb not null,
+  sample_id uuid references public.samples(id),
+  is_public boolean default false,
+  is_factory boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 4. FEEDBACK TABLE
+create table public.feedback (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id), -- Nullable for anonymous
+  message text not null,
+  category text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- ENABLE ROW LEVEL SECURITY
+alter table public.profiles enable row level security;
+alter table public.samples enable row level security;
+alter table public.presets enable row level security;
+alter table public.feedback enable row level security;
+
+-- POLICIES (Simplistic for Demo)
+
+-- Profiles
+create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
+create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
+create policy "Users can update own profile." on public.profiles for update using (auth.uid() = id);
+
+-- Samples
+create policy "Public samples are viewable by everyone." on public.samples for select using (is_public = true or is_factory = true);
+create policy "Users can see own samples." on public.samples for select using (auth.uid() = user_id);
+create policy "Users can insert own samples." on public.samples for insert with check (auth.uid() = user_id);
+create policy "Users can update own samples." on public.samples for update using (auth.uid() = user_id);
+create policy "Users can delete own samples." on public.samples for delete using (auth.uid() = user_id);
+
+-- Presets
+create policy "Public presets are viewable by everyone." on public.presets for select using (is_public = true or is_factory = true);
+create policy "Users can see own presets." on public.presets for select using (auth.uid() = user_id);
+create policy "Users can insert own presets." on public.presets for insert with check (auth.uid() = user_id);
+create policy "Users can update own presets." on public.presets for update using (auth.uid() = user_id);
+create policy "Users can delete own presets." on public.presets for delete using (auth.uid() = user_id);
+
+-- Feedback
+create policy "Anyone can insert feedback." on public.feedback for insert with check (true);
+create policy "Admins can read feedback." on public.feedback for select using (true);
+
+-- TRIGGER: Create Profile on Signup
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, username)
+  values (new.id, new.email, split_part(new.email, '@', 1));
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- STORAGE (Run manually in Dashboard if needed)
+-- 1. Create a public bucket named 'audio-assets'
+-- 2. Add Policy: "Public Access" -> SELECT for all users
+-- 3. Add Policy: "Authenticated Upload" -> INSERT for authenticated users
+```

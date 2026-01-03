@@ -20,6 +20,7 @@ interface ProMenuBarProps {
     onShowMonitor: () => void;
     user: any;
     sampleName: string;
+    onReportIssue: () => void;
 }
 
 const MenuDropdown = ({ label, children }: { label: string, children?: React.ReactNode }) => {
@@ -49,6 +50,8 @@ const MenuDropdown = ({ label, children }: { label: string, children?: React.Rea
                     {React.Children.map(children, (child) => {
                         if (React.isValidElement(child)) {
                             const element = child as React.ReactElement<any>;
+                            // Only attach click handler to close menu if it's not a direct link
+                            // or pass the close handler down
                             return React.cloneElement(element, { 
                                 onClick: (e: React.MouseEvent) => {
                                     element.props.onClick?.(e);
@@ -64,16 +67,33 @@ const MenuDropdown = ({ label, children }: { label: string, children?: React.Rea
     );
 };
 
-const MenuItem = ({ label, onClick, shortcut, disabled, danger }: { label: string, onClick?: () => void, shortcut?: string, disabled?: boolean, danger?: boolean }) => (
-    <button 
-        onClick={onClick}
-        disabled={disabled}
-        className={`text-left px-4 py-2 text-xs hover:bg-hyper-cyan/10 hover:text-hyper-cyan transition-colors flex justify-between items-center group w-full ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${danger ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' : 'text-star-dust'}`}
-    >
-        <span>{label}</span>
-        {shortcut && <span className="text-[9px] opacity-30 font-mono group-hover:opacity-100">{shortcut}</span>}
-    </button>
-);
+const MenuItem = ({ label, onClick, href, shortcut, disabled, danger }: { label: string, onClick?: () => void, href?: string, shortcut?: string, disabled?: boolean, danger?: boolean }) => {
+    const className = `text-left px-4 py-2 text-xs hover:bg-hyper-cyan/10 hover:text-hyper-cyan transition-colors flex justify-between items-center group w-full ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${danger ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' : 'text-star-dust'}`;
+
+    if (href && !disabled) {
+        return (
+            <a 
+                href={href} 
+                className={className}
+                onClick={onClick} // Pass onClick to allow menu closing via parent cloneElement
+            >
+                <span>{label}</span>
+                {shortcut && <span className="text-[10px] opacity-30 font-mono group-hover:opacity-100">{shortcut}</span>}
+            </a>
+        )
+    }
+
+    return (
+        <button 
+            onClick={onClick}
+            disabled={disabled}
+            className={className}
+        >
+            <span>{label}</span>
+            {shortcut && <span className="text-[10px] opacity-30 font-mono group-hover:opacity-100">{shortcut}</span>}
+        </button>
+    );
+};
 
 const MenuDivider = () => <div className="h-px bg-white/5 my-1 mx-2"></div>;
 
@@ -93,7 +113,8 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     onToggleMode,
     onShowMonitor,
     user,
-    sampleName
+    sampleName,
+    onReportIssue
 }) => {
     
     const handleDownloadWav = async () => {
@@ -180,6 +201,14 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 <MenuDropdown label="VIEW">
                     <MenuItem label="System Monitor" onClick={onShowMonitor} />
                     <MenuItem label="Switch to Simple Mode" onClick={onToggleMode} />
+                </MenuDropdown>
+
+                {/* Help Menu */}
+                <MenuDropdown label="HELP">
+                    <MenuItem 
+                        label="Report Issue / Feedback" 
+                        onClick={onReportIssue}
+                    />
                 </MenuDropdown>
             </div>
 

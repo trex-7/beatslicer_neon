@@ -7,7 +7,7 @@ interface SliderProps {
     min: number;
     max: number;
     step: number;
-    value: number;
+    value: number | undefined | null;
     onChange: (value: number) => void;
     disabled?: boolean;
     unit?: string;
@@ -19,6 +19,11 @@ interface SliderProps {
 
 const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange, disabled, unit, log, tooltip, defaultValue, precision = 2 }) => {
     
+    // Safety check for value
+    const safeValue = typeof value === 'number' && !isNaN(value) 
+        ? value 
+        : (defaultValue ?? min ?? 0);
+
     const getLogValue = (position: number) => {
         const minLog = Math.log(min);
         const maxLog = Math.log(max);
@@ -27,10 +32,12 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
     }
     
     const getLogPosition = (val: number) => {
+        // Ensure val is within bounds for log calculation to avoid NaN/Infinity
+        const safeVal = Math.max(min, Math.min(max, val));
         const minLog = Math.log(min);
         const maxLog = Math.log(max);
         const scale = (maxLog - minLog) / 100;
-        return (Math.log(val) - minLog) / scale;
+        return (Math.log(safeVal) - minLog) / scale;
     }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,9 +52,10 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
         }
     };
 
-    const displayValue = value.toFixed(precision);
+    const displayValue = safeValue.toFixed(precision);
+    
     // Determine the percentage for the background fill
-    const rawPos = log ? getLogPosition(value) : value;
+    const rawPos = log ? getLogPosition(safeValue) : safeValue;
     const rawMin = log ? 0 : min;
     const rawMax = log ? 100 : max;
     const percent = Math.min(100, Math.max(0, ((rawPos - rawMin) / (rawMax - rawMin)) * 100));
@@ -109,11 +117,11 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
             <div className="flex justify-end -mt-0.5">
                 {label && (
                     <span 
-                        className="text-[9px] font-mono text-hyper-cyan bg-hyper-cyan/5 border border-hyper-cyan/10 px-1.5 py-0.5 rounded cursor-pointer hover:bg-hyper-cyan/20 transition-colors"
+                        className="text-[10px] font-mono text-hyper-cyan bg-hyper-cyan/5 border border-hyper-cyan/10 px-1.5 py-0.5 rounded cursor-pointer hover:bg-hyper-cyan/20 transition-colors"
                         onDoubleClick={handleDoubleClick}
                         title="Double-click to reset"
                     >
-                        {displayValue}{unit && <span className="text-white/50 ml-0.5">{unit}</span>}
+                        {displayValue}{unit && <span className="text-white/5 ml-0.5">{unit}</span>}
                     </span>
                 )}
             </div>

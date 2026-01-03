@@ -63,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                      
                      <div className="hidden md:block text-[10px] text-white/30 font-mono text-right mr-2 leading-tight border-l border-white/10 pl-3">
                         v2.4.0<br/>
-                        BETA
+                        <a href="mailto:support@granularfx.com?subject=Beta Feedback" className="text-hyper-cyan hover:underline">Report Issue</a>
                     </div>
                     <Tooltip text="System Monitor & Specs">
                         <button 

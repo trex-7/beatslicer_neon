@@ -327,7 +327,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                             .attr('y', height - 5)
                             .attr('text-anchor', 'middle')
                             .attr('fill', '#000')
-                            .attr('font-size', '8px')
+                            .attr('font-size', '10px')
                             .attr('font-weight', 'bold')
                             .text(typeLabel);
                     }
@@ -433,7 +433,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 disabled={selectedSliceIndex === null}
             >
                 <div className={`w-2 h-2 rounded-full transition-transform group-hover:scale-125 ${isActive ? 'bg-white' : ''}`} style={{ backgroundColor: isActive ? '#fff' : color }}></div>
-                <span className={`text-[9px] font-bold uppercase tracking-wider ${isActive ? 'text-white' : 'text-star-dust'}`}>{label}</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? 'text-white' : 'text-star-dust'}`}>{label}</span>
             </button>
         );
     }
@@ -490,7 +490,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
 
                     {/* Zoom Controls */}
                     <div className="flex items-center gap-1 bg-black/20 px-2 py-1 rounded-md border border-white/5 h-8">
-                        <span className="uppercase text-[9px] font-bold text-star-dust/50 tracking-widest hidden sm:inline mr-2">Zoom</span>
+                        <span className="uppercase text-[10px] font-bold text-star-dust/50 tracking-widest hidden sm:inline mr-2">Zoom</span>
                         <button onClick={() => setZoom(Math.max(1, zoom - 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">-</button>
                         <span className="w-10 text-center text-xs font-mono text-hyper-cyan">{Math.round(zoom * 100)}%</span>
                         <button onClick={() => setZoom(Math.min(10, zoom + 0.5))} className="w-6 h-full flex items-center justify-center bg-white/5 rounded hover:bg-white/20 text-white font-mono text-sm">+</button>

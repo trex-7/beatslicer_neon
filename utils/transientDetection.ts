@@ -1,3 +1,4 @@
+
 import { classifySlice } from './audioAnalysis';
 import type { Slice } from '../types';
 
@@ -154,6 +155,7 @@ export const generateTransientSlices = (buffer: any, bpm: number, startTime: num
                 isActive: true,
                 type: type,
                 level: 1.0,
+                pitch: 0
             });
         }
     }

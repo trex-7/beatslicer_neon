@@ -16,13 +16,13 @@ const createPreset = (
     }));
 
     const baseParams: AllParams = {
-        grainSize: 0.06,  
+        grainSize: 0.09,  
         overlap: 0.03,    
         detune: 0,
         playbackRate: 1,
         bpm: 120,
-        attack: 0.002,    
-        release: 0.1,     
+        attack: 0.001,    
+        release: 0.01,     
         sustain: 0.5,     
         reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
         delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },

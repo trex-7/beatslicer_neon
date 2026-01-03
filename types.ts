@@ -13,6 +13,7 @@ export interface Slice {
   type: SliceType;
   level: number;
   reverse?: boolean;
+  pitch?: number; // Semitones
   fadeIn?: number;
   fadeOut?: number;
 }
@@ -118,8 +119,28 @@ export interface SequencerState {
   mode: SequencerMode;
   currentStep: number;
   isPlaying: boolean;
+  isLooping: boolean;
   editMode: 'trigger' | 'ratchet';
   playbackBehavior: 'reset' | 'continue';
+}
+
+export interface MidiDevice {
+    id: string;
+    name: string;
+    manufacturer?: string;
+}
+
+export interface MidiConfig {
+    enabled: boolean;
+    inputPortId: string;
+    outputPortId: string;
+    inputChannel: number | 'all'; // 1-16 or 'all'
+    outputChannel: number; // 1-16
+    clockSource: 'internal' | 'external';
+    ppq: number;
+    sendClock: boolean;
+    sendTransport: boolean; 
+    clockOffset: number; // Latency compensation in ms
 }
 
 export interface Preset {
@@ -196,6 +217,20 @@ export interface Database {
           url: string;
           is_public?: boolean;
           is_factory?: boolean;
+        };
+      };
+      feedback: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          message: string;
+          category: string;
+          created_at: string;
+        };
+        Insert: {
+          user_id?: string | null;
+          message: string;
+          category: string;
         };
       };
       profiles: {

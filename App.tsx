@@ -7,11 +7,12 @@ import LibraryManager from './components/LibraryManager';
 import WaveformDisplay from './components/WaveformDisplay';
 import ControlPanel from './components/ControlPanel';
 import Sequencer from './components/Sequencer';
-import Tooltip from './components/Tooltip';
 import SystemMonitor from './components/SystemMonitor';
 import CollapsibleSection from './components/CollapsibleSection';
 import ProMenuBar from './components/ProMenuBar';
 import SaveDialog from './components/SaveDialog';
+import FeedbackDialog from './components/FeedbackDialog';
+import Transport from './components/Transport';
 import { supabase } from './utils/supabaseClient';
 
 declare const Tone: any;
@@ -29,6 +30,10 @@ const App: React.FC = () => {
         sampleName,
         currentSampleId,
         currentPresetId,
+        midiConfig,
+        midiInputs,
+        midiOutputs,
+        midiDebug,
         loadAudioFile,
         loadConstructionKit,
         togglePlay, 
@@ -55,13 +60,19 @@ const App: React.FC = () => {
         isPreviewPlaying,
         playSliceRaw,
         toggleSliceLoop,
-        sliceLoopState
+        sliceLoopState,
+        setTransportBpm,
+        toggleLoop,
+        stepForward,
+        stepBackward,
+        updateMidiConfig
     } = useAudioEngine();
     
     const [isProMode, setIsProMode] = useState(true);
     const [showMonitor, setShowMonitor] = useState(false);
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+    const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
 
@@ -170,6 +181,12 @@ const App: React.FC = () => {
                 getAudioBlob={getSourceAudio}
             />
 
+            <FeedbackDialog
+                isOpen={isFeedbackDialogOpen}
+                onClose={() => setIsFeedbackDialogOpen(false)}
+                user={user}
+            />
+
             {/* Library Manager (Controlled via State in Pro Mode) */}
             <LibraryManager 
                 variant={isProMode ? 'hidden' : 'transport'} // In Pro Mode, it's hidden and controlled. In Simple Mode, it's inside Transport.
@@ -207,6 +224,7 @@ const App: React.FC = () => {
                     onShowMonitor={() => setShowMonitor(true)}
                     user={user}
                     sampleName={sampleName}
+                    onReportIssue={() => setIsFeedbackDialogOpen(true)}
                 />
             )}
 
@@ -227,7 +245,17 @@ const App: React.FC = () => {
                         session: { isPlaying, isReady, isLoading, mode: isProMode ? 'Pro' : 'Simple', sampleName, user: user ? user.email : 'Guest' },
                         audio: { bpm: params.bpm, duration: audioBuffer?.duration || 0, sliceCount: slices.length, selectedSlice: selectedSliceIndex },
                         engine: { grainSize: params.grainSize, overlap: params.overlap, playbackRate: params.playbackRate },
-                        sequencer: { stepCount: sequencer.stepCount, mode: sequencer.mode, activeSteps: sequencer.steps.filter(s => s.active).length }
+                        sequencer: { stepCount: sequencer.stepCount, mode: sequencer.mode, activeSteps: sequencer.steps.filter(s => s.active).length },
+                        midi: { 
+                            enabled: midiConfig.enabled, 
+                            inputs: midiInputs.length, 
+                            outputs: midiOutputs.length,
+                            sendClock: midiConfig.sendClock,
+                            // Pass refs directly so SystemMonitor can poll them
+                            clockSent: midiDebug.clockCount,
+                            log: midiDebug.log,
+                            clockDeltas: midiDebug.clockDeltas
+                        }
                     }}
                 />
 
@@ -246,32 +274,23 @@ const App: React.FC = () => {
                                 {/* LEFT COLUMN / TOP SECTION */}
                                 <div className="flex flex-col gap-4 w-full">
                                     
-                                    {/* Transport (Always Top) */}
-                                    <Tooltip text="Start/Stop Sequencer (Space)">
-                                        <button
-                                            onClick={togglePlay}
-                                            disabled={!audioBuffer || isLoading}
-                                            className={`
-                                                w-full py-4 text-xl font-black tracking-widest uppercase rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] border border-white/5 relative overflow-hidden group
-                                                ${isPlaying 
-                                                    ? 'bg-plasma-pink text-white shadow-plasma-pink/40' 
-                                                    : 'bg-hyper-cyan text-deep-space shadow-hyper-cyan/40 hover:brightness-110'
-                                                }
-                                                disabled:opacity-50 disabled:cursor-not-allowed disabled:animate-none disabled:shadow-none disabled:bg-white/10 disabled:text-white/20
-                                            `}
-                                        >
-                                            <div className="relative z-10 flex items-center justify-center gap-3">
-                                                {isLoading ? (
-                                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                                ) : (
-                                                    <>
-                                                        <span className="text-2xl">{isPlaying ? '⏹' : '▶'}</span>
-                                                        <span>{isPlaying ? 'STOP' : 'PLAY'}</span>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </button>
-                                    </Tooltip>
+                                    {/* Transport (New DAW Style) */}
+                                    <Transport 
+                                        isPlaying={isPlaying}
+                                        isLooping={sequencer.isLooping}
+                                        bpm={params.bpm}
+                                        currentStep={sequencer.currentStep}
+                                        onTogglePlay={togglePlay}
+                                        onToggleLoop={toggleLoop}
+                                        onStepForward={stepForward}
+                                        onStepBackward={stepBackward}
+                                        onBpmChange={setTransportBpm}
+                                        disabled={!audioBuffer || isLoading}
+                                        midiConfig={midiConfig}
+                                        midiInputs={midiInputs}
+                                        midiOutputs={midiOutputs}
+                                        onMidiConfigChange={updateMidiConfig}
+                                    />
 
                                     {/* Effects Rack (DESKTOP LOCATION - Hidden on Mobile) */}
                                     <div className="hidden lg:block">
@@ -369,8 +388,7 @@ const App: React.FC = () => {
                                      </div>
 
                                      <div className="flex-1 flex items-center justify-center pr-1 sm:pr-2 h-full py-1">
-                                          <Tooltip text="Start/Stop (Space)">
-                                              <button
+                                          <button
                                                 onClick={togglePlay}
                                                 disabled={!audioBuffer || isLoading}
                                                 className={`
@@ -387,7 +405,6 @@ const App: React.FC = () => {
                                                     {isLoading ? '...' : (isPlaying ? 'STOP' : 'PLAY')}
                                                 </span>
                                             </button>
-                                          </Tooltip>
                                      </div>
                                 </div>
 

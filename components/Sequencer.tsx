@@ -159,7 +159,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     key={count}
                                     onClick={() => onStepCountChange(count as 8|16|32)}
                                     disabled={disabled}
-                                    className={`px-2 py-0.5 text-[9px] font-bold rounded transition-colors ${
+                                    className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
                                         sequencer.stepCount === count 
                                         ? 'bg-nebula-blue text-white shadow-sm' 
                                         : 'text-star-dust/50 hover:text-white hover:bg-white/5'
@@ -178,7 +178,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     key={m}
                                     onClick={() => onModeChange(m)}
                                     disabled={disabled}
-                                    className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded transition-colors ${
+                                    className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded transition-colors ${
                                         sequencer.mode === m
                                         ? 'bg-plasma-pink/20 text-plasma-pink shadow-sm' 
                                         : 'text-star-dust/50 hover:text-white hover:bg-white/5'
@@ -225,14 +225,14 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 `}
                             >
                                 {/* Step Number (Subtle) */}
-                                <span className={`absolute top-1 left-1.5 text-[9px] font-mono font-bold ${step.active ? 'opacity-80 mix-blend-screen' : 'opacity-30'}`}>
+                                <span className={`absolute top-1 left-2 text-xs font-mono font-bold ${step.active ? 'opacity-90 mix-blend-screen' : 'opacity-40'}`}>
                                     {index + 1}
                                 </span>
 
                                 {/* Center Indicator */}
                                 {step.active ? (
                                     step.ratchet && step.ratchet > 1 ? (
-                                        <span className="text-sm font-black drop-shadow-md">x{step.ratchet}</span>
+                                        <span className="text-base font-black drop-shadow-md">x{step.ratchet}</span>
                                     ) : (
                                         <div className="w-2 h-2 bg-white rounded-full opacity-80 shadow-sm"></div>
                                     )
@@ -256,7 +256,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                         <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white animate-pulse"></div>
                                     )}
                                     
-                                    <span className={`text-[9px] font-bold font-mono uppercase tracking-tight ${step.active ? 'opacity-90 mix-blend-hard-light' : 'text-star-dust/40'}`}>
+                                    <span className={`text-[10px] font-bold font-mono uppercase tracking-tight ${step.active ? 'opacity-100 mix-blend-hard-light' : 'text-star-dust/60'}`}>
                                         SLICE {step.sliceIndex}
                                     </span>
                                 </div>

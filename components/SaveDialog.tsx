@@ -88,15 +88,21 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
             // LOGIC:
             // If saving a SAMPLE: Upload to storage -> Insert into 'samples' table.
             // If saving a PRESET: 
-            //    1. Ensure audio exists in 'samples' table (Upload if new).
-            //    2. Insert or Update into 'presets' table.
+            //    1. If 'currentSampleId' is null (audio not in cloud), UPLOAD IT FIRST automatically.
+            //    2. Insert or Update into 'presets' table using the new or existing ID.
 
-            if (saveType === 'sample' || !finalSampleId) {
+            const needsUpload = saveType === 'sample' || !finalSampleId;
+
+            if (needsUpload) {
                 // If this is a Preset save but audio is new, tag it for clarity
-                const audioTitle = saveType === 'sample' ? name : `${name} (Source)`;
+                let audioTitle = saveType === 'sample' ? name : `${name} (Source)`;
                 
-                // Samples are typically immutable or appended. Overwriting actual audio blob is complex due to browser caching.
-                // So we always treat audio uploads as new entries for safety unless we implement deep file updating logic.
+                // Ensure extension exists for browser compatibility
+                if (!audioTitle.toLowerCase().endsWith('.wav')) {
+                    audioTitle += '.wav';
+                }
+                
+                // Samples are typically immutable or appended.
                 const uploadResult = await uploadSampleToCloud(
                     blob, 
                     audioTitle, 
@@ -117,6 +123,8 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
             }
 
             if (saveType === 'preset') {
+                if (!finalSampleId) throw new Error("Critical: Could not establish a Sample ID for this preset.");
+
                 if (overwrite && currentPresetId) {
                     // UPDATE EXISTING
                      const success = await updateCloudPreset(
@@ -137,7 +145,7 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                         sequencer,
                         slices,
                         user.id,
-                        finalSampleId || undefined,
+                        finalSampleId,
                         isFactory,
                         isPublic // saveCloudPreset now handles forcing this true if isFactory is true
                     );
@@ -176,26 +184,29 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                     </div>
 
                     <div>
-                        <label className="text-xs font-bold text-star-dust uppercase mb-1 block">Table Target</label>
-                        <div className="flex bg-black/40 rounded p-1 border border-white/10">
+                        <label className="text-xs font-bold text-star-dust uppercase mb-1 block">Save Target</label>
+                        <div className="grid grid-cols-2 gap-2">
                             <button 
                                 onClick={() => setSaveType('preset')}
-                                className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${saveType === 'preset' ? 'bg-hyper-cyan text-deep-space' : 'text-star-dust hover:text-white'}`}
+                                className={`flex flex-col items-center justify-center py-3 px-2 rounded border transition-all ${saveType === 'preset' ? 'bg-hyper-cyan/10 border-hyper-cyan text-hyper-cyan' : 'bg-black/20 border-white/10 text-star-dust hover:bg-white/5'}`}
                             >
-                                PRESET
+                                <span className="text-sm font-bold">PRESET</span>
+                                <span className="text-[10px] opacity-60 mt-1">Slices + Params</span>
                             </button>
                             <button 
                                 onClick={() => setSaveType('sample')}
-                                className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${saveType === 'sample' ? 'bg-plasma-pink text-white' : 'text-star-dust hover:text-white'}`}
+                                className={`flex flex-col items-center justify-center py-3 px-2 rounded border transition-all ${saveType === 'sample' ? 'bg-plasma-pink/10 border-plasma-pink text-plasma-pink' : 'bg-black/20 border-white/10 text-star-dust hover:bg-white/5'}`}
                             >
-                                SAMPLE
+                                <span className="text-sm font-bold">SAMPLE</span>
+                                <span className="text-[10px] opacity-60 mt-1">Raw Audio Only</span>
                             </button>
                         </div>
-                        <p className="text-[10px] text-white/40 mt-1 font-mono">
-                            {saveType === 'preset' 
-                                ? "Table: presets (Stores settings + link to sample)" 
-                                : "Table: samples (Stores audio file only)"}
-                        </p>
+                        
+                        {saveType === 'preset' && !currentSampleId && (
+                             <div className="mt-2 text-[10px] bg-blue-500/10 text-blue-300 p-2 rounded border border-blue-500/20">
+                                ℹ️ Note: The audio file will be uploaded automatically.
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex flex-col gap-2 pt-2 border-t border-white/10">
@@ -208,14 +219,19 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                                 disabled={isFactory} // Disable if Factory is checked
                                 className="w-4 h-4 rounded border-white/20 bg-black/40 checked:bg-hyper-cyan disabled:checked:bg-white/30"
                             />
-                            <span className="text-sm text-white group-hover:text-hyper-cyan transition-colors">
-                                Public {isFactory ? '(Forced by Factory)' : '(Visible to everyone)'}
-                            </span>
+                            <div className="flex flex-col">
+                                <span className="text-sm text-white group-hover:text-hyper-cyan transition-colors font-bold">
+                                    Public Listing
+                                </span>
+                                <span className="text-[10px] text-star-dust">
+                                    Visible to other users in the community library.
+                                </span>
+                            </div>
                         </label>
 
                         {/* Admin Factory Checkbox */}
                         {isAdmin && (
-                            <label className="flex items-center gap-2 cursor-pointer group">
+                            <label className="flex items-center gap-2 cursor-pointer group mt-2">
                                 <input 
                                     type="checkbox" 
                                     checked={isFactory}
@@ -244,7 +260,7 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                             <button 
                                 onClick={() => handleSave(false)}
                                 disabled={isSaving || !name.trim()}
-                                className="flex-[2] py-2 bg-hyper-cyan hover:bg-hyper-cyan/80 text-deep-space text-xs font-bold rounded transition-colors disabled:opacity-50"
+                                className="flex-[2] py-2 bg-hyper-cyan hover:bg-hyper-cyan/80 text-deep-space text-xs font-bold rounded transition-colors disabled:opacity-50 shadow-[0_0_15px_rgba(0,246,255,0.2)]"
                             >
                                 {isSaving ? "SAVING..." : (canOverwrite ? "SAVE AS NEW" : "CONFIRM SAVE")}
                             </button>
@@ -256,7 +272,7 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                                 disabled={isSaving}
                                 className="w-full py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded border border-white/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                             >
-                                <span>🔄</span> OVERWRITE EXISTING
+                                <span>🔄</span> OVERWRITE EXISTING PRESET
                             </button>
                         )}
                     </div>

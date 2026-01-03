@@ -14,6 +14,15 @@ export interface CloudItem {
     _userId?: string;
 }
 
+export interface FeedbackItem {
+    id: string;
+    user_id: string;
+    message: string;
+    category: 'bug' | 'feature' | 'other';
+    created_at: string;
+    profiles?: { username: string; email?: string }; // Joined data
+}
+
 export interface LibraryData {
     publicPresets: CloudItem[];
     publicSamples: CloudItem[];
@@ -155,6 +164,43 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
     }
 };
 
+// --- Feedback ---
+
+export const submitFeedback = async (userId: string | undefined, message: string, category: string): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) return { success: false, error: "Database not configured" };
+    try {
+        const { error } = await supabase.from('feedback').insert({
+            user_id: userId || null, // Allow anonymous feedback if table supports nullable
+            message,
+            category
+        });
+        if (error) throw error;
+        return { success: true };
+    } catch (e: any) {
+        console.error("Error submitting feedback:", e.message || e);
+        return { success: false, error: e.message || "Unknown database error" };
+    }
+};
+
+export const fetchAllFeedback = async (): Promise<FeedbackItem[]> => {
+    if (!supabase) return [];
+    try {
+        const { data, error } = await supabase
+            .from('feedback')
+            .select(`
+                id, user_id, message, category, created_at,
+                profiles ( username )
+            `)
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        return data as unknown as FeedbackItem[];
+    } catch (e) {
+        console.error("Error fetching feedback:", e);
+        return [];
+    }
+};
+
 // --- Saving & Updating ---
 
 export const saveCloudPreset = async (
@@ -278,24 +324,12 @@ export const deleteCloudPreset = async (id: string): Promise<DeleteResult> => {
 export const deleteCloudSample = async (id: string, url?: string): Promise<DeleteResult> => {
     if (!supabase) return { success: false, error: "Database not configured" };
     
-    let dbSuccess = false;
-    let storageSuccess = false;
-    let errors: string[] = [];
+    // IMPORTANT: Delete from Database FIRST.
+    // If DB delete fails (e.g. Constraint Error because a Preset uses this Sample),
+    // we MUST NOT delete the file from Storage.
+    // If DB delete succeeds, the row is gone, so safe to remove file.
 
-    if (url) {
-        const storagePath = getStoragePathFromUrl(url);
-        if (storagePath) {
-            const { error: storageError } = await supabase.storage
-                .from('audio-assets')
-                .remove([storagePath]);
-            
-            if (storageError) {
-                console.warn("Storage delete failed:", storageError.message);
-            } else {
-                storageSuccess = true;
-            }
-        }
-    }
+    let dbSuccess = false;
 
     try {
         const { error, count } = await supabase
@@ -313,18 +347,28 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
         if (count !== null && count > 0) {
             dbSuccess = true;
         } else {
-             errors.push("Database Permission Denied (0 rows)");
+             return { success: false, error: "Database Permission Denied or Item Not Found" };
         }
     } catch (e: any) {
-        errors.push(e.message || "DB Error");
+        return { success: false, error: e.message || "DB Error" };
     }
 
-    if (dbSuccess) return { success: true };
+    // Database row deleted successfully, now clean up storage
+    if (dbSuccess && url) {
+        const storagePath = getStoragePathFromUrl(url);
+        if (storagePath) {
+            const { error: storageError } = await supabase.storage
+                .from('audio-assets')
+                .remove([storagePath]);
+            
+            if (storageError) {
+                console.warn("Storage delete failed (Orphaned file):", storageError.message);
+                // We still return success for the operation because the item is removed from the user's library view
+            }
+        }
+    }
 
-    return { 
-        success: false, 
-        error: errors.join(", ") 
-    };
+    return { success: true };
 };
 
 export const deleteBulkPresets = async (ids: string[]): Promise<boolean> => {
@@ -366,7 +410,7 @@ export const uploadSampleToCloud = async (
     fileName: string, 
     userId: string, 
     isFactory: boolean = false,
-    kitName?: string,
+    kitName?: string, 
     isPublic: boolean = false
 ): Promise<{ publicUrl: string, id: string } | null> => {
     if (!supabase) {
@@ -395,7 +439,9 @@ export const uploadSampleToCloud = async (
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('audio-assets')
             .upload(storagePath, file, {
-                upsert: true
+                upsert: true,
+                contentType: 'audio/wav', // Explicitly force WAV content type for predictable playback
+                cacheControl: '3600'
             });
 
         if (uploadError) {

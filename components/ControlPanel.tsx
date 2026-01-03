@@ -53,7 +53,21 @@ const PowerButton = ({ active, onClick, disabled }: { active: boolean, onClick: 
 );
 
 // Draggable Effect Unit Wrapper
-const EffectUnit = ({ 
+interface EffectUnitProps {
+    id: string;
+    title: string;
+    active: boolean;
+    onToggle: () => void;
+    children?: React.ReactNode;
+    colorClass: string;
+    info: string;
+    disabled: boolean;
+    onDragStart: (e: React.DragEvent, id: string) => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent, id: string) => void;
+}
+
+const EffectUnit: React.FC<EffectUnitProps> = ({ 
     id,
     title, 
     active, 
@@ -65,18 +79,6 @@ const EffectUnit = ({
     onDragStart,
     onDragOver,
     onDrop
-}: { 
-    id: string,
-    title: string, 
-    active: boolean, 
-    onToggle: () => void, 
-    children?: React.ReactNode, 
-    colorClass: string,
-    info: string,
-    disabled: boolean,
-    onDragStart: (e: React.DragEvent, id: string) => void,
-    onDragOver: (e: React.DragEvent) => void,
-    onDrop: (e: React.DragEvent, id: string) => void
 }) => {
     const [expanded, setExpanded] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -118,7 +120,7 @@ const EffectUnit = ({
                     <h4 className={`font-bold text-xs uppercase tracking-wider flex items-center gap-2 truncate ${colorClass} cursor-pointer`}>
                         {title}
                     </h4>
-                    <InfoIcon text={info} className="w-3 h-3 text-[8px]" />
+                    <InfoIcon text={info} className="w-3 h-3 text-[10px]" />
                 </div>
                 <div className="pl-2">
                     <PowerButton 
@@ -145,17 +147,17 @@ const getTextureFromParams = (grainSize: number) => {
 };
 
 const getSpaceFromParams = (reverb: any) => {
-    if (!reverb.isActive) return 0;
+    if (!reverb?.isActive) return 0;
     return Math.min(1, reverb.wet / 1.2); 
 };
 
 const getEchoFromParams = (delay: any) => {
-    if (!delay.isActive) return 0;
+    if (!delay?.isActive) return 0;
     return delay.wet;
 };
 
 const getGritFromParams = (distortion: any) => {
-    if (!distortion.isActive) return 0;
+    if (!distortion?.isActive) return 0;
     return distortion.amount;
 };
 
@@ -328,7 +330,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                 {(!simpleView || simpleView === 'macros') && (
                     <div className={`grid ${macroGridClass}`}>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-hyper-cyan/30 transition-colors relative">
-                            <div className="absolute top-1 right-1"><InfoIcon text="Controls grain size and overlap. Low = choppy, High = smooth cloud." className="w-3 h-3 text-[8px]" /></div>
+                            <div className="absolute top-1 right-1"><InfoIcon text="Controls grain size and overlap. Low = choppy, High = smooth cloud." className="w-3 h-3 text-[10px]" /></div>
                             <div className="flex items-center gap-2 w-full justify-between px-1">
                                 <span className="text-xl group-hover:scale-110 transition-transform">🌊</span>
                                 <label className="text-hyper-cyan font-bold uppercase tracking-widest text-[10px]">Texture</label>
@@ -336,7 +338,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                             <input type="range" min="0" max="1" step="0.01" value={getTextureFromParams(params.grainSize)} onChange={(e) => updateTextureMacro(parseFloat(e.target.value))} style={getMacroStyle(getTextureFromParams(params.grainSize), '#00f6ff')} className={macroInputClass} />
                          </div>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-purple-400/30 transition-colors relative">
-                            <div className="absolute top-1 right-1"><InfoIcon text="Reverb mix and decay time." className="w-3 h-3 text-[8px]" /></div>
+                            <div className="absolute top-1 right-1"><InfoIcon text="Reverb mix and decay time." className="w-3 h-3 text-[10px]" /></div>
                             <div className="flex items-center gap-2 w-full justify-between px-1">
                                 <span className="text-xl group-hover:scale-110 transition-transform">🌌</span>
                                 <label className="text-purple-400 font-bold uppercase tracking-widest text-[10px]">Space</label>
@@ -344,7 +346,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                             <input type="range" min="0" max="1" step="0.01" value={getSpaceFromParams(params.reverb)} onChange={(e) => updateReverbMacro(parseFloat(e.target.value))} style={getMacroStyle(getSpaceFromParams(params.reverb), '#c084fc')} className={macroInputClass} />
                          </div>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-blue-400/30 transition-colors relative">
-                            <div className="absolute top-1 right-1"><InfoIcon text="Delay mix and feedback." className="w-3 h-3 text-[8px]" /></div>
+                            <div className="absolute top-1 right-1"><InfoIcon text="Delay mix and feedback." className="w-3 h-3 text-[10px]" /></div>
                             <div className="flex items-center gap-2 w-full justify-between px-1">
                                 <span className="text-xl group-hover:scale-110 transition-transform">🔁</span>
                                 <label className="text-blue-400 font-bold uppercase tracking-widest text-[10px]">Echo</label>
@@ -352,7 +354,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                             <input type="range" min="0" max="1" step="0.01" value={getEchoFromParams(params.delay)} onChange={(e) => updateDelayMacro(parseFloat(e.target.value))} style={getMacroStyle(getEchoFromParams(params.delay), '#60a5fa')} className={macroInputClass} />
                          </div>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-orange-500/30 transition-colors relative">
-                            <div className="absolute top-1 right-1"><InfoIcon text="Combines Distortion and Bitcrushing." className="w-3 h-3 text-[8px]" /></div>
+                            <div className="absolute top-1 right-1"><InfoIcon text="Combines Distortion and Bitcrushing." className="w-3 h-3 text-[10px]" /></div>
                             <div className="flex items-center gap-2 w-full justify-between px-1">
                                 <span className="text-xl group-hover:scale-110 transition-transform">🔥</span>
                                 <label className="text-orange-500 font-bold uppercase tracking-widest text-[10px]">Grit</label>
@@ -360,7 +362,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                             <input type="range" min="0" max="1" step="0.01" value={getGritFromParams(params.distortion)} onChange={(e) => updateDirtMacro(parseFloat(e.target.value))} style={getMacroStyle(getGritFromParams(params.distortion), '#f97316')} className={macroInputClass} />
                          </div>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-plasma-pink/30 transition-colors relative">
-                            <div className="absolute top-1 right-1"><InfoIcon text="Increases probability of random stutter, reverse, and octave jumps." className="w-3 h-3 text-[8px]" /></div>
+                            <div className="absolute top-1 right-1"><InfoIcon text="Increases probability of random stutter, reverse, and octave jumps." className="w-3 h-3 text-[10px]" /></div>
                             <div className="flex items-center gap-2 w-full justify-between px-1">
                                 <span className="text-xl group-hover:scale-110 transition-transform">🎲</span>
                                 <label className="text-plasma-pink font-bold uppercase tracking-widest text-[10px]">Glitch</label>
@@ -399,9 +401,9 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
                     >
                         <div className="flex gap-1 mb-2">
-                            <button onClick={() => applyCompressorPreset('smooth')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Smooth</button>
-                            <button onClick={() => applyCompressorPreset('med')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Med</button>
-                            <button onClick={() => applyCompressorPreset('hard')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-red-300">Hard</button>
+                            <button onClick={() => applyCompressorPreset('smooth')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Smooth</button>
+                            <button onClick={() => applyCompressorPreset('med')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Med</button>
+                            <button onClick={() => applyCompressorPreset('hard')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-red-300">Hard</button>
                         </div>
                         <Slider label="Thresh" min={-60} max={0} step={1} value={params.compressor?.threshold ?? -24} onChange={(v) => onEffectParamChange('compressor', 'threshold', v)} disabled={disabled} unit="dB" tooltip="Signal level above which compression starts" defaultValue={-24} />
                         <Slider label="Ratio" min={1} max={20} step={0.5} value={params.compressor?.ratio ?? 4} onChange={(v) => onEffectParamChange('compressor', 'ratio', v)} disabled={disabled} unit=":1" tooltip="Amount of compression applied" defaultValue={4} />
@@ -412,15 +414,15 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     <EffectUnit
                         key="distortion" id="distortion"
                         title="Distortion"
-                        active={params.distortion.isActive}
-                        onToggle={() => onEffectParamChange('distortion', 'isActive', !params.distortion.isActive)}
+                        active={params.distortion?.isActive ?? false}
+                        onToggle={() => onEffectParamChange('distortion', 'isActive', !params.distortion?.isActive)}
                         colorClass="text-plasma-pink"
                         info="Hard clipping distortion"
                         disabled={disabled}
                         onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
                     >
-                        <Slider label="Drive" min={0} max={1} step={0.01} value={params.distortion.amount} onChange={(v) => onEffectParamChange('distortion', 'amount', v)} disabled={disabled} tooltip="Amount of hard clipping distortion" defaultValue={0} />
-                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.distortion.wet} onChange={(v) => onEffectParamChange('distortion', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for distortion" defaultValue={1} />
+                        <Slider label="Drive" min={0} max={1} step={0.01} value={params.distortion?.amount ?? 0} onChange={(v) => onEffectParamChange('distortion', 'amount', v)} disabled={disabled} tooltip="Amount of hard clipping distortion" defaultValue={0} />
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.distortion?.wet ?? 1} onChange={(v) => onEffectParamChange('distortion', 'wet', v)} disabled={disabled} tooltip="Dry/Wet mix for distortion" defaultValue={1} />
                     </EffectUnit>
                 );
             case 'bitCrusher':
@@ -428,8 +430,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     <EffectUnit
                         key="bitCrusher" id="bitCrusher"
                         title="BitCrush"
-                        active={params.bitCrusher.isActive}
-                        onToggle={() => onEffectParamChange('bitCrusher', 'isActive', !params.bitCrusher.isActive)}
+                        active={params.bitCrusher?.isActive ?? false}
+                        onToggle={() => onEffectParamChange('bitCrusher', 'isActive', !params.bitCrusher?.isActive)}
                         colorClass="text-green-400"
                         info="Lo-fi bit reduction"
                         disabled={disabled}
@@ -444,41 +446,41 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     <EffectUnit
                         key="filter" id="filter"
                         title="Mod Filter"
-                        active={params.filter.isActive}
-                        onToggle={() => onEffectParamChange('filter', 'isActive', !params.filter.isActive)}
+                        active={params.filter?.isActive ?? false}
+                        onToggle={() => onEffectParamChange('filter', 'isActive', !params.filter?.isActive)}
                         colorClass="text-hyper-cyan"
                         info="Multi-mode filter with LFO"
                         disabled={disabled}
                         onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
                     >
                         <div className="flex gap-1 mb-2">
-                            <button onClick={() => applyFilterPreset('wah')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Wah</button>
-                            <button onClick={() => applyFilterPreset('quack')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-hyper-cyan">Quack</button>
-                            <button onClick={() => applyFilterPreset('down')} className="flex-1 text-[9px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Down</button>
+                            <button onClick={() => applyFilterPreset('wah')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Wah</button>
+                            <button onClick={() => applyFilterPreset('quack')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70 font-bold text-hyper-cyan">Quack</button>
+                            <button onClick={() => applyFilterPreset('down')} className="flex-1 text-[10px] bg-white/5 hover:bg-white/10 rounded py-1 border border-white/10 text-white/70">Down</button>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                            <Slider label="Freq" min={getSafeMinFrequency()} max={15000} step={1} value={params.filter.frequency} onChange={(v) => onEffectParamChange('filter', 'frequency', v)} disabled={disabled} unit="" log tooltip="Base Cutoff Frequency" defaultValue={2000} />
-                            <Slider label="Res" min={0.1} max={30} step={0.1} value={params.filter.q} onChange={(v) => onEffectParamChange('filter', 'q', v)} disabled={disabled} tooltip="Resonance (Q) - higher peaks" defaultValue={1} />
+                            <Slider label="Freq" min={getSafeMinFrequency()} max={15000} step={1} value={params.filter?.frequency ?? 2000} onChange={(v) => onEffectParamChange('filter', 'frequency', v)} disabled={disabled} unit="" log tooltip="Base Cutoff Frequency" defaultValue={2000} />
+                            <Slider label="Res" min={0.1} max={30} step={0.1} value={params.filter?.q ?? 1} onChange={(v) => onEffectParamChange('filter', 'q', v)} disabled={disabled} tooltip="Resonance (Q) - higher peaks" defaultValue={1} />
                         </div>
                         <div className="pt-2 border-t border-white/10">
-                            <label className="text-[9px] font-bold text-star-dust/60 uppercase mb-1 block">Envelope</label>
-                            <Slider label="Env Mod" min={-8000} max={8000} step={10} value={params.filter.envDepth} onChange={(v) => onEffectParamChange('filter', 'envDepth', v)} disabled={disabled} tooltip="Envelope Depth. Pos=Wah, Neg=Reverse Wah" defaultValue={0} />
+                            <label className="text-[10px] font-bold text-star-dust/60 uppercase mb-1 block">Envelope</label>
+                            <Slider label="Env Mod" min={-8000} max={8000} step={10} value={params.filter?.envDepth ?? 0} onChange={(v) => onEffectParamChange('filter', 'envDepth', v)} disabled={disabled} tooltip="Envelope Depth. Pos=Wah, Neg=Reverse Wah" defaultValue={0} />
                         </div>
                         <div className="pt-2 border-t border-white/10">
                             <div className="flex justify-between items-center mb-1">
-                                <label className="text-[9px] font-bold text-star-dust/60 uppercase">LFO</label>
+                                <label className="text-[10px] font-bold text-star-dust/60 uppercase">LFO</label>
                                 <Tooltip text="Sync LFO to BPM">
-                                    <button onClick={() => onEffectParamChange('filter', 'isSynced', !params.filter.isSynced)} disabled={disabled} className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${params.filter.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/40 border-star-dust/20'}`}>SYNC</button>
+                                    <button onClick={() => onEffectParamChange('filter', 'isSynced', !params.filter?.isSynced)} disabled={disabled} className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${params.filter?.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/40 border-star-dust/20'}`}>SYNC</button>
                                 </Tooltip>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                                <Slider label="Depth" min={0} max={3000} step={10} value={params.filter.lfoDepth} onChange={(v) => onEffectParamChange('filter', 'lfoDepth', v)} disabled={disabled} tooltip="LFO Modulation Amount" defaultValue={0} />
-                                {params.filter.isSynced ? (
-                                    <select value={params.filter.syncValue} onChange={(e) => onEffectParamChange('filter', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-8 bg-nebula-blue text-[9px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
+                                <Slider label="Depth" min={0} max={3000} step={10} value={params.filter?.lfoDepth ?? 0} onChange={(v) => onEffectParamChange('filter', 'lfoDepth', v)} disabled={disabled} tooltip="LFO Modulation Amount" defaultValue={0} />
+                                {params.filter?.isSynced ? (
+                                    <select value={params.filter.syncValue} onChange={(e) => onEffectParamChange('filter', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none">
                                         {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                                     </select>
                                 ) : (
-                                    <Slider label="Rate" min={0.1} max={10} step={0.1} value={params.filter.lfoRate} onChange={(v) => onEffectParamChange('filter', 'lfoRate', v)} disabled={disabled} unit="Hz" tooltip="LFO Rate" defaultValue={1} />
+                                    <Slider label="Rate" min={0.1} max={10} step={0.1} value={params.filter?.lfoRate ?? 1} onChange={(v) => onEffectParamChange('filter', 'lfoRate', v)} disabled={disabled} unit="Hz" tooltip="LFO Rate" defaultValue={1} />
                                 )}
                             </div>
                         </div>
@@ -489,8 +491,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     <EffectUnit
                         key="delay" id="delay"
                         title="Delay"
-                        active={params.delay.isActive}
-                        onToggle={() => onEffectParamChange('delay', 'isActive', !params.delay.isActive)}
+                        active={params.delay?.isActive ?? false}
+                        onToggle={() => onEffectParamChange('delay', 'isActive', !params.delay?.isActive)}
                         colorClass="text-hyper-cyan"
                         info="Feedback delay line"
                         disabled={disabled}
@@ -499,22 +501,22 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         <div className="flex justify-between items-center mb-1">
                             <label className="text-[10px] font-medium text-star-dust/80">Time</label>
                             <Tooltip text="Sync delay time to Master BPM">
-                                <button onClick={() => onEffectParamChange('delay', 'isSynced', !params.delay.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.delay.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
+                                <button onClick={() => onEffectParamChange('delay', 'isSynced', !params.delay?.isSynced)} disabled={disabled} className={`text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.delay?.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
                             </Tooltip>
                         </div>
-                        {params.delay.isSynced ? (
+                        {params.delay?.isSynced ? (
                             <select value={params.delay.syncValue} onChange={(e) => onEffectParamChange('delay', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none mb-2">
                                 {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                             </select>
                         ) : (
-                            <Slider label="" min={0} max={1} step={0.01} value={params.delay.delayTime} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.375} precision={3} />
+                            <Slider label="" min={0} max={1} step={0.01} value={params.delay?.delayTime ?? 0.375} onChange={(v) => onEffectParamChange('delay', 'delayTime', v)} disabled={disabled} unit="s" tooltip="Delay time in seconds" defaultValue={0.375} precision={3} />
                         )}
-                        <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay.feedback} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.2} />
+                        <Slider label="Fdbk" min={0} max={0.95} step={0.01} value={params.delay?.feedback ?? 0.2} onChange={(v) => onEffectParamChange('delay', 'feedback', v)} disabled={disabled} tooltip="Amount of signal fed back into delay" defaultValue={0.2} />
                         <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-white/10">
-                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.delay.lowCut} onChange={(v) => onEffectParamChange('delay', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for wet signal" defaultValue={20} precision={0} />
-                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.delay.highCut} onChange={(v) => onEffectParamChange('delay', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for wet signal" defaultValue={20000} precision={0} />
+                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.delay?.lowCut ?? 20} onChange={(v) => onEffectParamChange('delay', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for wet signal" defaultValue={20} precision={0} />
+                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.delay?.highCut ?? 20000} onChange={(v) => onEffectParamChange('delay', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for wet signal" defaultValue={20000} precision={0} />
                         </div>
-                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.delay.wet} onChange={(v) => onEffectParamChange('delay', 'wet', v)} disabled={disabled} tooltip="Volume of delayed signal" defaultValue={0} />
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.delay?.wet ?? 0} onChange={(v) => onEffectParamChange('delay', 'wet', v)} disabled={disabled} tooltip="Volume of delayed signal" defaultValue={0} />
                     </EffectUnit>
                 );
             case 'reverb':
@@ -522,8 +524,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     <EffectUnit
                         key="reverb" id="reverb"
                         title="Reverb"
-                        active={params.reverb.isActive}
-                        onToggle={() => onEffectParamChange('reverb', 'isActive', !params.reverb.isActive)}
+                        active={params.reverb?.isActive ?? false}
+                        onToggle={() => onEffectParamChange('reverb', 'isActive', !params.reverb?.isActive)}
                         colorClass="text-hyper-cyan"
                         info="Algorithmic reverb"
                         disabled={disabled}
@@ -532,21 +534,21 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         <div className="flex justify-between items-center mb-1">
                             <label className="text-[10px] font-medium text-star-dust/80">Decay</label>
                             <Tooltip text="Sync reverb decay to Master BPM">
-                                <button onClick={() => onEffectParamChange('reverb', 'isSynced', !params.reverb.isSynced)} disabled={disabled} className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.reverb.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
+                                <button onClick={() => onEffectParamChange('reverb', 'isSynced', !params.reverb?.isSynced)} disabled={disabled} className={`text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors border ${params.reverb?.isSynced ? 'bg-hyper-cyan text-deep-space border-hyper-cyan' : 'bg-transparent text-star-dust/50 border-star-dust/20'}`}>SYNC</button>
                             </Tooltip>
                         </div>
-                        {params.reverb.isSynced ? (
+                        {params.reverb?.isSynced ? (
                             <select value={params.reverb.syncValue} onChange={(e) => onEffectParamChange('reverb', 'syncValue', e.target.value as NoteSubdivision)} disabled={disabled} className="w-full h-6 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none mb-2">
                                 {subdivisionOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                             </select>
                         ) : (
-                            <Slider label="" min={0.1} max={10} step={0.1} value={params.reverb.decay} onChange={(v) => onEffectParamChange('reverb', 'decay', v)} disabled={disabled} unit="s" tooltip="Duration of reverb tail" defaultValue={1.5} />
+                            <Slider label="" min={0.1} max={10} step={0.1} value={params.reverb?.decay ?? 1.5} onChange={(v) => onEffectParamChange('reverb', 'decay', v)} disabled={disabled} unit="s" tooltip="Duration of reverb tail" defaultValue={1.5} />
                         )}
                         <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-white/10">
-                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.reverb.lowCut} onChange={(v) => onEffectParamChange('reverb', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for reverb tail" defaultValue={20} precision={0} />
-                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.reverb.highCut} onChange={(v) => onEffectParamChange('reverb', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for reverb tail" defaultValue={20000} precision={0} />
+                            <Slider label="Lo Cut" min={20} max={2000} step={10} value={params.reverb?.lowCut ?? 20} onChange={(v) => onEffectParamChange('reverb', 'lowCut', v)} disabled={disabled} unit="Hz" log tooltip="Highpass filter for reverb tail" defaultValue={20} precision={0} />
+                            <Slider label="Hi Cut" min={1000} max={20000} step={100} value={params.reverb?.highCut ?? 20000} onChange={(v) => onEffectParamChange('reverb', 'highCut', v)} disabled={disabled} unit="Hz" log tooltip="Lowpass filter for reverb tail" defaultValue={20000} precision={0} />
                         </div>
-                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.reverb.wet} onChange={(v) => onEffectParamChange('reverb', 'wet', v)} disabled={disabled} tooltip="Volume of reverb signal" defaultValue={0} />
+                        <Slider label="Mix" min={0} max={1} step={0.01} value={params.reverb?.wet ?? 0} onChange={(v) => onEffectParamChange('reverb', 'wet', v)} disabled={disabled} tooltip="Volume of reverb signal" defaultValue={0} />
                     </EffectUnit>
                 );
             default:
@@ -596,25 +598,25 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
                                     <div className="grid grid-cols-5 gap-1">
                                         {(['kick', 'snare', 'hihat', 'perc'] as SliceType[]).map((t) => (
-                                            <button key={t} onClick={() => updateSliceType(t)} className={`h-6 text-[9px] font-bold uppercase rounded border transition-all ${currentSlice.type === t ? 'bg-white text-deep-space border-white' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
+                                            <button key={t} onClick={() => updateSliceType(t)} className={`h-6 text-[10px] font-bold uppercase rounded border transition-all ${currentSlice.type === t ? 'bg-white text-deep-space border-white' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
                                                 {t === 'hihat' ? 'Hat' : t}
                                             </button>
                                         ))}
-                                        <button onClick={() => onSliceUpdate(selectedSliceIndex, { reverse: !currentSlice.reverse })} className={`h-6 text-[9px] font-bold uppercase rounded border transition-all ${currentSlice.reverse ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
+                                        <button onClick={() => onSliceUpdate(selectedSliceIndex, { reverse: !currentSlice.reverse })} className={`h-6 text-[10px] font-bold uppercase rounded border transition-all ${currentSlice.reverse ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
                                             Rev
                                         </button>
                                     </div>
                                     
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[9px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Start <InfoIcon text="Fine-tune slice start point" className="w-3 h-3 text-[8px]" /></label>
+                                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Start <InfoIcon text="Fine-tune slice start point" className="w-3 h-3 text-[10px]" /></label>
                                             <div className="flex gap-1">
                                                  <button onClick={() => nudgeSliceStart(-0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
                                                  <button onClick={() => nudgeSliceStart(0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
                                             </div>
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[9px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Len <InfoIcon text="Fine-tune slice duration" className="w-3 h-3 text-[8px]" /></label>
+                                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Len <InfoIcon text="Fine-tune slice duration" className="w-3 h-3 text-[10px]" /></label>
                                             <div className="flex gap-1">
                                                  <button onClick={() => nudgeSliceDuration(-0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
                                                  <button onClick={() => nudgeSliceDuration(0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
@@ -626,7 +628,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         <Slider label="Fade In" min={0} max={0.2} step={0.001} value={currentSlice.fadeIn ?? params.attack} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} disabled={disabled} unit="s" defaultValue={params.attack} precision={3} />
                                         <Slider label="Fade Out" min={0} max={0.5} step={0.001} value={currentSlice.fadeOut ?? params.release} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} disabled={disabled} unit="s" defaultValue={params.release} precision={3} />
                                     </div>
-                                     <Slider label="Level" min={0} max={2} step={0.01} value={currentSlice.level || 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} />
+                                     <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
+                                     <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
                                 </div>
                             ) : (
                                 <div className="flex-1 flex items-center justify-center text-star-dust/40 italic text-sm">Select a slice to edit</div>
@@ -668,28 +671,28 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 </Tooltip>
                                  <div className="pt-3 border-t border-white/10">
                                     <div className="flex justify-between items-center mb-2">
-                                        <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1">Glitch Chaos <InfoIcon text="Global probability settings for random glitch effects." className="w-3 h-3 text-[8px]" /></h4>
+                                        <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1">Glitch Chaos <InfoIcon text="Global probability settings for random glitch effects." className="w-3 h-3 text-[10px]" /></h4>
                                         <span className="text-[10px] text-star-dust/50">{Math.round((params.glitch?.chaos || 0) * 100)}%</span>
                                     </div>
                                     <Slider label="" min={0} max={1} step={0.01} value={params.glitch?.chaos || 0} onChange={(v) => onParamChange('glitch', { ...params.glitch, chaos: v })} disabled={disabled} tooltip="Probability of random variations occurring on each step" defaultValue={0} />
                                     <div className="grid grid-cols-2 gap-2 mt-2">
                                         <Tooltip text="Allow Random Repeats (Ratchet)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowRatchet: !params.glitch.allowRatchet })} className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowRatchet ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Ratchet</button>
+                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowRatchet: !params.glitch.allowRatchet })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowRatchet ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Ratchet</button>
                                         </Tooltip>
                                         <Tooltip text="Allow Random Reverse">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })} className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Rev</button>
+                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Rev</button>
                                         </Tooltip>
                                         <Tooltip text="Allow Random Octave Jumps (+/- 1200 cents)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })} className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Octave</button>
+                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Octave</button>
                                         </Tooltip>
                                         <Tooltip text="Allow Random Grain Size Modulation (Robotic/Formant Textures)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowFormant: !params.glitch.allowFormant })} className={`py-1 text-[9px] font-bold uppercase rounded border ${params.glitch.allowFormant ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Formant</button>
+                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowFormant: !params.glitch.allowFormant })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowFormant ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Formant</button>
                                         </Tooltip>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between bg-deep-space/40 rounded px-2 py-1 border border-white/5">
-                                        <span className="text-[9px] text-star-dust/60 font-bold uppercase">Pitch Mode</span>
+                                        <span className="text-[10px] text-star-dust/60 font-bold uppercase">Pitch Mode</span>
                                         <Tooltip text="Pitch Shift: Random pitch changes preserve length (Detune). Tape Speed: Pitch changes affect speed/length (Rate).">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, pitchShift: !params.glitch.pitchShift })} className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors ${params.glitch.pitchShift ? 'bg-hyper-cyan text-deep-space' : 'bg-white/10 text-star-dust'}`}>
+                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, pitchShift: !params.glitch.pitchShift })} className={`text-[10px] font-bold px-2 py-0.5 rounded transition-colors ${params.glitch.pitchShift ? 'bg-hyper-cyan text-deep-space' : 'bg-white/10 text-star-dust'}`}>
                                                 {params.glitch.pitchShift ? 'P.SHIFT (Fixed Len)' : 'TAPE (Var Len)'}
                                             </button>
                                         </Tooltip>
@@ -709,22 +712,21 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
-                                <div className="col-span-2 sm:col-span-1 bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
-                                     <Slider label="BPM" min={60} max={200} step={1} value={params.bpm} onChange={(v) => onParamChange('bpm', v)} disabled={disabled} unit="" tooltip="Master Tempo" defaultValue={120} />
-                                </div>
+                                {/* BPM Removed from here, moved to Transport */}
                                 
                                 <Slider 
                                     label="Grain Size" 
-                                    min={0} 
-                                    max={100} 
-                                    step={0.1} 
-                                    value={getGrainSizeSliderValue(params.grainSize)} 
-                                    onChange={onGrainSizeSliderChange} 
+                                    min={0.005} 
+                                    max={0.5} 
+                                    step={0.001} 
+                                    value={params.grainSize ?? 0.06} 
+                                    onChange={(v) => onParamChange('grainSize', v)} 
                                     disabled={disabled} 
                                     unit="s" 
-                                    tooltip="Duration of each audio grain (Non-linear scale)" 
-                                    defaultValue={getGrainSizeSliderValue(0.08)} 
-                                    precision={0}
+                                    log={true}
+                                    tooltip="Duration of each audio grain (Logarithmic scale)" 
+                                    defaultValue={0.06} 
+                                    precision={3}
                                 />
                                 
                                 <Slider label="Overlap" min={0.01} max={0.5} step={0.001} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" log tooltip="Crossfade duration" defaultValue={0.04} precision={3} />

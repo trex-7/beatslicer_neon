@@ -1,4 +1,3 @@
-
 import React from 'react';
 import Tooltip from './Tooltip';
 
@@ -18,7 +17,6 @@ interface SliderProps {
 }
 
 const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange, disabled, unit, log, tooltip, defaultValue, precision = 2 }) => {
-    
     // Safety check for value
     const safeValue = typeof value === 'number' && !isNaN(value) 
         ? value 
@@ -30,7 +28,7 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
         const scale = (maxLog - minLog) / 100;
         return Math.exp(minLog + scale * position);
     }
-    
+
     const getLogPosition = (val: number) => {
         // Ensure val is within bounds for log calculation to avoid NaN/Infinity
         const safeVal = Math.max(min, Math.min(max, val));
@@ -66,7 +64,7 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
             <div className="flex justify-between items-center mb-1 select-none">
                 {tooltip ? (
                     <Tooltip text={tooltip} position="top">
-                         <label 
+                         <label
                             className="text-[10px] font-bold uppercase tracking-wider text-star-dust/70 cursor-help hover:text-hyper-cyan transition-colors truncate block max-w-full"
                             onDoubleClick={handleDoubleClick}
                         >
@@ -74,7 +72,7 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
                         </label>
                     </Tooltip>
                 ) : (
-                    <label 
+                    <label
                         className="text-[10px] font-bold uppercase tracking-wider text-star-dust/70 cursor-pointer hover:text-white transition-colors truncate block max-w-full"
                         onDoubleClick={handleDoubleClick}
                     >
@@ -97,13 +95,13 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
                     style={{
                         background: `linear-gradient(to right, #00f6ff ${percent}%, #2a3a5e ${percent}%)`
                     }}
-                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer 
+                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer
                                focus:outline-none focus:ring-0
                                disabled:cursor-not-allowed disabled:opacity-50
-                               [&::-webkit-slider-thumb]:appearance-none 
+                               [&::-webkit-slider-thumb]:appearance-none
                                [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
-                               [&::-webkit-slider-thumb]:bg-white 
-                               [&::-webkit-slider-thumb]:rounded-full 
+                               [&::-webkit-slider-thumb]:bg-white
+                               [&::-webkit-slider-thumb]:rounded-full
                                [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(0,246,255,0.5)]
                                [&::-webkit-slider-thumb]:border-[1.5px] [&::-webkit-slider-thumb]:border-hyper-cyan
                                [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:duration-100
@@ -116,8 +114,8 @@ const Slider: React.FC<SliderProps> = ({ label, min, max, step, value, onChange,
             {/* Value Display (Bottom Right) */}
             <div className="flex justify-end -mt-0.5">
                 {label && (
-                    <span 
-                        className="text-[10px] font-mono text-hyper-cyan bg-hyper-cyan/5 border border-hyper-cyan/10 px-1.5 py-0.5 rounded cursor-pointer hover:bg-hyper-cyan/20 transition-colors"
+                    <span
+                        className="text-[9px] font-mono text-hyper-cyan bg-hyper-cyan/5 border border-hyper-cyan/10 px-1.5 py-0.5 rounded cursor-pointer hover:bg-hyper-cyan/20 transition-colors"
                         onDoubleClick={handleDoubleClick}
                         title="Double-click to reset"
                     >

@@ -16,8 +16,8 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
         <header className="relative flex items-center justify-between py-4 mb-4 bg-deep-space/30 rounded-2xl px-6 border border-white/5 shadow-lg">
             {/* Left: Logo */}
             <div className="flex items-center gap-3">
-                <h1 className="text-xl md:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-hyper-cyan to-plasma-pink tracking-tight drop-shadow-sm select-none">
-                    BEAT SLICER
+                <h1 className="text-xl md:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-hyper-cyan to-plasma-pink tracking-tight drop-shadow-sm select-none flex items-center gap-2">
+                    BEAT SLICER <span className="text-[10px] text-white/30 font-mono border border-white/10 px-1.5 rounded-full bg-black/20 tracking-normal">v0.9.0-beta</span>
                 </h1>
                 <InfoIcon text="Granular Synthesizer & Effect Processor. Switch between Play mode for performance and Pro mode for deep editing." position="right" />
             </div>

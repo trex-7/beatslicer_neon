@@ -168,7 +168,10 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                     <div className="w-5 h-5 bg-gradient-to-br from-hyper-cyan to-blue-600 rounded flex items-center justify-center text-[10px] font-black text-deep-space">
                         BS
                     </div>
-                    <span className="text-xs font-bold text-white tracking-wide">BEAT SLICER</span>
+                    <div className="flex flex-col leading-none">
+                        <span className="text-xs font-bold text-white tracking-wide">BEAT SLICER</span>
+                        <span className="text-[7px] text-white/30 font-mono tracking-tighter">v0.9.0-beta</span>
+                    </div>
                 </div>
 
                 {/* File Menu */}
@@ -205,7 +208,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
                 {/* Help Menu */}
                 <MenuDropdown label="HELP">
-                    <MenuItem label="Credits" onClick={() => alert("Beat Slicer\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
+                    <MenuItem label="Credits" onClick={() => alert("Beat Slicer v0.9.0-beta\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
                     <MenuItem 
                         label="Report Issue / Feedback" 
                         onClick={onReportIssue}

@@ -84,6 +84,55 @@ Granular Synth FX supports Web MIDI API for hardware integration.
 
 ---
 
+## 🚨 Troubleshooting & SQL Fixes
+
+If you see errors like **"new row violates row-level security policy for table kits"**, you must run this SQL in your Supabase Dashboard SQL Editor to fix permissions:
+
+```sql
+-- Fix RLS for kits
+ALTER TABLE public.kits ENABLE ROW LEVEL SECURITY;
+
+-- Remove old/conflicting policies
+DROP POLICY IF EXISTS "Enable all access for kits" ON public.kits;
+DROP POLICY IF EXISTS "Public kits are viewable by everyone." ON public.kits;
+DROP POLICY IF EXISTS "Users can see own kits." ON public.kits;
+DROP POLICY IF EXISTS "Users can insert own kits." ON public.kits;
+DROP POLICY IF EXISTS "Users can update own kits." ON public.kits;
+DROP POLICY IF EXISTS "Users can delete own kits." ON public.kits;
+
+-- Re-apply correct policies
+CREATE POLICY "Public kits are viewable by everyone." 
+ON public.kits FOR SELECT 
+USING (is_public = true OR is_factory = true);
+
+CREATE POLICY "Users can see own kits." 
+ON public.kits FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own kits." 
+ON public.kits FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own kits." 
+ON public.kits FOR UPDATE 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own kits." 
+ON public.kits FOR DELETE 
+USING (auth.uid() = user_id);
+
+-- Fix RLS for kit_samples (Join table)
+ALTER TABLE public.kit_samples ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all access to kit_samples" ON public.kit_samples;
+
+CREATE POLICY "Allow all access to kit_samples" 
+ON public.kit_samples FOR ALL 
+USING (true)
+WITH CHECK (true);
+```
+
+---
+
 ## 📦 Deployment (For Developers)
 
 To make your own folders and files appear in the application pulldowns automatically without a database:
@@ -133,7 +182,28 @@ create table public.samples (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. PRESETS TABLE
+-- 3. KITS TABLE
+create table public.kits (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) not null,
+  name text not null,
+  description text null,
+  cover_image_url text null,
+  is_public boolean default false,
+  is_factory boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 4. KIT_SAMPLES (Join Table)
+create table public.kit_samples (
+  kit_id uuid not null,
+  sample_id uuid not null,
+  constraint kit_samples_pkey primary key (kit_id, sample_id),
+  constraint kit_samples_kit_id_fkey foreign KEY (kit_id) references kits (id) on delete CASCADE,
+  constraint kit_samples_sample_id_fkey foreign KEY (sample_id) references samples (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+-- 5. PRESETS TABLE
 create table public.presets (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references public.profiles(id) not null,
@@ -147,7 +217,7 @@ create table public.presets (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 4. FEEDBACK TABLE
+-- 6. FEEDBACK TABLE
 create table public.feedback (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references public.profiles(id), -- Nullable for anonymous
@@ -159,6 +229,8 @@ create table public.feedback (
 -- ENABLE ROW LEVEL SECURITY
 alter table public.profiles enable row level security;
 alter table public.samples enable row level security;
+alter table public.kits enable row level security;
+alter table public.kit_samples enable row level security;
 alter table public.presets enable row level security;
 alter table public.feedback enable row level security;
 
@@ -175,6 +247,18 @@ create policy "Users can see own samples." on public.samples for select using (a
 create policy "Users can insert own samples." on public.samples for insert with check (auth.uid() = user_id);
 create policy "Users can update own samples." on public.samples for update using (auth.uid() = user_id);
 create policy "Users can delete own samples." on public.samples for delete using (auth.uid() = user_id);
+
+-- Kits
+create policy "Public kits are viewable by everyone." on public.kits for select using (is_public = true or is_factory = true);
+create policy "Users can see own kits." on public.kits for select using (auth.uid() = user_id);
+create policy "Users can insert own kits." on public.kits for insert with check (auth.uid() = user_id);
+create policy "Users can update own kits." on public.kits for update using (auth.uid() = user_id);
+create policy "Users can delete own kits." on public.kits for delete using (auth.uid() = user_id);
+
+-- Kit Samples (Join)
+create policy "Public kit samples are viewable by everyone." on public.kit_samples for select using (true); 
+create policy "Users can insert kit samples." on public.kit_samples for insert with check (true); 
+-- Note: Real apps should check kit ownership here, simplified for demo.
 
 -- Presets
 create policy "Public presets are viewable by everyone." on public.presets for select using (is_public = true or is_factory = true);
@@ -205,4 +289,3 @@ create trigger on_auth_user_created
 -- 1. Create a public bucket named 'audio-assets'
 -- 2. Add Policy: "Public Access" -> SELECT for all users
 -- 3. Add Policy: "Authenticated Upload" -> INSERT for authenticated users
-```

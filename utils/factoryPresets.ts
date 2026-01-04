@@ -8,8 +8,8 @@ const createPreset = (
     params: Partial<AllParams>, 
     sequencerOverrides: Partial<SequencerState>
 ): Preset => {
-    // Default sequencer state
-    const defaultSteps = Array(16).fill(0).map((_, i) => ({
+    // Default sequencer state - updated to 32 steps
+    const defaultSteps = Array(32).fill(0).map((_, i) => ({
         active: i % 2 === 0,
         sliceIndex: i,
         ratchet: 1
@@ -23,7 +23,8 @@ const createPreset = (
         bpm: 120,
         attack: 0.001,    
         release: 0.01,     
-        sustain: 0.5,     
+        sustain: 0.5,
+        swing: 0,
         reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
         delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
         filter: { 
@@ -70,7 +71,7 @@ const createPreset = (
         params: mergedParams,
         sequencer: {
             steps: defaultSteps,
-            stepCount: 16,
+            stepCount: 32,
             mode: 'forward',
             ...sequencerOverrides
         },

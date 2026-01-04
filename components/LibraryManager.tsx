@@ -12,6 +12,8 @@ import {
     deleteCloudSample, 
     renameCloudItem,
     fetchAllFeedback,
+    createKit,
+    linkSamplesToKit,
     type CloudItem,
     type DeleteResult,
     type FeedbackItem
@@ -46,9 +48,12 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const audioInputRef = useRef<HTMLInputElement>(null);
     const kitInputRef = useRef<HTMLInputElement>(null);
     const presetInputRef = useRef<HTMLInputElement>(null);
-    const bulkUploadRef = useRef<HTMLInputElement>(null);
     const adminPresetRef = useRef<HTMLInputElement>(null);
-    const userUploadRef = useRef<HTMLInputElement>(null); // New ref for user uploads
+    const userUploadRef = useRef<HTMLInputElement>(null); 
+    
+    // Split Admin Upload Refs
+    const adminSampleUploadRef = useRef<HTMLInputElement>(null);
+    const adminKitUploadRef = useRef<HTMLInputElement>(null);
 
     const [publicPresets, setPublicPresets] = useState<CloudItem[]>([]);
     const [publicSamples, setPublicSamples] = useState<CloudItem[]>([]);
@@ -58,6 +63,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [userSamples, setUserSamples] = useState<CloudItem[]>([]);
     const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
     
+    // UI State for Folders
+    const [expandedKits, setExpandedKits] = useState<Set<string>>(new Set());
+    const [adminKitName, setAdminKitName] = useState(""); // State for Admin Kit Name
+
     const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlRef = useRef<string | null>(null);
     const [previewingId, setPreviewingId] = useState<string | null>(null);
@@ -168,6 +177,15 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
+    const toggleKitExpansion = (kitName: string) => {
+        setExpandedKits(prev => {
+            const next = new Set(prev);
+            if (next.has(kitName)) next.delete(kitName);
+            else next.add(kitName);
+            return next;
+        });
+    };
+
     const handleAudioFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (files && files.length > 0) {
@@ -190,6 +208,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         event.target.value = ""; 
     };
 
+    // User Upload Logic - Including new Relational Kit creation
     const handleUserUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
@@ -230,21 +249,33 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         return; // Cancel
                     }
 
+                    // 1. Create Kit Entry
+                    setUploadStatus("Creating Kit Database Entry...");
+                    const kitId = await createKit(user.id, kitName, false, false); // Private by default unless configured otherwise
+                    if (!kitId) throw new Error("Failed to create kit.");
+
                     setUploadStatus("Processing audio & stitching...");
+                    const sampleIds: string[] = [];
                     
-                    // 1. Upload Individual Files
+                    // 2. Upload Individual Files (skipPrefix=true because we have relation)
                     for (let i = 0; i < files.length; i++) {
                         setUploadStatus(`Uploading file ${i+1}/${files.length}...`);
-                        await uploadSampleToCloud(files[i], `${kitName} - ${files[i].name}`, user.id, false, kitName, true);
+                        const upload = await uploadSampleToCloud(files[i], files[i].name, user.id, false, kitName, false, true);
+                        if (upload) sampleIds.push(upload.id);
                     }
 
-                    // 2. Stitch and Create Master + Preset
+                    // 3. Link Samples to Kit
+                    setUploadStatus("Linking samples...");
+                    await linkSamplesToKit(kitId, sampleIds);
+
+                    // 4. Stitch and Create Master + Preset
                     setUploadStatus("Stitching Kit Master...");
                     const { blob: masterBlob, slices } = await stitchAudioFiles(files);
                     
                     setUploadStatus("Uploading Kit Master...");
-                    const masterUpload = await uploadSampleToCloud(masterBlob, `${kitName} (Master).wav`, user.id, false, undefined, true);
-                    
+                    // Ensure master is also tagged as part of kit folder but without DB prefix
+                    const masterUpload = await uploadSampleToCloud(masterBlob, `${kitName} (Master).wav`, user.id, false, kitName, false, true);
+
                     if (masterUpload) {
                         setUploadStatus("Saving Preset...");
                         
@@ -263,11 +294,12 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         };
 
                         const sequencer = {
-                            steps: Array(16).fill(0).map((_, i) => ({ active: i%2===0, sliceIndex: i % slices.length, ratchet: 1 })),
-                            stepCount: 16, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
+                            steps: Array(32).fill(0).map((_, i) => ({ active: i%2===0, sliceIndex: i % slices.length, ratchet: 1 })),
+                            stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
                         };
 
-                        await saveCloudPreset(kitName, params as any, sequencer, slices, user.id, masterUpload.id, false, true);
+                        // Save preset (Sample ID is the Master file)
+                        await saveCloudPreset(kitName, params as any, sequencer, slices, user.id, masterUpload.id, false, false);
                     }
 
                     alert("Kit Uploaded Successfully!");
@@ -343,23 +375,158 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    const handleBulkUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Handle Plain Sample Uploads (No Kit Prompt)
+    const handleAdminSampleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
         if (files.length === 0 || !user) return;
 
-        let successCount = 0;
-        for (let i = 0; i < files.length; i++) {
-            const result = await uploadSampleToCloud(files[i], files[i].name, user.id, true);
-            if (result) successCount++;
+        setIsUploading(true);
+        setUploadStatus("Uploading Factory Samples...");
+
+        try {
+            let successCount = 0;
+            for (let i = 0; i < files.length; i++) {
+                setUploadStatus(`Uploading ${i + 1}/${files.length}: ${files[i].name}`);
+                const result = await uploadSampleToCloud(files[i], files[i].name, user.id, true);
+                if (result) successCount++;
+            }
+            await loadLibraryData();
+            alert(`Uploaded ${successCount}/${files.length} Factory Samples.`);
+        } catch (e: any) {
+            console.error(e);
+            alert("Upload failed: " + e.message);
+        } finally {
+            setIsUploading(false);
+            setUploadStatus("");
         }
+    };
+
+    // Trigger for Kit Upload
+    const handleTriggerKitUpload = () => {
+        if (!adminKitName.trim()) {
+            alert("Please enter a Kit Name first.");
+            return;
+        }
+        adminKitUploadRef.current?.click();
+    };
+
+    // Handle Kit Upload using state name + Relational DB
+    const handleAdminKitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files: File[] = Array.from(e.target.files || []);
+        e.target.value = "";
         
-        await loadLibraryData();
-        alert(`Uploaded ${successCount}/${files.length} samples to Factory.`);
+        if (files.length === 0 || !user) return;
+        if (!adminKitName.trim()) {
+            alert("Kit Name missing.");
+            return;
+        }
+
+        setIsUploading(true);
+        const kitName = adminKitName.trim();
+        
+        try {
+            setUploadStatus(`Creating Kit Entry "${kitName}"...`);
+            
+            // 1. Create Kit
+            const kitId = await createKit(user.id, kitName, true, true); // Factory + Public
+            if (!kitId) throw new Error("Failed to create kit entry.");
+
+            const sampleIds: string[] = [];
+
+            // 2. Upload Files as Kit Parts
+            for (let i = 0; i < files.length; i++) {
+                setUploadStatus(`Uploading part ${i + 1}/${files.length}: ${files[i].name}`);
+                // Use kit grouping for folder but skip prefix in title for cleaner DB
+                const res = await uploadSampleToCloud(files[i], files[i].name, user.id, true, kitName, true, true);
+                if (res) sampleIds.push(res.id);
+            }
+
+            // 3. Link
+            setUploadStatus("Linking samples to kit...");
+            await linkSamplesToKit(kitId, sampleIds);
+
+            // 4. Stitch if possible
+            if (files.length > 0) {
+                setUploadStatus("Stitching Kit Master...");
+                const { blob: masterBlob, slices } = await stitchAudioFiles(files);
+
+                setUploadStatus("Uploading Kit Master...");
+                const masterUpload = await uploadSampleToCloud(
+                    masterBlob, 
+                    `${kitName} (Master).wav`, 
+                    user.id, 
+                    true, 
+                    kitName, 
+                    true,
+                    true // Skip prefix for master too? Or keep it? Let's skip to be consistent with new schema
+                );
+
+                if (masterUpload) {
+                    setUploadStatus("Creating Factory Preset...");
+                    
+                    const params = {
+                        grainSize: 0.09, overlap: 0.03, detune: 0, playbackRate: 1, bpm: 120,
+                        attack: 0.001, release: 0.01, sustain: 0.5,
+                        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
+                        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
+                        filter: { isActive: false, frequency: 20000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
+                        distortion: { isActive: false, amount: 1.0, wet: 0.04 },
+                        compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
+                        bitCrusher: { isActive: false, bits: 8, wet: 0 },
+                        glitch: { chaos: 0, allowReverse: false, allowOctaveJump: true, allowRatchet: true, pitchShift: true, allowFormant: true },
+                        order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
+                    };
+
+                    const sequencer = {
+                        steps: Array(32).fill(0).map((_, i) => ({ active: i%2===0, sliceIndex: i % slices.length, ratchet: 1 })),
+                        stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
+                    };
+
+                    await saveCloudPreset(
+                        kitName, 
+                        params as any, 
+                        sequencer, 
+                        slices, 
+                        user.id, 
+                        masterUpload.id, 
+                        true, // isFactory
+                        true  // isPublic
+                    );
+                }
+            }
+
+            await loadLibraryData();
+            setAdminKitName(""); // Reset name on success
+            alert(`Factory Kit "${kitName}" Created!`);
+
+        } catch (e: any) {
+            console.error(e);
+            alert("Kit Creation Failed: " + e.message);
+        } finally {
+            setIsUploading(false);
+            setUploadStatus("");
+        }
     };
 
     const loadCloudItem = (item: CloudItem) => {
         stopPreview();
+        
+        // Handle Kit Loading (load children into machine)
+        if (item.type === 'kit' && item.data && item.data.items) {
+            const children = item.data.items as CloudItem[];
+            const kitSamples: KitSample[] = children.map(c => ({
+                name: c.label,
+                url: c.url || ''
+            })).filter(c => c.url); // filter invalid
+            
+            if (kitSamples.length > 0) {
+                onKitLoad(kitSamples, item.label);
+                handleClose();
+            }
+            return;
+        }
+
         if (item.type === 'preset' && item.data) {
              const fullPreset: Preset = {
                  id: item.id,
@@ -390,6 +557,8 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
         let result: DeleteResult = { success: false };
         if (item.type === 'preset') result = await deleteCloudPreset(item.id);
+        // Deleting a kit is not fully implemented in UI action yet (would need recursive delete of samples), 
+        // but for now treat it like sample or just omit delete button for kit folders.
         else result = await deleteCloudSample(item.id, item.url);
 
         if (!result.success) {
@@ -412,84 +581,194 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    const renderList = (items: CloudItem[]) => {
+    // Helper to render individual item row
+    const renderItemRow = (item: CloudItem, isKitMember: boolean = false) => {
+        const isBroken = errorId === item.id;
+        const isMine = user && item._userId === user.id;
+        const isPublic = item.isPublic;
+        
+        // Visual tweak for Kit Master files
+        const isMaster = item.label.includes('(Master)');
+        // Strip legacy tag if present
+        const label = item.label.replace(/^\[Kit: .*?\]\s*/, '');
+
+        let typeIcon = item.type === 'preset' ? '🎛️' : '💿';
+        let typeLabel = item.type === 'preset' ? 'Preset' : 'Sample';
+
+        return (
+            <div key={item.id} className={`flex items-center justify-between p-2 rounded-lg border transition-colors group ${deletingId === item.id ? 'opacity-50 pointer-events-none bg-red-900/10' : ''} ${isBroken ? 'bg-red-900/20 border-red-500/30' : (isKitMember ? 'bg-black/20 border-white/5 hover:bg-white/5' : 'bg-white/5 border-white/5 hover:bg-white/10')} ${isMaster ? 'border-l-4 border-l-hyper-cyan' : ''}`}>
+                <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => loadCloudItem(item)}>
+                    <div className={`w-8 h-8 rounded flex items-center justify-center text-lg shrink-0 ${item.type === 'preset' ? 'bg-hyper-cyan/10 text-hyper-cyan' : 'bg-plasma-pink/10 text-plasma-pink'}`}>
+                        {typeIcon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <div className={`text-sm font-bold transition-colors truncate ${isBroken ? 'text-red-400' : 'text-white group-hover:text-hyper-cyan'}`}>
+                                {label}
+                                {isBroken && <span className="ml-2 text-[10px] text-red-400 bg-red-900/40 px-1.5 rounded uppercase">Error</span>}
+                                {isMaster && <span className="ml-2 text-[8px] bg-hyper-cyan/20 text-hyper-cyan px-1 rounded uppercase">Master</span>}
+                            </div>
+                            {isMine && !item.isFactory && !isKitMember && (
+                                <span className={`text-[10px] px-1.5 rounded font-bold uppercase shrink-0 ${isPublic ? 'bg-blue-500/20 text-blue-300' : 'bg-white/10 text-star-dust'}`}>
+                                    {isPublic ? 'Public' : 'Private'}
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-[10px] text-star-dust/60 truncate flex items-center gap-1">
+                            <span>{typeLabel}</span>
+                            <span className="opacity-50">•</span>
+                            <span className={isMine ? 'text-hyper-cyan font-bold' : ''}>by {item.author || 'Anon'}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    {item.type === 'sample' && item.url && (
+                        <button 
+                            type="button" 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePreview(item); }} 
+                            className={`w-8 h-8 flex items-center justify-center rounded-full transition-all border border-white/10 ${previewingId === item.id ? 'bg-hyper-cyan text-deep-space animate-pulse' : (isBroken ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-white/5 text-white hover:bg-white/20')}`}
+                        >
+                            {previewingId === item.id ? '⏹' : (isBroken ? '!' : '▶')}
+                        </button>
+                    )}
+                    <button type="button" onClick={() => loadCloudItem(item)} className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded transition-colors">LOAD</button>
+                    {(isAdmin || (isMine && !isKitMember)) && (
+                        <Tooltip text="Delete">
+                            <button 
+                                type="button" 
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(item); }} 
+                                disabled={deletingId === item.id} 
+                                className="p-2 text-white/50 hover:text-red-500 hover:bg-white/5 rounded-full transition-colors"
+                            >
+                                {deletingId === item.id ? '...' : '🗑'}
+                            </button>
+                        </Tooltip>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // Refactored Grouping Logic for "Samples" tab
+    const renderGroupedList = (items: CloudItem[]) => {
+        const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
+        if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
+
+        // 1. Explicit Kits (from relational DB)
+        const explicitKits = filtered.filter(i => i.type === 'kit');
+        
+        // 2. Legacy Group by Kit Tag: [Kit: KitName]
+        const legacyKitGroups: Record<string, CloudItem[]> = {};
+        const looseItems: CloudItem[] = [];
+
+        filtered.filter(i => i.type !== 'kit').forEach(item => {
+            const match = item.label.match(/^\[Kit: (.*?)\]/);
+            if (match) {
+                const kitName = match[1];
+                if (!legacyKitGroups[kitName]) legacyKitGroups[kitName] = [];
+                legacyKitGroups[kitName].push(item);
+            } else {
+                looseItems.push(item);
+            }
+        });
+
+        const sortedLegacyKits = Object.keys(legacyKitGroups).sort();
+
+        return (
+            <div className="space-y-3">
+                
+                {/* 1. Explicit Relational Kits */}
+                {explicitKits.map(kit => {
+                    const isExpanded = expandedKits.has(kit.id);
+                    const children = (kit.data?.items || []) as CloudItem[];
+                    const isMine = user && kit._userId === user.id;
+
+                    return (
+                        <div key={kit.id} className="border border-white/10 rounded-lg overflow-hidden bg-white/5">
+                            <div 
+                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                onClick={() => toggleKitExpansion(kit.id)}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">📦</span>
+                                        <span className="text-sm font-bold text-white uppercase tracking-wide">{kit.label}</span>
+                                        <span className="text-[10px] bg-white/10 px-1.5 rounded text-star-dust">{children.length} Files</span>
+                                    </div>
+                                </div>
+                                {isMine && (
+                                    <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit</span>
+                                )}
+                                {/* Kit Load Button (to load all at once) */}
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); loadCloudItem(kit); }}
+                                    className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded"
+                                >
+                                    LOAD KIT
+                                </button>
+                            </div>
+                            
+                            {isExpanded && (
+                                <div className="border-t border-white/5 p-2 space-y-1 bg-black/20">
+                                    {children.length > 0 ? children.map(child => renderItemRow(child, true)) : <div className="text-[10px] text-white/30 italic p-2">Empty Kit</div>}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+
+                {/* 2. Legacy Kits */}
+                {sortedLegacyKits.map(kitName => {
+                    const groupItems = legacyKitGroups[kitName];
+                    const isExpanded = expandedKits.has(kitName);
+                    const isMine = user && groupItems.length > 0 && groupItems[0]._userId === user.id;
+
+                    return (
+                        <div key={`kit-${kitName}`} className="border border-white/10 rounded-lg overflow-hidden bg-white/5">
+                            <div 
+                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                onClick={() => toggleKitExpansion(kitName)}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">📁</span>
+                                        <span className="text-sm font-bold text-white uppercase tracking-wide">{kitName}</span>
+                                        <span className="text-[10px] bg-white/10 px-1.5 rounded text-star-dust">{groupItems.length} Files</span>
+                                    </div>
+                                </div>
+                                {isMine && (
+                                    <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit (Legacy)</span>
+                                )}
+                            </div>
+                            
+                            {isExpanded && (
+                                <div className="border-t border-white/5 p-2 space-y-1 bg-black/20">
+                                    {groupItems.map(item => renderItemRow(item, true))}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+
+                {/* 3. Loose Items */}
+                <div className="space-y-2 mt-4">
+                    {looseItems.map(item => renderItemRow(item, false))}
+                </div>
+            </div>
+        );
+    };
+
+    // Plain list for Presets (they don't need kit grouping usually, as presets ARE the package)
+    const renderFlatList = (items: CloudItem[]) => {
         const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
         if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
         return (
             <div className="grid grid-cols-1 gap-2">
-                {filtered.map(item => {
-                    let typeIcon = item.type === 'preset' ? '🎛️' : '💿';
-                    let typeLabel = item.type === 'preset' ? 'Preset' : 'Sample';
-                    
-                    const isMine = user && item._userId === user.id;
-                    const isPublic = item.isPublic;
-                    const isBroken = errorId === item.id;
-
-                    return (
-                        <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg border transition-colors group ${deletingId === item.id ? 'opacity-50 pointer-events-none bg-red-900/10' : ''} ${isBroken ? 'bg-red-900/20 border-red-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                            <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => loadCloudItem(item)}>
-                                <div className={`w-8 h-8 rounded flex items-center justify-center text-lg ${item.type === 'preset' ? 'bg-hyper-cyan/10 text-hyper-cyan' : 'bg-plasma-pink/10 text-plasma-pink'}`}>
-                                    {typeIcon}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <div className={`text-sm font-bold transition-colors truncate ${isBroken ? 'text-red-400' : 'text-white group-hover:text-hyper-cyan'}`}>
-                                            {item.label}
-                                            {isBroken && <span className="ml-2 text-[10px] text-red-400 bg-red-900/40 px-1.5 rounded uppercase">Error</span>}
-                                        </div>
-                                        {isMine && !item.isFactory && (
-                                            <span className={`text-[10px] px-1.5 rounded font-bold uppercase ${isPublic ? 'bg-blue-500/20 text-blue-300' : 'bg-white/10 text-star-dust'}`}>
-                                                {isPublic ? 'Public' : 'Private'}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-[10px] text-star-dust/60 truncate flex items-center gap-1">
-                                        <span>{typeLabel}</span>
-                                        <span className="opacity-50">•</span>
-                                        <span className={isMine ? 'text-hyper-cyan font-bold' : ''}>by {item.author || 'Anon'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {item.type === 'sample' && item.url && (
-                                    <button 
-                                        type="button" 
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePreview(item); }} 
-                                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all border border-white/10 ${previewingId === item.id ? 'bg-hyper-cyan text-deep-space animate-pulse' : (isBroken ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-white/5 text-white hover:bg-white/20')}`}
-                                    >
-                                        {previewingId === item.id ? '⏹' : (isBroken ? '!' : '▶')}
-                                    </button>
-                                )}
-                                <button type="button" onClick={() => loadCloudItem(item)} className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded transition-colors">LOAD</button>
-                                {(isAdmin || isMine) && (
-                                    <>
-                                        <Tooltip text="Rename">
-                                            <button 
-                                                type="button" 
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRename(item); }} 
-                                                className="p-2 text-white/50 hover:text-white hover:bg-white/5 rounded-full transition-colors z-10"
-                                            >
-                                                ✏️
-                                            </button>
-                                        </Tooltip>
-                                        <Tooltip text="Delete">
-                                            <button 
-                                                type="button" 
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(item); }} 
-                                                disabled={deletingId === item.id} 
-                                                className="p-2 text-white/50 hover:text-red-500 hover:bg-white/5 rounded-full transition-colors z-10"
-                                            >
-                                                {deletingId === item.id ? '...' : '🗑'}
-                                            </button>
-                                        </Tooltip>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
+                {filtered.map(item => renderItemRow(item, false))}
             </div>
-        );
+        )
     };
 
     const inputs = (
@@ -497,7 +776,9 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             <input type="file" accept="audio/*" multiple ref={audioInputRef} onChange={handleAudioFileChange} className="hidden" />
             <input type="file" accept="audio/*" multiple ref={kitInputRef} onChange={handleKitFileChange} className="hidden" />
             <input type="file" accept=".json" ref={presetInputRef} onChange={handlePresetImport} className="hidden" />
-            <input type="file" accept="audio/*" multiple ref={bulkUploadRef} onChange={handleBulkUploadChange} className="hidden" />
+            {/* Split inputs for Admin Uploads */}
+            <input type="file" accept="audio/*" multiple ref={adminSampleUploadRef} onChange={handleAdminSampleUpload} className="hidden" />
+            <input type="file" accept="audio/*" multiple ref={adminKitUploadRef} onChange={handleAdminKitUpload} className="hidden" />
             <input type="file" accept=".json" ref={adminPresetRef} onChange={handleAdminPresetUpload} className="hidden" />
             <input type="file" accept="audio/*" multiple ref={userUploadRef} onChange={handleUserUpload} className="hidden" />
         </>
@@ -546,7 +827,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                 </button>
                                 <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
                                     <span className="text-2xl group-hover:scale-110 transition-transform">💿</span>
-                                    <div><span className="block text-sm font-bold text-white">Samples</span><span className="block text-[10px] text-white/50">Database Table</span></div>
+                                    <div><span className="block text-sm font-bold text-white">Samples / Kits</span><span className="block text-[10px] text-white/50">Database Table</span></div>
                                 </button>
                                 {isAdmin && (
                                     <button onClick={() => setActiveTab('admin')} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
@@ -568,18 +849,18 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                             {user && (
                                 <div>
                                     <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Presets</h4>
-                                    {renderList(userPresets)}
+                                    {renderFlatList(userPresets)}
                                 </div>
                             )}
 
                             <div className={user ? "mt-6" : ""}>
                                 <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                {renderList(publicPresets)}
+                                {renderFlatList(publicPresets)}
                             </div>
 
                             <div className="mt-6">
                                 <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                {renderList(factoryPresets)}
+                                {renderFlatList(factoryPresets)}
                             </div>
                         </div>
                     )}
@@ -587,7 +868,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     {activeTab === 'samples' && (
                         <div className="max-w-4xl mx-auto space-y-6">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-xl font-bold text-white">Samples Table</h3>
+                                <h3 className="text-xl font-bold text-white">Samples & Kits Table</h3>
                                 <div className="flex items-center gap-2">
                                     {user && (
                                         <Tooltip text="Upload Sample or Kit to Cloud">
@@ -606,18 +887,18 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                             {user && (
                                 <div>
                                     <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Samples</h4>
-                                    {renderList(userSamples)}
+                                    {renderGroupedList(userSamples)}
                                 </div>
                             )}
 
                             <div className={user ? "mt-6" : ""}>
                                 <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                {renderList(publicSamples)}
+                                {renderGroupedList(publicSamples)}
                             </div>
 
                             <div className="mt-6">
                                 <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                {renderList(factorySamples)}
+                                {renderGroupedList(factorySamples)}
                             </div>
                         </div>
                     )}
@@ -633,8 +914,33 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                 </div>
                                 <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
                                     <div className="w-12 h-12 bg-plasma-pink/20 text-plasma-pink rounded-full flex items-center justify-center text-2xl">💿</div>
-                                    <div><h4 className="text-sm font-bold text-white">Upload Factory Samples</h4><p className="text-xs text-white/50 mt-1">Select Audio files</p></div>
-                                    <button onClick={() => bulkUploadRef.current?.click()} className="mt-2 w-full py-2 bg-plasma-pink text-white font-bold text-xs rounded hover:bg-white hover:text-deep-space transition-colors">SELECT FILES</button>
+                                    <div><h4 className="text-sm font-bold text-white">Factory Audio Content</h4><p className="text-xs text-white/50 mt-1">WAV / MP3</p></div>
+                                    
+                                    <div className="w-full mt-2 space-y-2">
+                                        <button 
+                                            onClick={() => adminSampleUploadRef.current?.click()} 
+                                            className="w-full py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded border border-white/5 transition-colors"
+                                        >
+                                            Upload Samples (Loose)
+                                        </button>
+                                        
+                                        <div className="flex gap-2 pt-2 border-t border-white/5">
+                                            <input 
+                                                type="text" 
+                                                placeholder="Kit Name..." 
+                                                value={adminKitName}
+                                                onChange={(e) => setAdminKitName(e.target.value)}
+                                                className="flex-1 bg-black/40 border border-white/10 rounded px-3 text-xs text-white focus:border-plasma-pink outline-none"
+                                            />
+                                            <button 
+                                                onClick={handleTriggerKitUpload} 
+                                                disabled={!adminKitName.trim()}
+                                                className="px-4 py-2 bg-plasma-pink text-white font-bold text-xs rounded hover:bg-white hover:text-deep-space transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Upload Kit
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

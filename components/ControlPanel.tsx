@@ -112,7 +112,7 @@ const EffectUnit: React.FC<EffectUnitProps> = ({
                         title="Drag to reorder"
                     >
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                            <path d="M8 6h8v2H8zm0 10h8v2H8zm0-5h8v2H8z" />
+                            <path d="M8 6h24v2H8zm0 10h8v2H8zm0-5h8v2H8z" />
                         </svg>
                     </div>
                     
@@ -181,7 +181,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     effectsLayout // Removed default to respect passed prop logic better or force usage
 }) => {
     
-    const [aiComplexity, setAiComplexity] = useState(0);
+    const [aiComplexity, setAiComplexity] = useState(0.25);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
 
@@ -320,10 +320,25 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                             <h3 className="text-lg font-bold text-white mb-1">✨ Magic Patterns</h3>
                             <p className="text-[10px] text-star-dust/70">Instantly remix your slices with AI logic.</p>
                         </div>
-                        <div className="flex gap-2 w-full">
-                             <button onClick={() => generateAiBeat(0.2)} className="flex-1 py-3 bg-deep-space/50 border border-hyper-cyan/30 text-hyper-cyan font-bold text-xs rounded-lg hover:bg-hyper-cyan hover:text-deep-space transition-all shadow-lg active:scale-95">🏠 House</button>
-                             <button onClick={() => generateAiBeat(0.5)} className="flex-1 py-3 bg-deep-space/50 border border-purple-500/30 text-purple-400 font-bold text-xs rounded-lg hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95">🥁 Break</button>
-                             <button onClick={() => generateAiBeat(0.9)} className="flex-1 py-3 bg-deep-space/50 border border-plasma-pink/30 text-plasma-pink font-bold text-xs rounded-lg hover:bg-plasma-pink hover:text-white transition-all shadow-lg active:scale-95">🎲 Chaos</button>
+                        <div className="flex flex-col gap-3 w-full max-w-sm">
+                             <div className="flex justify-between items-center text-[10px] font-bold text-star-dust uppercase tracking-wider px-1">
+                                 <span>Structure</span>
+                                 <span>Syncopation</span>
+                                 <span>Chaos</span>
+                             </div>
+                             <input 
+                                type="range" 
+                                min="0" 
+                                max="1" 
+                                step="0.01" 
+                                value={aiComplexity} 
+                                onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
+                                style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
+                                className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
+                             />
+                             <button onClick={() => generateAiBeat(aiComplexity)} className="w-full py-3 bg-gradient-to-r from-hyper-cyan to-blue-500 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 transition-all shadow-lg active:scale-95 border border-white/10">
+                                🎲 GENERATE GROOVE
+                             </button>
                         </div>
                     </div>
                 )}
@@ -387,6 +402,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
     // MAPPING FOR EFFECTS RENDER
     const renderEffect = (id: string) => {
+        // ... (Effect rendering logic remains unchanged, omitting for brevity in this XML block but it should be preserved)
+        // Re-injecting the full switch statement is required to maintain functionality
         switch (id) {
             case 'compressor':
                 return (
@@ -564,7 +581,6 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* Slice Properties Section */}
                     {showSlices && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/20 shadow-lg shadow-white/5 flex flex-col">
-                             {/* ... (Existing Slice UI unchanged) ... */}
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-white">◆</span> Slice Control
                                 <InfoIcon text="Select a slice to edit its properties, type, and envelope. Drag graph handles for micro-control." className="ml-2" />
@@ -640,19 +656,18 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* AI Beat Generator Section (Pro) */}
                     {showPattern && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
-                             {/* ... (Existing Pattern UI unchanged) ... */}
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-hyper-cyan">⚡</span> Pattern Gen
-                                <InfoIcon text="Algorithmic sequencer. Use the slider to shift probability from steady House beats to chaotic Glitch patterns." className="ml-2" />
+                                <InfoIcon text="Algorithmic sequencer. Set complexity using the slider, then click Generate to create a unique sequence." className="ml-2" />
                             </h3>
-                            <div className="space-y-4">
+                            <div className="space-y-6">
                                 <div className="px-1">
                                     <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
-                                        <span>Steady</span>
-                                        <span>Dynamic</span>
-                                        <span>Chaos</span>
+                                        <span>Ordered</span>
+                                        <span className="text-hyper-cyan">Syncopation</span>
+                                        <span>Chaotic</span>
                                     </div>
-                                    <Tooltip text="Adjust complexity: Left for steady patterns, Right for chaotic sequences">
+                                    <Tooltip text="Complexity Level: Low creates structured beats, High creates random glitch patterns.">
                                         <input 
                                             type="range" 
                                             min="0" 
@@ -661,17 +676,25 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                             value={aiComplexity} 
                                             onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
                                             style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
-                                            className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
-                                            onDoubleClick={() => setAiComplexity(0)} 
+                                            className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
+                                            onDoubleClick={() => setAiComplexity(0.25)} 
                                         />
                                     </Tooltip>
                                 </div>
-                                <Tooltip text="Generate a new sequence based on the complexity slider">
-                                    <button onClick={() => generateAiBeat(aiComplexity)} disabled={disabled} className="w-full py-3 bg-gradient-to-r from-hyper-cyan to-blue-600 text-white font-bold text-sm rounded hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-blue-500/20">GENERATE</button>
+                                
+                                <Tooltip text="Generate a new sequence based on the current entropy level">
+                                    <button 
+                                        onClick={() => generateAiBeat(aiComplexity)} 
+                                        disabled={disabled} 
+                                        className="w-full py-4 bg-gradient-to-r from-hyper-cyan to-blue-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,246,255,0.3)] hover:shadow-[0_0_30px_rgba(0,246,255,0.5)] border border-white/20"
+                                    >
+                                        🎲 GENERATE PATTERN
+                                    </button>
                                 </Tooltip>
+
                                  <div className="pt-3 border-t border-white/10">
                                     <div className="flex justify-between items-center mb-2">
-                                        <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1">Glitch Chaos <InfoIcon text="Global probability settings for random glitch effects." className="w-3 h-3 text-[10px]" /></h4>
+                                        <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1">Glitch Chaos <InfoIcon text="Global probability settings for random glitch effects (separate from pattern generation)." className="w-3 h-3 text-[10px]" /></h4>
                                         <span className="text-[10px] text-star-dust/50">{Math.round((params.glitch?.chaos || 0) * 100)}%</span>
                                     </div>
                                     <Slider label="" min={0} max={1} step={0.01} value={params.glitch?.chaos || 0} onChange={(v) => onParamChange('glitch', { ...params.glitch, chaos: v })} disabled={disabled} tooltip="Probability of random variations occurring on each step" defaultValue={0} />
@@ -705,15 +728,12 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                     {/* BPM & Engine & Global Controls */}
                     {showEngine && (
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/10 shadow-lg space-y-4">
-                             {/* ... (Existing Engine UI unchanged) ... */}
                              <div className="flex items-center gap-2 border-b border-white/10 pb-2 mb-2">
                                 <span className="text-xl">⚙️</span>
                                 <h3 className="text-lg font-bold text-white">Engine & Global</h3>
                                 <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
-                                {/* BPM Removed from here, moved to Transport */}
-                                
                                 <Slider 
                                     label="Grain Size" 
                                     min={0.005} 
@@ -732,6 +752,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <Slider label="Overlap" min={0.01} max={0.5} step={0.001} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" log tooltip="Crossfade duration" defaultValue={0.04} precision={3} />
                                 <Slider label="Detune" min={-1200} max={1200} step={1} value={params.detune} onChange={(v) => onParamChange('detune', v)} disabled={disabled} unit="cnt" tooltip="Pitch shift" defaultValue={0} />
                                 <Slider label="Rate" min={0.1} max={4} step={0.01} value={params.playbackRate} onChange={(v) => onParamChange('playbackRate', v)} disabled={disabled} unit="x" tooltip="Playback Speed" defaultValue={1.0} />
+                                <Slider label="Swing" min={0} max={1} step={0.01} value={params.swing ?? 0} onChange={(v) => onParamChange('swing', v)} disabled={disabled} unit="%" tooltip="Shuffle feel (0 = Straight, 100 = Triplet)" defaultValue={0} precision={2} />
                                 <Slider label="Attack" min={0.001} max={1.0} step={0.001} value={params.attack} onChange={(v) => onParamChange('attack', v)} disabled={disabled} unit="s" log tooltip="Grain envelope attack" defaultValue={0.005} precision={3} />
                                 <Slider label="Release" min={0.001} max={2.0} step={0.001} value={params.release} onChange={(v) => onParamChange('release', v)} disabled={disabled} unit="s" log tooltip="Grain envelope release" defaultValue={0.1} precision={3} />
                                 <Slider label="Sustain" min={0} max={2.0} step={0.01} value={params.sustain} onChange={(v) => onParamChange('sustain', v)} disabled={disabled} unit="s" tooltip="Grain sustain length" defaultValue={0.5} />

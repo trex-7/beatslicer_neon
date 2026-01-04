@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample, MidiConfig, MidiDevice } from '../types';
+import type { AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample, MidiConfig, MidiDevice, MetronomeConfig } from '../types';
 import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
@@ -51,6 +51,7 @@ try {
                 playbackRate: 1.0,
                 detune: 0,
                 volume: 1.0,
+                swing: 0,
                 glitch: { chaos: 0, allowReverse: false, allowOctaveJump: false, pitchShift: true, allowFormant: false, allowRatchet: false }
             };
             this.port.onmessage = (e) => this.handleMessage(e.data);
@@ -91,7 +92,9 @@ try {
                 this.slices = data.slices;
             } else if (data.type === 'params') {
                 if (data.params) {
+                    // Correctly merge top-level params including swing
                     this.params = { ...this.params, ...data.params };
+                    // Deep merge glitch if present
                     if (data.params.glitch) {
                         this.params.glitch = { ...this.params.glitch, ...data.params.glitch };
                     }
@@ -270,7 +273,23 @@ try {
                         if (this.isPlaying) {
                             const samplesPerBeat = (this.sampleRate * 60) / this.bpm;
                             const samplesPerStep = samplesPerBeat / 4;
-                            this.nextStepTime += samplesPerStep;
+                            
+                            // SWING LOGIC
+                            // If currentStep is EVEN (Downbeat), delay the next step (making this step longer)
+                            // If currentStep is ODD (Offbeat), shorten this step to catch up
+                            // Increased swing range to 0.45 (approx 75% shuffle feeling at max)
+                            let swingOffset = 0;
+                            if (this.params.swing > 0) {
+                                const maxSwing = samplesPerStep * 0.45; 
+                                const currentSwing = maxSwing * this.params.swing;
+                                if (this.currentStep % 2 === 0) {
+                                    swingOffset = currentSwing;
+                                } else {
+                                    swingOffset = -currentSwing;
+                                }
+                            }
+
+                            this.nextStepTime += (samplesPerStep + swingOffset);
                             
                             this.port.postMessage({ type: 'step', value: this.currentStep });
                             
@@ -278,7 +297,9 @@ try {
                                 const stepData = this.steps[this.currentStep];
                                 if (stepData.active) {
                                     const repeats = stepData.ratchet || 1;
-                                    const interval = samplesPerStep / repeats;
+                                    const stepDuration = samplesPerStep + swingOffset;
+                                    const interval = stepDuration / repeats;
+                                    
                                     for (let r = 0; r < repeats; r++) {
                                         this.pendingTriggers.push({
                                             time: Math.floor(this.currentSample + (r * interval)),
@@ -360,7 +381,8 @@ const initialParams: AllParams = {
   bpm: 120,
   attack: 0.001,    
   release: 0.01,     
-  sustain: 0.5,     
+  sustain: 0.5,
+  swing: 0,
   reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
   delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
   filter: { 
@@ -410,8 +432,8 @@ export const useAudioEngine = () => {
   const [selectedSliceIndex, setSelectedSliceIndex] = useState<number | null>(null);
   
   const [sequencer, setSequencer] = useState<SequencerState>({
-    steps: generateDefaultSteps(16),
-    stepCount: 16,
+    steps: generateDefaultSteps(32), // Default to 32 steps
+    stepCount: 32,
     mode: 'forward',
     currentStep: -1,
     isPlaying: false,
@@ -419,6 +441,14 @@ export const useAudioEngine = () => {
     editMode: 'trigger',
     playbackBehavior: 'reset'
   });
+
+  const [metronomeConfig, setMetronomeConfig] = useState<MetronomeConfig>({
+      enabled: false,
+      volume: 0.5
+  });
+  const metronomeConfigRef = useRef(metronomeConfig);
+  const metronomeSynth = useRef<any>(null);
+  const metronomeGain = useRef<any>(null);
 
   const [midiConfig, setMidiConfig] = useState<MidiConfig>({
       enabled: true,
@@ -462,6 +492,7 @@ export const useAudioEngine = () => {
   
   const midiConfigRef = useRef(midiConfig);
   useEffect(() => { midiConfigRef.current = midiConfig; }, [midiConfig]);
+  useEffect(() => { metronomeConfigRef.current = metronomeConfig; }, [metronomeConfig]);
 
   const effects = useRef({
     reverb: null as any,
@@ -511,6 +542,7 @@ export const useAudioEngine = () => {
       }
   }, []);
 
+  // ... (effect setup and reconnection logic omitted for brevity as it is unchanged) ...
   const reconnectEffectChain = useCallback(() => {
       const { modules, limiter, inputGain } = effects.current;
       const order = paramsRef.current.order;
@@ -544,6 +576,7 @@ export const useAudioEngine = () => {
   useEffect(() => { paramsRef.current = params; }, [params]);
   useEffect(() => { slicesRef.current = slices; }, [slices]);
 
+  // ... (Worklet message passing and MIDI scheduler omitted for brevity) ...
   useEffect(() => {
       if (workletNode.current) {
           workletNode.current.port.postMessage({ 
@@ -670,7 +703,19 @@ export const useAudioEngine = () => {
             workletNode.current = new AudioWorkletNode(targetContext, 'granular-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
             workletNode.current.port.onmessage = (event) => {
                 if (event.data.type === 'step') {
-                     setSequencer(prev => prev.currentStep === event.data.value ? prev : { ...prev, currentStep: event.data.value });
+                     const step = event.data.value;
+                     setSequencer(prev => prev.currentStep === step ? prev : { ...prev, currentStep: step });
+                     
+                     // Metronome Trigger
+                     if (metronomeConfigRef.current.enabled && metronomeSynth.current && Tone.context.state === 'running') {
+                         if (step % 4 === 0) {
+                             const isDownbeat = step === 0;
+                             // High pitch (1000Hz) for downbeat, Low pitch (500Hz) for others
+                             const freq = isDownbeat ? 1000 : 500;
+                             metronomeSynth.current.triggerAttackRelease(freq, "32n", Tone.now());
+                         }
+                     }
+
                 } else if (event.data.type === 'stop') {
                     setIsPlaying(false);
                     setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
@@ -687,6 +732,13 @@ export const useAudioEngine = () => {
             Tone.connect(effects.current.nativeBridgeGain, effects.current.inputGain);
 
           } catch(e) { console.error(e); return; }
+
+          // Metronome Setup
+          metronomeGain.current = new Tone.Gain(metronomeConfig.volume).toDestination();
+          metronomeSynth.current = new Tone.Synth({
+              oscillator: { type: "sine" },
+              envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 }
+          }).connect(metronomeGain.current);
 
           previewPlayer.current = new Tone.Player().toDestination();
           
@@ -717,40 +769,31 @@ export const useAudioEngine = () => {
           (effects.current as any).revHP = revHP;
 
           // Delay (Tape/BBD Style) - Custom Feedback Loop
-          // We don't use Tone.FeedbackDelay because we want filters/saturation INSIDE the loop.
-          
           const maxDelay = 2.0; 
           effects.current.delay = new Tone.Delay(params.delay.delayTime, maxDelay);
           
-          // Feedback Loop Components
           const delayFeedbackGain = new Tone.Gain(params.delay.feedback);
-          // Filters are in the feedback loop to degrade each repeat
           const delayLP = new Tone.Filter(params.delay.highCut, "lowpass", -12);
           const delayHP = new Tone.Filter(params.delay.lowCut, "highpass", -12);
-          // Minimal degradation/saturation for "tape" character
-          const delayDistortion = new Tone.Distortion(0.02); // Very subtle
+          const delayDistortion = new Tone.Distortion(0.02); 
           
-          // Construct Loop: Delay -> LP -> HP -> Dist -> Gain -> Delay
           effects.current.delay.connect(delayLP);
           delayLP.connect(delayHP);
           delayHP.connect(delayDistortion);
           delayDistortion.connect(delayFeedbackGain);
           delayFeedbackGain.connect(effects.current.delay);
           
-          // Output Mixing
           const delWetGain = new Tone.Gain(0);
           const delDryGain = new Tone.Gain(1);
           
           mods.delay.input.connect(delDryGain);
-          mods.delay.input.connect(effects.current.delay); // Input feeds the delay line
+          mods.delay.input.connect(effects.current.delay); 
           
-          // We tap the output from the Distortion node so even the first repeat has color
           delayDistortion.connect(delWetGain);
           
           delWetGain.connect(mods.delay.output);
           delDryGain.connect(mods.delay.output);
           
-          // Save Refs
           (effects.current as any).delayFeedbackGain = delayFeedbackGain;
           (effects.current as any).delayLP = delayLP;
           (effects.current as any).delayHP = delayHP;
@@ -815,6 +858,8 @@ export const useAudioEngine = () => {
       clearTimeout(timer);
       if (typeof schedulerRequestRef.current === 'number') cancelAnimationFrame(schedulerRequestRef.current);
       previewPlayer.current?.dispose();
+      metronomeSynth.current?.dispose();
+      metronomeGain.current?.dispose();
       workletNode.current?.disconnect();
       if (effects.current.modules) Object.values(effects.current.modules).forEach((m: any) => { m.input.dispose(); m.output.dispose(); });
       Object.values(effects.current).forEach((effect: any) => { if (effect && effect.dispose) effect.dispose(); });
@@ -823,6 +868,7 @@ export const useAudioEngine = () => {
   }, [reconnectEffectChain]);
 
   const updateParams = useCallback((newParams: Partial<AllParams>) => {
+    // ... (updateParams logic omitted for brevity as it is unchanged) ...
     const prevOrder = paramsRef.current.order;
     const updated = { ...paramsRef.current, ...newParams };
     paramsRef.current = updated;
@@ -842,14 +888,11 @@ export const useAudioEngine = () => {
             try { decay = Tone.Time(rev.syncValue).toSeconds(); } catch(e) {}
         }
         
-        // Ensure Force Wet for Parallel Chain
         if (efx.reverb.wet.value !== 1) efx.reverb.wet.value = 1;
 
-        // Tone.Reverb Logic
         if (typeof efx.reverb.decay !== 'undefined') {
              if (Math.abs(efx.reverb.decay - decay) > 0.1) {
                  efx.reverb.decay = decay;
-                 // Re-generate impulse if using Tone.Reverb (Convolution/Algorithmic)
                  if (typeof efx.reverb.generate === 'function') {
                      efx.reverb.generate().catch(() => {});
                  }
@@ -869,30 +912,23 @@ export const useAudioEngine = () => {
     
     if (efx.delay && newParams.delay) {
         const del = updated.delay;
-        
-        // Delay Time
         if (del.isSynced) setToneParam(efx.delay, 'delayTime', Tone.Time(del.syncValue).toSeconds(), 0.1);
         else setToneParam(efx.delay, 'delayTime', del.delayTime, 0.1);
         
-        // Feedback Gain (Custom Loop)
         if ((efx as any).delayFeedbackGain) {
             setToneParam((efx as any).delayFeedbackGain, 'gain', del.feedback, 0.1);
         } else if (efx.delay.feedback) {
-            // Fallback for standard FeedbackDelay if somehow used
             setToneParam(efx.delay, 'feedback', del.feedback, 0.1);
         }
         
-        // Wet/Dry
         const mix = del.isActive ? del.wet : 0;
         if ((efx as any).delayDryGain) setToneParam((efx as any).delayDryGain, 'gain', 1 - mix, 0.1);
         if ((efx as any).delayWetGain) setToneParam((efx as any).delayWetGain, 'gain', mix, 0.1);
         
-        // Loop Filters (High Cut = Low Pass Freq, Low Cut = High Pass Freq)
         if ((efx as any).delayLP) setToneParam((efx as any).delayLP, 'frequency', del.highCut, 0.1);
         if ((efx as any).delayHP) setToneParam((efx as any).delayHP, 'frequency', del.lowCut, 0.1);
     }
 
-    // ... (Other effects unchanged logic) ...
     if (newParams.filter && efx.filter) {
         const f = updated.filter;
         if (efx.filterLFO) efx.filterLFO.frequency.value = f.isSynced ? Tone.Time(f.syncValue).toSeconds() : f.lfoRate; 
@@ -951,6 +987,7 @@ export const useAudioEngine = () => {
     }
   }, [setToneParam, reconnectEffectChain]);
 
+  // ... (loadAudioFile, loadConstructionKit, loadPreset, togglePlay, etc. unchanged) ...
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string, cloudId?: string) => {
     setIsLoading(true);
     if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
@@ -959,7 +996,6 @@ export const useAudioEngine = () => {
       let filename = nameOverride || (audioFile instanceof File ? audioFile.name : (typeof audioFile === 'string' ? audioFile.split('/').pop()?.split('?')[0] || 'Default' : 'Default'));
       setSampleName(filename); setCurrentSampleId(cloudId || null); setCurrentPresetId(null); 
       
-      // Validation for local files
       if (audioFile instanceof File) {
           const err = validateFile(audioFile);
           if (err) {
@@ -1013,13 +1049,7 @@ export const useAudioEngine = () => {
       setIsLoading(true); if (previewPlayer.current) previewPlayer.current.stop();
       try {
           setSampleName(kitName); setCurrentSampleId(null); setCurrentPresetId(null);
-          
-          if (files.length > 32) { // Soft limit for local kit load
-              alert("Too many files. Limit is 32.");
-              setIsLoading(false);
-              return;
-          }
-
+          if (files.length > 32) { alert("Too many files. Limit is 32."); setIsLoading(false); return; }
           const buffers: { buffer: any, name: string, type: SliceType }[] = [];
           for (const item of files) {
               const url = item instanceof File ? URL.createObjectURL(item) : item.url;
@@ -1067,45 +1097,17 @@ export const useAudioEngine = () => {
   const loadPreset = useCallback(async (preset: Preset) => {
       setIsLoading(true);
       try {
-          // 1. Reset Preview
           if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
-
-          // 2. Set IDs and Names
           if (preset.sampleName) setSampleName(preset.sampleName);
           if (preset.sampleId) setCurrentSampleId(preset.sampleId);
           if (preset.id) setCurrentPresetId(preset.id);
-
-          // 3. Load AUDIO first (CRITICAL: Before setting Slices/Sequencer)
           if (preset.sampleUrl) {
-              const buffer = new Tone.Buffer(); 
-              await buffer.load(preset.sampleUrl);
-              let rawBuffer = buffer.get(); 
-              if (!rawBuffer) throw new Error("Decode failed");
-              
-              // Only remove silence if the preset implies raw audio needs processing, 
-              // BUT usually presets are saved *after* silence removal. 
-              // If we remove silence again, slice offsets might drift if the saved slice data assumed raw audio.
-              // Standard behavior: Presets assume the audio is exactly as it was when saved.
-              // We will assume audioUrl points to the exact file. 
-              // If the file was silence-stripped before upload, good.
-              // If we strip it now, we might break existing slices.
-              // DECISION: Do NOT strip silence on preset load to preserve absolute timing fidelity 
-              // unless the slices look completely wrong (heuristics). For now, trust the file.
-              
-              // However, current save logic uploads raw blob.
-              // Let's stick to the convention: Audio is Audio. Slices are relative to that file.
-              
-              // If the original user used 'removeLeadingSilence', the slice offsets are relative to the stripped buffer.
-              // If we don't strip it here, slices will be late.
-              // Ideal fix: We should remove silence here too IF we do it in 'loadAudioFile'.
-              // Consistent behavior: Always strip silence on load.
+              const buffer = new Tone.Buffer(); await buffer.load(preset.sampleUrl);
+              let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
               rawBuffer = removeLeadingSilence(rawBuffer);
-
               const processedBuffer = new Tone.Buffer(rawBuffer);
               setAudioBuffer(processedBuffer);
               if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
-
-              // Send to Worklet
               if (workletNode.current) {
                   const nativeBuf = processedBuffer.get();
                   if (nativeBuf && nativeBuf.numberOfChannels > 0) {
@@ -1115,8 +1117,6 @@ export const useAudioEngine = () => {
                   }
               }
           }
-
-          // 4. Apply State AFTER Audio is ready
           if (preset.params) updateParams(preset.params);
           if (preset.sequencer) setSequencer(prev => ({ ...prev, ...preset.sequencer }));
           if (preset.slices && preset.slices.length > 0) {
@@ -1125,7 +1125,6 @@ export const useAudioEngine = () => {
                    workletNode.current.port.postMessage({ type: 'slices', slices: preset.slices });
                }
           }
-
       } catch (e) { console.error("Preset Load Error:", e); alert("Failed to load preset audio."); } finally { setIsLoading(false); }
   }, [updateParams]);
 
@@ -1146,10 +1145,7 @@ export const useAudioEngine = () => {
     } else {
       const shouldReset = sequencer.playbackBehavior === 'reset';
       if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: true, reset: shouldReset });
-      
-      // Capture start time BEFORE sending MIDI or State updates
       playStartTimeRef.current = performance.now();
-
       if (midiAccessRef.current && midiConfigRef.current.enabled && midiConfigRef.current.sendTransport) {
           const msg = sequencer.playbackBehavior === 'continue' ? 0xFB : 0xFA;
           const msgName = sequencer.playbackBehavior === 'continue' ? 'CONT' : 'START';
@@ -1163,6 +1159,7 @@ export const useAudioEngine = () => {
     }
   }, [isPlaying, sequencer.playbackBehavior, logMidi]);
 
+  // ... (setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, togglePreviewOriginal, playSliceRaw, toggleSliceLoop, addSlice, sliceRegion, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern unchanged) ...
   const setTransportBpm = useCallback((bpm: number) => { updateParams({ bpm }); }, [updateParams]);
   const toggleLoop = useCallback(() => {
       setSequencer(prev => {
@@ -1188,6 +1185,16 @@ export const useAudioEngine = () => {
       });
   }, [audioBuffer]);
   const updateMidiConfig = useCallback((newConfig: Partial<MidiConfig>) => { setMidiConfig(prev => ({ ...prev, ...newConfig })); }, []);
+  
+  const updateMetronomeConfig = useCallback((newConfig: Partial<MetronomeConfig>) => {
+      setMetronomeConfig(prev => {
+          const next = { ...prev, ...newConfig };
+          if (metronomeGain.current && newConfig.volume !== undefined) {
+              metronomeGain.current.gain.rampTo(newConfig.volume, 0.1);
+          }
+          return next;
+      });
+  }, []);
 
   const togglePreviewOriginal = useCallback(() => {
       if (!previewPlayer.current || !previewPlayer.current.buffer.loaded) return;
@@ -1219,35 +1226,79 @@ export const useAudioEngine = () => {
   const setSequencerEditMode = useCallback((mode: 'trigger' | 'ratchet') => setSequencer(prev => ({ ...prev, editMode: mode })), []);
   const setSequencerPlaybackBehavior = useCallback((behavior: 'reset' | 'continue') => setSequencer(prev => ({ ...prev, playbackBehavior: behavior })), []);
   const randomizePattern = useCallback(() => { setSequencer(prev => { const newSteps = prev.steps.map(s => ({ ...s, active: Math.random() > 0.5, sliceIndex: Math.floor(Math.random() * slicesRef.current.length), ratchet: Math.random() > 0.8 ? Math.floor(Math.random() * 3) + 1 : 1 })); return { ...prev, steps: newSteps }; }); }, []);
-  const generateAiBeat = useCallback((complexity: number) => {
-      const slices = slicesRef.current; if (slices.length === 0) return;
-      const kicks = slices.map((s, i) => ({ type: s.type, index: i })).filter(x => x.type === 'kick').map(x => x.index);
-      const snares = slices.map((s, i) => ({ type: s.type, index: i })).filter(x => x.type === 'snare').map(x => x.index);
-      const hats = slices.map((s, i) => ({ type: s.type, index: i })).filter(x => x.type === 'hihat').map(x => x.index);
-      const all = slices.map((_, i) => i);
-      const pick = (arr: number[]) => arr.length > 0 ? arr[Math.floor(Math.random() * arr.length)] : (all[0] || 0);
+  
+  // NEW GEN LOGIC based on complexity slider
+  const generateAiBeat = useCallback((inputComplexity: number) => {
+      // Scale complexity to avoid extreme chaos: 100% on slider = 60% internal complexity
+      const complexity = inputComplexity * 0.6;
+
+      const slices = slicesRef.current;
+      if (slices.length === 0) return;
+
+      const kicks = slices.filter(s => s.type === 'kick').map(s => s.id);
+      const snares = slices.filter(s => s.type === 'snare').map(s => s.id);
+      const hats = slices.filter(s => s.type === 'hihat').map(s => s.id);
+      const percs = slices.filter(s => s.type === 'perc').map(s => s.id);
+      const allIndices = slices.map(s => s.id);
+
+      const getRand = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)];
+      
       setSequencer(prev => {
           const newSteps = prev.steps.map((step, i) => {
-              let active = false; let sliceIndex = 0; let ratchet = 1;
-              const isDownbeat = i % 4 === 0; const isBackbeat = i % 8 === 4; const isEighth = i % 2 === 0;
-              if (complexity < 0.35) {
-                  if (isDownbeat) { active = true; sliceIndex = pick(kicks); }
-                  if (isBackbeat) { active = true; sliceIndex = pick(snares); }
-                  if (isEighth && !isDownbeat) { active = true; sliceIndex = pick(hats); }
-              } else if (complexity < 0.75) {
-                  if (i === 0) { active = true; sliceIndex = pick(kicks); }
-                  if (isBackbeat) { active = true; sliceIndex = pick(snares); }
-                  if (isEighth && !isDownbeat && !isBackbeat && Math.random() < 0.3) { active = true; sliceIndex = pick(kicks); }
-                  if (isEighth && Math.random() < 0.6 && !active) { active = true; sliceIndex = pick(hats); }
+              // 1. Determine Activity (Density)
+              // Base probability map for 4/4 house/techno/breakbeat structure
+              let probability = 0;
+              
+              const stepInBar = i % 16;
+              const isDownbeat = i % 4 === 0; // 0, 4, 8, 12, 16, 20...
+              const isBackbeat = stepInBar === 4 || stepInBar === 12;
+              const isOffbeat = i % 2 !== 0; // 1, 3, 5...
+
+              if (isDownbeat) probability = 0.95 - (complexity * 0.4); // Downbeats less certain at high chaos
+              else if (isOffbeat) probability = 0.1 + (complexity * 0.8); // Offbeats more likely at high chaos
+              else probability = 0.4 + (complexity * 0.3); // Eighth notes
+
+              const active = Math.random() < probability;
+
+              if (!active) return { ...step, active: false, ratchet: 1 };
+
+              // 2. Determine Slice Type
+              let sliceIndex = 0;
+              const rand = Math.random();
+
+              // Logic morphs from structured (House/Break) to Random
+              if (complexity < 0.4) {
+                  // Structured
+                  if (isBackbeat) sliceIndex = snares.length ? getRand(snares) : getRand(allIndices);
+                  else if (stepInBar === 0 || stepInBar === 8) sliceIndex = kicks.length ? getRand(kicks) : getRand(allIndices);
+                  else sliceIndex = hats.length ? getRand(hats) : (percs.length ? getRand(percs) : getRand(allIndices));
+              } else if (complexity < 0.7) {
+                  // Break / Syncopated
+                  // More chance of kicks on offbeats, snares ghosting
+                  if (rand < 0.3) sliceIndex = kicks.length ? getRand(kicks) : 0;
+                  else if (rand < 0.6) sliceIndex = snares.length ? getRand(snares) : 0;
+                  else sliceIndex = hats.length ? getRand(hats) : 0;
               } else {
-                  if (Math.random() < (complexity * 0.7)) { active = true; sliceIndex = pick(all); if (Math.random() < 0.3) ratchet = Math.floor(Math.random() * 3) + 2; }
+                  // Chaos
+                  sliceIndex = getRand(allIndices);
               }
-              if (active && sliceIndex >= slicesRef.current.length) sliceIndex = 0;
-              return { ...step, active, sliceIndex, ratchet };
+
+              // Fallback if empty arrays
+              if (sliceIndex === undefined) sliceIndex = getRand(allIndices);
+
+              // 3. Ratchets / Rolls
+              let ratchet = 1;
+              if (active && Math.random() < (complexity * 0.5)) {
+                  ratchet = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
+              }
+
+              return { ...step, active: true, sliceIndex, ratchet };
           });
+
           return { ...prev, steps: newSteps };
       });
   }, []);
+
   const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
   const toggleSliceActive = useCallback((index: number) => { setSlices(prev => { const newSlices = [...prev]; if (newSlices[index]) newSlices[index] = { ...newSlices[index], isActive: !newSlices[index].isActive }; return newSlices; }); }, []);
   const updateSlice = useCallback((index: number, changes: Partial<Slice>) => { setSlices(prev => { const newSlices = [...prev]; if (newSlices[index]) newSlices[index] = { ...newSlices[index], ...changes }; return newSlices; }); }, []);
@@ -1260,6 +1311,7 @@ export const useAudioEngine = () => {
   return {
     isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId, currentPresetId, midiConfig, midiInputs, midiOutputs,
     midiDebug: { log: midiLogRef, clockCount: midiClockCountRef, clockDeltas: midiClockDeltasRef },
-    loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig
+    metronomeConfig,
+    loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig
   };
 };

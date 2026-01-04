@@ -22,6 +22,8 @@ interface WaveformDisplayProps {
     onPreviewToggle: () => void;
     isPreviewing: boolean;
     isProMode: boolean;
+    onUploadClick?: () => void;
+    onOpenLibrary?: () => void;
 }
 
 const WaveformDisplay: React.FC<WaveformDisplayProps> = ({ 
@@ -31,7 +33,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     playerRef, 
     slices, 
     sequencer, 
-    selectedSliceIndex,
+    selectedSliceIndex, 
     onSliceSelect,
     onSliceToggle,
     onRegionSlice,
@@ -39,7 +41,9 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     onSliceTypeChange,
     onPreviewToggle,
     isPreviewing,
-    isProMode
+    isProMode,
+    onUploadClick,
+    onOpenLibrary
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
@@ -313,16 +317,32 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                     else if (slice.type === 'perc') typeLabel = 'P';
                     
                     if (w > 20 && slice.isActive) {
-                        g.append('rect')
+                        // Clickable Type Button Wrapper
+                        const typeBtn = g.append('g')
+                            .attr('class', 'type-btn')
+                            .attr('cursor', 'pointer'); // Ensure pointer cursor
+
+                        // Add click handler for cycling type
+                        typeBtn.on('click', (e: any) => {
+                            e.stopPropagation(); // Prevent slice play/select
+                            const types: SliceType[] = ['kick', 'snare', 'hihat', 'perc'];
+                            const currentIdx = types.indexOf(slice.type);
+                            const nextType = types[(currentIdx + 1) % types.length];
+                            onSliceTypeChange(index, nextType);
+                        });
+
+                        typeBtn.append('rect')
                             .attr('x', xPos + 2)
                             .attr('y', height - 14)
                             .attr('width', 12)
                             .attr('height', 12)
                             .attr('rx', 2)
                             .attr('fill', color)
-                            .attr('opacity', 0.8);
+                            .attr('opacity', 0.8)
+                            .attr('stroke', 'rgba(255,255,255,0.3)') // Subtle stroke
+                            .attr('stroke-width', 0.5);
 
-                        g.append('text')
+                        typeBtn.append('text')
                             .attr('x', xPos + 8)
                             .attr('y', height - 5)
                             .attr('text-anchor', 'middle')
@@ -330,11 +350,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                             .attr('font-size', '10px')
                             .attr('font-weight', 'bold')
                             .text(typeLabel);
+                            
+                        typeBtn.append('title')
+                            .text(`Type: ${slice.type.toUpperCase()}. Click to cycle.`);
                     }
                 }
             });
         }
-    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle, onPlaySlice, isProMode]);
+    }, [slices, selectedSliceIndex, containerWidth, zoom, audioBuffer, onSliceSelect, onSliceToggle, onPlaySlice, isProMode, onSliceTypeChange]);
 
     // 3. Draw Playback Highlight
     useEffect(() => {
@@ -446,10 +469,31 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 className={`w-full h-48 bg-[#0a0d14] rounded-xl border border-white/10 overflow-x-auto overflow-y-hidden relative scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent ${isProMode ? 'cursor-crosshair' : 'cursor-pointer'} shadow-inner`}
             >
                 {!audioBuffer && (
-                    <div className="w-full h-full flex items-center justify-center text-star-dust/50 absolute top-0 left-0">
-                        <div className="flex flex-col items-center gap-2">
-                            <span className="text-2xl opacity-50">🌊</span>
-                            <p className="text-xs font-bold uppercase tracking-wider">Load sample to view waveform</p>
+                    <div className="w-full h-full flex items-center justify-center absolute top-0 left-0 z-10 bg-[#0a0d14]/90 backdrop-blur-sm p-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-xl animate-in zoom-in-95 duration-300">
+                            {/* Option 1: Upload (Was Option 2) */}
+                            <button 
+                                onClick={onUploadClick}
+                                className="group rounded-xl border border-white/10 hover:border-hyper-cyan transition-all duration-300 h-32 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-white/5 to-white/0 hover:to-hyper-cyan/5"
+                            >
+                                <div className="w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-2xl group-hover:scale-110 transition-transform shadow-lg">📂</div>
+                                <div>
+                                    <span className="block text-sm font-bold text-white uppercase tracking-wider">Upload File</span>
+                                    <span className="block text-[10px] text-star-dust/70">WAV / MP3</span>
+                                </div>
+                            </button>
+
+                            {/* Option 2: Library (Was Option 3) */}
+                            <button 
+                                onClick={onOpenLibrary}
+                                className="group rounded-xl border border-white/10 hover:border-plasma-pink transition-all duration-300 h-32 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-white/5 to-white/0 hover:to-plasma-pink/5"
+                            >
+                                <div className="w-12 h-12 rounded-full bg-plasma-pink/20 text-plasma-pink flex items-center justify-center text-2xl group-hover:scale-110 transition-transform shadow-lg">📚</div>
+                                <div>
+                                    <span className="block text-sm font-bold text-white uppercase tracking-wider">Library</span>
+                                    <span className="block text-[10px] text-star-dust/70">Browse Community</span>
+                                </div>
+                            </button>
                         </div>
                     </div>
                 )}
@@ -463,7 +507,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
             </div>
              
              {/* Controls Bar - HIDDEN IN SIMPLE MODE to reduce clutter */}
-             {isProMode && (
+             {isProMode && audioBuffer && (
                  <div className="flex flex-col sm:flex-row justify-between items-center gap-2 p-1.5 bg-deep-space/30 rounded-lg border border-white/5 animate-in slide-in-from-top-2 duration-300">
                      
                      <div className="flex items-center gap-2">
@@ -477,7 +521,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                         >
                             {isPreviewing ? 'Stop Preview' : 'Preview Original'}
                         </button>
-                        <InfoIcon text="Click & Drag on waveform to re-slice (Pro Mode). Double-click a slice to mute/unmute." />
+                        <InfoIcon text="Click & Drag on waveform to re-slice (Pro Mode). Double-click a slice to mute/unmute. Click the type label (K, S, H, P) on a slice to cycle types." />
                      </div>
 
                      {/* Classification Buttons */}

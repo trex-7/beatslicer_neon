@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { MidiConfig, MidiDevice } from '../types';
+import type { MidiConfig, MidiDevice, MetronomeConfig } from '../types';
 import Tooltip from './Tooltip';
 
 interface TransportProps {
@@ -18,6 +18,8 @@ interface TransportProps {
     midiInputs: MidiDevice[];
     midiOutputs: MidiDevice[];
     onMidiConfigChange: (config: Partial<MidiConfig>) => void;
+    metronomeConfig?: MetronomeConfig;
+    onMetronomeConfigChange?: (config: Partial<MetronomeConfig>) => void;
 }
 
 const Transport: React.FC<TransportProps> = ({
@@ -34,15 +36,22 @@ const Transport: React.FC<TransportProps> = ({
     midiConfig,
     midiInputs,
     midiOutputs,
-    onMidiConfigChange
+    onMidiConfigChange,
+    metronomeConfig,
+    onMetronomeConfigChange
 }) => {
     const [showMidi, setShowMidi] = useState(false);
+    const [showMetronome, setShowMetronome] = useState(false);
     const midiRef = useRef<HTMLDivElement>(null);
+    const metronomeRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (midiRef.current && !midiRef.current.contains(event.target as Node)) {
                 setShowMidi(false);
+            }
+            if (metronomeRef.current && !metronomeRef.current.contains(event.target as Node)) {
+                setShowMetronome(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -141,125 +150,147 @@ const Transport: React.FC<TransportProps> = ({
                 </div>
             </div>
 
-            {/* MIDI Controls */}
-            <div className="relative w-full md:w-auto lg:w-full" ref={midiRef}>
-                <button 
-                    onClick={() => setShowMidi(!showMidi)}
-                    className={`h-10 px-4 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all w-full ${midiConfig.enabled ? 'bg-hyper-cyan/10 text-hyper-cyan border-hyper-cyan/50 shadow-[0_0_10px_rgba(0,246,255,0.1)]' : 'bg-black/40 text-star-dust border-white/10 hover:border-white/30'}`}
-                >
-                    <span className="text-lg">🎹</span> MIDI
-                    {midiConfig.enabled && isPlaying && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse ml-auto"></span>}
-                </button>
-
-                {showMidi && (
-                    <div className="absolute left-0 top-full mt-2 w-full md:w-72 bg-[#1a1f2b] border border-white/20 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
-                        <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
-                            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                                MIDI Config
-                                <span className={`text-[10px] px-1.5 rounded uppercase ${midiConfig.enabled ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/30'}`}>{midiConfig.enabled ? 'Active' : 'Off'}</span>
-                            </h4>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={midiConfig.enabled} onChange={(e) => onMidiConfigChange({ enabled: e.target.checked })} className="sr-only peer" />
-                                <div className="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-hyper-cyan"></div>
-                            </label>
+            {/* Tools (Metronome & MIDI) */}
+            <div className="flex gap-2 w-full md:w-auto lg:w-full">
+                
+                {/* Metronome */}
+                {metronomeConfig && onMetronomeConfigChange && (
+                    <div className="relative flex-1" ref={metronomeRef}>
+                        <button 
+                            onClick={() => onMetronomeConfigChange({ enabled: !metronomeConfig.enabled })}
+                            onContextMenu={(e) => { e.preventDefault(); setShowMetronome(!showMetronome); }}
+                            className={`h-10 px-3 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all w-full ${metronomeConfig.enabled ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.1)]' : 'bg-black/40 text-star-dust border-white/10 hover:border-white/30'}`}
+                        >
+                            <span className="text-lg">⏲</span>
+                        </button>
+                        
+                        {/* Settings Popover (Right Click or via UI?) -> Let's add a small arrow or just toggle on right click */}
+                        <div className="absolute top-0 right-0 -mr-1 -mt-1">
+                             <button onClick={(e) => { e.stopPropagation(); setShowMetronome(!showMetronome); }} className="w-4 h-4 bg-[#1a1f2b] border border-white/20 rounded-full flex items-center justify-center text-[8px] text-white hover:bg-white/20">
+                                ▼
+                             </button>
                         </div>
 
-                        <div className={`space-y-4 ${!midiConfig.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
-                            {/* Inputs */}
-                            <div className="space-y-1">
-                                <label className="text-[10px] uppercase font-bold text-star-dust flex items-center gap-1">
-                                    <span>⬇️</span> Input Device (Control)
-                                </label>
-                                <select 
-                                    value={midiConfig.inputPortId} 
-                                    onChange={(e) => onMidiConfigChange({ inputPortId: e.target.value })}
-                                    className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
-                                >
-                                    <option value="">None</option>
-                                    {midiInputs.map(input => (
-                                        <option key={input.id} value={input.id}>{input.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="pt-2 border-t border-white/5 space-y-1">
-                                <label className="text-[10px] uppercase font-bold text-star-dust flex items-center gap-1">
-                                    <span>⬆️</span> Sync Target (Output)
-                                </label>
-                                <select 
-                                    value={midiConfig.outputPortId} 
-                                    onChange={(e) => onMidiConfigChange({ outputPortId: e.target.value })}
-                                    className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
-                                >
-                                    <option value="">All Connected Devices</option>
-                                    {midiOutputs.map(output => (
-                                        <option key={output.id} value={output.id}>{output.name}</option>
-                                    ))}
-                                </select>
-                                <div className="text-[10px] text-white/30 px-1">Sends Clock & Transport</div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-star-dust">Clock Rate (PPQ)</label>
-                                    <select 
-                                        value={midiConfig.ppq} 
-                                        onChange={(e) => onMidiConfigChange({ ppq: parseInt(e.target.value) })}
-                                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
-                                    >
-                                        <option value="12">12 (Half)</option>
-                                        <option value="24">24 (Standard)</option>
-                                        <option value="48">48 (Double)</option>
-                                        <option value="96">96 (Quad)</option>
-                                    </select>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-star-dust">Sync Mode</label>
-                                    <select 
-                                        value={midiConfig.clockSource} 
-                                        onChange={(e) => onMidiConfigChange({ clockSource: e.target.value as any })}
-                                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
-                                    >
-                                        <option value="internal">Master (Send)</option>
-                                        <option value="external" disabled>Slave (Receive)</option>
-                                    </select>
+                        {showMetronome && (
+                            <div className="absolute left-0 top-full mt-2 w-48 bg-[#1a1f2b] border border-white/20 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95">
+                                <h4 className="text-xs font-bold text-white mb-2 flex items-center gap-2">Metronome <span className="text-yellow-500 text-[10px]">{metronomeConfig.enabled ? 'ON' : 'OFF'}</span></h4>
+                                <div className="space-y-2">
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-star-dust flex justify-between">
+                                            Volume <span>{Math.round(metronomeConfig.volume * 100)}%</span>
+                                        </label>
+                                        <input 
+                                            type="range" 
+                                            min="0" max="1" step="0.01" 
+                                            value={metronomeConfig.volume} 
+                                            onChange={(e) => onMetronomeConfigChange({ volume: parseFloat(e.target.value) })}
+                                            className="w-full h-1.5 bg-black/40 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
+                                        />
+                                    </div>
+                                    <div className="text-[10px] text-white/30 italic">
+                                        Click sounds on 1/4 notes. High pitch on downbeat.
+                                    </div>
                                 </div>
                             </div>
-                            
-                            <div className="pt-2 border-t border-white/5 space-y-1">
-                                <div className="flex justify-between items-center">
-                                    <label className="text-[10px] uppercase font-bold text-star-dust">Sync Shift</label>
-                                    <span className="text-[10px] font-mono text-hyper-cyan">{midiConfig.clockOffset > 0 ? '+' : ''}{midiConfig.clockOffset}ms</span>
-                                </div>
-                                <input 
-                                    type="range" 
-                                    min="-200" 
-                                    max="200" 
-                                    step="1" 
-                                    value={midiConfig.clockOffset || 0}
-                                    onChange={(e) => onMidiConfigChange({ clockOffset: parseInt(e.target.value) })}
-                                    className="w-full h-1.5 bg-black/40 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
-                                    onDoubleClick={() => onMidiConfigChange({ clockOffset: 0 })}
-                                />
-                                <div className="text-[10px] text-white/30 px-1 flex justify-between">
-                                    <span>Eariler</span>
-                                    <span>Later</span>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col gap-2 mt-3 pt-2 border-t border-white/5 bg-black/20 p-2 rounded">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" checked={midiConfig.sendClock} onChange={(e) => onMidiConfigChange({ sendClock: e.target.checked })} className="w-3 h-3 rounded bg-black/40 border-white/30 checked:bg-hyper-cyan appearance-none border checked:border-hyper-cyan" />
-                                    <span className="text-xs text-white font-bold">Send Clock (0xF8)</span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" checked={midiConfig.sendTransport} onChange={(e) => onMidiConfigChange({ sendTransport: e.target.checked })} className="w-3 h-3 rounded bg-black/40 border-white/30 checked:bg-hyper-cyan appearance-none border checked:border-hyper-cyan" />
-                                    <span className="text-xs text-white font-bold">Send Transport (Start/Stop)</span>
-                                </label>
-                            </div>
-                        </div>
+                        )}
                     </div>
                 )}
+
+                {/* MIDI Controls */}
+                <div className="relative flex-[1.5]" ref={midiRef}>
+                    <button 
+                        onClick={() => setShowMidi(!showMidi)}
+                        className={`h-10 px-4 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all w-full ${midiConfig.enabled ? 'bg-hyper-cyan/10 text-hyper-cyan border-hyper-cyan/50 shadow-[0_0_10px_rgba(0,246,255,0.1)]' : 'bg-black/40 text-star-dust border-white/10 hover:border-white/30'}`}
+                    >
+                        <span className="text-lg">🎹</span> MIDI
+                        {midiConfig.enabled && isPlaying && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse ml-auto"></span>}
+                    </button>
+
+                    {showMidi && (
+                        <div className="absolute left-0 top-full mt-2 w-64 bg-[#1a1f2b] border border-white/20 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
+                            <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                    MIDI Config
+                                    <span className={`text-[10px] px-1.5 rounded uppercase ${midiConfig.enabled ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/30'}`}>{midiConfig.enabled ? 'Active' : 'Off'}</span>
+                                </h4>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={midiConfig.enabled} onChange={(e) => onMidiConfigChange({ enabled: e.target.checked })} className="sr-only peer" />
+                                    <div className="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-hyper-cyan"></div>
+                                </label>
+                            </div>
+
+                            <div className={`space-y-4 ${!midiConfig.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                                {/* Inputs */}
+                                <div className="space-y-1">
+                                    <label className="text-[10px] uppercase font-bold text-star-dust flex items-center gap-1">
+                                        <span>⬇️</span> Input Device (Control)
+                                    </label>
+                                    <select 
+                                        value={midiConfig.inputPortId} 
+                                        onChange={(e) => onMidiConfigChange({ inputPortId: e.target.value })}
+                                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
+                                    >
+                                        <option value="">None</option>
+                                        {midiInputs.map(input => (
+                                            <option key={input.id} value={input.id}>{input.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="pt-2 border-t border-white/5 space-y-1">
+                                    <label className="text-[10px] uppercase font-bold text-star-dust flex items-center gap-1">
+                                        <span>⬆️</span> Sync Target (Output)
+                                    </label>
+                                    <select 
+                                        value={midiConfig.outputPortId} 
+                                        onChange={(e) => onMidiConfigChange({ outputPortId: e.target.value })}
+                                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
+                                    >
+                                        <option value="">All Connected Devices</option>
+                                        {midiOutputs.map(output => (
+                                            <option key={output.id} value={output.id}>{output.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] uppercase font-bold text-star-dust">Clock Rate</label>
+                                        <select 
+                                            value={midiConfig.ppq} 
+                                            onChange={(e) => onMidiConfigChange({ ppq: parseInt(e.target.value) })}
+                                            className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
+                                        >
+                                            <option value="24">24 PPQ</option>
+                                            <option value="48">48 PPQ</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] uppercase font-bold text-star-dust">Mode</label>
+                                        <select 
+                                            value={midiConfig.clockSource} 
+                                            onChange={(e) => onMidiConfigChange({ clockSource: e.target.value as any })}
+                                            className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-hyper-cyan"
+                                        >
+                                            <option value="internal">Master</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex flex-col gap-2 mt-3 pt-2 border-t border-white/5 bg-black/20 p-2 rounded">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={midiConfig.sendClock} onChange={(e) => onMidiConfigChange({ sendClock: e.target.checked })} className="w-3 h-3 rounded bg-black/40 border-white/30 checked:bg-hyper-cyan appearance-none border checked:border-hyper-cyan" />
+                                        <span className="text-xs text-white font-bold">Send Clock</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={midiConfig.sendTransport} onChange={(e) => onMidiConfigChange({ sendTransport: e.target.checked })} className="w-3 h-3 rounded bg-black/40 border-white/30 checked:bg-hyper-cyan appearance-none border checked:border-hyper-cyan" />
+                                        <span className="text-xs text-white font-bold">Send Transport</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

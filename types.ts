@@ -27,6 +27,7 @@ export interface GranularSynthParams {
   attack: number;
   release: number;
   sustain: number;
+  swing: number; // 0 to 1
 }
 
 export interface ReverbParams {
@@ -143,6 +144,11 @@ export interface MidiConfig {
     clockOffset: number; // Latency compensation in ms
 }
 
+export interface MetronomeConfig {
+    enabled: boolean;
+    volume: number;
+}
+
 export interface Preset {
   id: string;
   name: string;
@@ -217,6 +223,33 @@ export interface Database {
           url: string;
           is_public?: boolean;
           is_factory?: boolean;
+        };
+      };
+      kits: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          is_public: boolean;
+          is_factory: boolean;
+          created_at: string;
+          profiles?: { username: string };
+        };
+        Insert: {
+          user_id: string;
+          name: string;
+          is_public?: boolean;
+          is_factory?: boolean;
+        };
+      };
+      kit_samples: {
+        Row: {
+          kit_id: string;
+          sample_id: string;
+        };
+        Insert: {
+          kit_id: string;
+          sample_id: string;
         };
       };
       feedback: {

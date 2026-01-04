@@ -65,7 +65,9 @@ const App: React.FC = () => {
         toggleLoop,
         stepForward,
         stepBackward,
-        updateMidiConfig
+        updateMidiConfig,
+        metronomeConfig,
+        updateMetronomeConfig
     } = useAudioEngine();
     
     const [isProMode, setIsProMode] = useState(true);
@@ -78,6 +80,7 @@ const App: React.FC = () => {
 
     // Hidden input for File Menu triggers
     const presetInputRef = useRef<HTMLInputElement>(null);
+    const audioInputRef = useRef<HTMLInputElement>(null);
 
     // Auth State Management
     useEffect(() => {
@@ -166,6 +169,7 @@ const App: React.FC = () => {
              
             {/* Hidden Inputs for Menu Bar Triggers */}
             <input type="file" accept=".json" ref={presetInputRef} onChange={async (e) => { if(e.target.files?.[0]) { const txt = await e.target.files[0].text(); importPreset(txt); } e.target.value=''; }} className="hidden" />
+            <input type="file" accept="audio/*" ref={audioInputRef} onChange={(e) => { if(e.target.files?.[0]) loadAudioFile(e.target.files[0]); e.target.value=''; }} className="hidden" />
 
             {/* Dialogs */}
             <SaveDialog 
@@ -290,6 +294,8 @@ const App: React.FC = () => {
                                         midiInputs={midiInputs}
                                         midiOutputs={midiOutputs}
                                         onMidiConfigChange={updateMidiConfig}
+                                        metronomeConfig={metronomeConfig}
+                                        onMetronomeConfigChange={updateMetronomeConfig}
                                     />
 
                                     {/* Effects Rack (DESKTOP LOCATION - Hidden on Mobile) */}
@@ -334,6 +340,8 @@ const App: React.FC = () => {
                                             onPreviewToggle={togglePreviewOriginal}
                                             isPreviewing={isPreviewPlaying}
                                             isProMode={true}
+                                            onUploadClick={() => audioInputRef.current?.click()}
+                                            onOpenLibrary={() => setIsLibraryOpen(true)}
                                        />
                                    </div>
                                     
@@ -451,6 +459,8 @@ const App: React.FC = () => {
                                                 onPreviewToggle={togglePreviewOriginal}
                                                 isPreviewing={isPreviewPlaying}
                                                 isProMode={false}
+                                                onUploadClick={() => audioInputRef.current?.click()}
+                                                onOpenLibrary={() => setIsLibraryOpen(true)}
                                             />
                                         </CollapsibleSection>
 

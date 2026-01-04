@@ -1,7 +1,7 @@
 
-# Granular Synth FX - Beta User Guide
+# Beat Slicer - Beta User Guide
 
-**Granular Synth FX** is an advanced browser-based granular synthesizer and effects processor. It uses `AudioWorklet` technology for sample-accurate timing and low-latency performance.
+**Beat Slicer** is an advanced browser-based granular synthesizer and effects processor. It uses `AudioWorklet` technology for sample-accurate timing and low-latency performance.
 
 ## 🚀 Getting Started
 
@@ -52,7 +52,7 @@ The app connects to a cloud database for saving your creations and sharing sampl
 
 ## 🎹 MIDI Integration
 
-Granular Synth FX supports Web MIDI API for hardware integration.
+Beat Slicer supports Web MIDI API for hardware integration.
 
 **Setup:**
 1.  Connect your MIDI device.

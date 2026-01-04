@@ -271,6 +271,13 @@ const SystemMonitor: React.FC<SystemMonitorProps> = ({ isOpen, onClose, stats })
                             <pre>{"State snapshot available via Copy button"}</pre>
                         </div>
                     </div>
+
+                    {/* Credits Footer */}
+                    <div className="pt-6 mt-6 border-t border-white/5 text-center">
+                        <p className="text-[10px] text-star-dust/40">
+                            Developed by <span className="text-hyper-cyan/60 font-bold">Sandro Mancino</span> • <a href="mailto:sandromancino.sm@gmail.com" className="hover:text-white transition-colors">sandromancino.sm@gmail.com</a>
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

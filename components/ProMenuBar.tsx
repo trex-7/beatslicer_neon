@@ -166,9 +166,9 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 {/* Logo Area */}
                 <div className="mr-3 flex items-center gap-2 pr-3 border-r border-white/5">
                     <div className="w-5 h-5 bg-gradient-to-br from-hyper-cyan to-blue-600 rounded flex items-center justify-center text-[10px] font-black text-deep-space">
-                        GFX
+                        BS
                     </div>
-                    <span className="text-xs font-bold text-white tracking-wide">GRANULAR</span>
+                    <span className="text-xs font-bold text-white tracking-wide">BEAT SLICER</span>
                 </div>
 
                 {/* File Menu */}
@@ -205,6 +205,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
                 {/* Help Menu */}
                 <MenuDropdown label="HELP">
+                    <MenuItem label="Credits" onClick={() => alert("Beat Slicer\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
                     <MenuItem 
                         label="Report Issue / Feedback" 
                         onClick={onReportIssue}
@@ -224,6 +225,10 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
             {/* Right Side: Auth / Info */}
             <div className="flex items-center gap-3">
+                 <div className="hidden lg:block text-[9px] text-white/30 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
+                    <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
+                    <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
+                 </div>
                  <div className="hidden sm:flex items-center gap-2 text-[10px] text-star-dust/50">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
                     <span className="max-w-[100px] truncate">{sampleName}</span>

@@ -17,7 +17,7 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
             {/* Left: Logo */}
             <div className="flex items-center gap-3">
                 <h1 className="text-xl md:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-hyper-cyan to-plasma-pink tracking-tight drop-shadow-sm select-none">
-                    GRANULAR FX
+                    BEAT SLICER
                 </h1>
                 <InfoIcon text="Granular Synthesizer & Effect Processor. Switch between Play mode for performance and Pro mode for deep editing." position="right" />
             </div>
@@ -62,8 +62,8 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                      <Auth user={user} />
                      
                      <div className="hidden md:block text-[10px] text-white/30 font-mono text-right mr-2 leading-tight border-l border-white/10 pl-3">
-                        v2.4.0<br/>
-                        <a href="mailto:support@granularfx.com?subject=Beta Feedback" className="text-hyper-cyan hover:underline">Report Issue</a>
+                        <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
+                        <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
                     </div>
                     <Tooltip text="System Monitor & Specs">
                         <button 
@@ -71,7 +71,7 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                             className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-star-dust hover:text-hyper-cyan hover:border-hyper-cyan hover:bg-white/10 transition-all shadow-md active:scale-95"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                             </svg>
                         </button>
                     </Tooltip>

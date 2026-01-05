@@ -104,9 +104,13 @@ const App: React.FC = () => {
     // Startup: Check Quickstart Video Preference with Delay
     useEffect(() => {
         const timer = setTimeout(() => {
-            const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v2');
+            const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v3');
+            console.log('Checking demo prompt, hasSeen:', hasSeen);
             if (hasSeen !== 'true') {
+                console.log('Opening prompt');
                 setIsPromptOpen(true);
+            } else {
+                console.log('Prompt skipped, already seen');
             }
         }, 1500); // 1.5s delay to ensure app is settled
 
@@ -218,7 +222,7 @@ const App: React.FC = () => {
             <DemoPromptDialog
                 isOpen={isPromptOpen}
                 onWatchDemo={() => { setIsPromptOpen(false); setIsVideoDialogOpen(true); }}
-                onSkip={() => { setIsPromptOpen(false); localStorage.setItem('beat_slicer_quickstart_seen_v2', 'true'); }}
+                onSkip={() => { setIsPromptOpen(false); localStorage.setItem('beat_slicer_quickstart_seen_v3', 'true'); }}
             />
 
             {/* Global Library Manager Modal */}

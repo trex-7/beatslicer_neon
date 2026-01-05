@@ -7,7 +7,7 @@ interface VideoTutorialDialogProps {
     onClose: () => void;
 }
 
-const STORAGE_KEY = 'beat_slicer_quickstart_seen_v2';
+const STORAGE_KEY = 'beat_slicer_quickstart_seen_v3';
 
 const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClose }) => {
     const [dontShowAgain, setDontShowAgain] = useState(false);

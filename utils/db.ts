@@ -12,6 +12,8 @@ export interface CloudItem {
     isFactory?: boolean;
     isPublic?: boolean;
     _userId?: string;
+    description?: string;
+    imageUrl?: string;
 }
 
 export interface FeedbackItem {
@@ -65,7 +67,7 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
         const publicKitsPromise = supabase
             .from('kits')
             .select(`
-                id, name, user_id, is_public, is_factory, created_at, profiles(username),
+                id, name, description, cover_image_url, user_id, is_public, is_factory, created_at, profiles(username),
                 kit_samples (
                     sample:samples (id, title, url, user_id, is_public, is_factory)
                 )
@@ -98,7 +100,7 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
             userKitsPromise = supabase
                 .from('kits')
                 .select(`
-                    id, name, user_id, is_public, is_factory, created_at, profiles(username),
+                    id, name, description, cover_image_url, user_id, is_public, is_factory, created_at, profiles(username),
                     kit_samples (
                         sample:samples (id, title, url, user_id, is_public, is_factory)
                     )
@@ -160,6 +162,8 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
                 _userId: k.user_id,
                 isFactory: k.is_factory,
                 isPublic: k.is_public,
+                description: k.description,
+                imageUrl: k.cover_image_url,
                 data: { items: children }
             };
         };
@@ -208,12 +212,14 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
 
 // --- Kit Management ---
 
-export const createKit = async (userId: string, kitName: string, isFactory: boolean, isPublic: boolean): Promise<string | null> => {
+export const createKit = async (userId: string, kitName: string, isFactory: boolean, isPublic: boolean, description: string = "", coverImageUrl: string = ""): Promise<string | null> => {
     if (!supabase) return null;
     try {
         const { data, error } = await supabase.from('kits').insert({
             user_id: userId,
-            name: kitName, // Use 'name' column
+            name: kitName, 
+            description: description || null,
+            cover_image_url: coverImageUrl || null,
             is_factory: isFactory,
             is_public: isPublic || isFactory
         }).select('id').single();

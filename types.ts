@@ -83,6 +83,11 @@ export interface BitCrusherParams {
   wet: number;
 }
 
+export interface VinylParams {
+    isActive: boolean;
+    wet: number;
+}
+
 export interface GlitchParams {
   chaos: number;
   allowReverse: boolean;
@@ -99,6 +104,7 @@ export interface EffectParams {
   distortion: DistortionParams;
   compressor: CompressorParams;
   bitCrusher: BitCrusherParams;
+  vinyl: VinylParams;
   glitch: GlitchParams;
 }
 
@@ -230,6 +236,8 @@ export interface Database {
           id: string;
           user_id: string;
           name: string;
+          description: string | null;
+          cover_image_url: string | null;
           is_public: boolean;
           is_factory: boolean;
           created_at: string;
@@ -238,6 +246,8 @@ export interface Database {
         Insert: {
           user_id: string;
           name: string;
+          description?: string | null;
+          cover_image_url?: string | null;
           is_public?: boolean;
           is_factory?: boolean;
         };

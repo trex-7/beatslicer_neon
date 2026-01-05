@@ -13,6 +13,7 @@ import ProMenuBar from './components/ProMenuBar';
 import SaveDialog from './components/SaveDialog';
 import FeedbackDialog from './components/FeedbackDialog';
 import Transport from './components/Transport';
+import Tooltip from './components/Tooltip';
 import { supabase } from './utils/supabaseClient';
 
 declare const Tone: any;
@@ -24,7 +25,7 @@ const App: React.FC = () => {
         isLoading, 
         audioBuffer, 
         params, 
-        sequencer,
+        sequencer, 
         slices,
         selectedSliceIndex,
         sampleName,
@@ -67,7 +68,8 @@ const App: React.FC = () => {
         stepBackward,
         updateMidiConfig,
         metronomeConfig,
-        updateMetronomeConfig
+        updateMetronomeConfig,
+        loadImpulseResponse
     } = useAudioEngine();
     
     const [isProMode, setIsProMode] = useState(true);
@@ -159,6 +161,7 @@ const App: React.FC = () => {
                     isProMode={true}
                     visibleSections={['effects']}
                     effectsLayout="vertical"
+                    onLoadImpulseResponse={loadImpulseResponse}
                 />
             </div>
         </div>
@@ -191,9 +194,10 @@ const App: React.FC = () => {
                 user={user}
             />
 
-            {/* Library Manager (Controlled via State in Pro Mode) */}
+            {/* Global Library Manager Modal */}
             <LibraryManager 
-                variant={isProMode ? 'hidden' : 'transport'} // In Pro Mode, it's hidden and controlled. In Simple Mode, it's inside Transport.
+                isOpen={isLibraryOpen}
+                onClose={() => setIsLibraryOpen(false)}
                 onFileLoad={loadAudioFile}
                 onKitLoad={loadConstructionKit}
                 onDemoLoad={handleDemoLoad}
@@ -204,9 +208,6 @@ const App: React.FC = () => {
                 isLoading={isLoading}
                 sampleName={sampleName}
                 user={user}
-                // External Control Props
-                externalIsOpen={isLibraryOpen}
-                onExternalClose={() => setIsLibraryOpen(false)}
             />
 
             {/* PRO MODE MENU BAR */}
@@ -270,15 +271,10 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         {isProMode ? (
-                            // --- PRO MODE LAYOUT (Standard DAW-like) ---
-                            // Grid Layout for responsive placement:
-                            // Mobile: 1 Column. FX Rack at bottom.
-                            // Desktop: 2 Columns. Sidebar (Transport + FX) on Left.
+                            // --- PRO MODE LAYOUT ---
                             <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-6 items-start">
-                                {/* LEFT COLUMN / TOP SECTION */}
+                                {/* LEFT COLUMN */}
                                 <div className="flex flex-col gap-4 w-full">
-                                    
-                                    {/* Transport (New DAW Style) */}
                                     <Transport 
                                         isPlaying={isPlaying}
                                         isLooping={sequencer.isLooping}
@@ -297,14 +293,12 @@ const App: React.FC = () => {
                                         metronomeConfig={metronomeConfig}
                                         onMetronomeConfigChange={updateMetronomeConfig}
                                     />
-
-                                    {/* Effects Rack (DESKTOP LOCATION - Hidden on Mobile) */}
                                     <div className="hidden lg:block">
                                         {renderFxRack()}
                                     </div>
                                 </div>
 
-                                {/* RIGHT COLUMN / MAIN CONTENT */}
+                                {/* RIGHT COLUMN */}
                                 <div className="flex flex-col gap-6 min-w-0 w-full">
                                    <div className="w-full">
                                        <Sequencer 
@@ -318,7 +312,7 @@ const App: React.FC = () => {
                                             disabled={!audioBuffer || isLoading}
                                             selectedSliceIndex={selectedSliceIndex}
                                             isProMode={true}
-                                            slices={slices} // PASS SLICES HERE
+                                            slices={slices}
                                        />
                                    </div>
 
@@ -361,38 +355,53 @@ const App: React.FC = () => {
                                         audioBuffer={audioBuffer}
                                         isProMode={true}
                                         visibleSections={['slices', 'pattern', 'engine']}
+                                        onLoadImpulseResponse={loadImpulseResponse}
                                       />
                                    </div>
 
-                                   {/* Effects Rack (MOBILE LOCATION - Hidden on Desktop) */}
+                                   {/* Effects Rack (MOBILE LOCATION) */}
                                    <div className="block lg:hidden w-full">
                                         {renderFxRack()}
                                    </div>
                                 </div>
                             </div>
                         ) : (
-                            // --- SIMPLE MODE LAYOUT (Standard) ---
+                            // --- SIMPLE MODE LAYOUT ---
                             <div className="w-full space-y-4">
                                 {/* Transport Bar */}
                                 <div className="w-full bg-[#12161d] rounded-2xl border border-white/5 shadow-2xl flex flex-row items-center p-1.5 h-20 gap-2 relative overflow-hidden group">
                                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-hyper-cyan via-purple-500 to-plasma-pink opacity-50"></div>
                                      
-                                     <div className="flex-none w-1/3 sm:w-auto min-w-[150px] pl-1 sm:pl-2">
-                                         {/* Simple Mode still uses the legacy variant logic for Transport view */}
-                                         <LibraryManager 
-                                            variant="transport"
-                                            onFileLoad={loadAudioFile}
-                                            onKitLoad={loadConstructionKit}
-                                            onDemoLoad={handleDemoLoad}
-                                            onExport={exportPreset}
-                                            onImport={importPreset}
-                                            onLoadPreset={loadPreset}
-                                            getAudioWav={getAudioWav}
-                                            isLoading={isLoading}
-                                            sampleName={sampleName}
-                                            className="h-full w-full"
-                                            user={user}
-                                        />
+                                     <div className="flex-none w-1/3 sm:w-auto min-w-[150px] pl-1 sm:pl-2 h-full flex items-center">
+                                         {/* Simple Mode Library Trigger Widget */}
+                                         <div className="flex items-center gap-3 h-full w-full">
+                                             <div 
+                                                onClick={() => audioInputRef.current?.click()}
+                                                className="flex items-center gap-3 min-w-0 cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors group/load"
+                                            >
+                                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)] shrink-0 group-hover/load:scale-105 transition-transform">
+                                                    📂
+                                                </div>
+                                                <div className="flex flex-col min-w-0 justify-center">
+                                                    <div className="text-white font-bold text-lg outline-none placeholder-white/20 w-32 md:w-48 truncate">My Groove</div>
+                                                    <div className="text-[10px] text-star-dust truncate flex items-center gap-1.5">
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${audioBuffer ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                                                        <span className="opacity-70">Sample:</span>
+                                                        <span className="text-hyper-cyan truncate max-w-[100px]">{sampleName || 'None'}</span>
+                                                    </div>
+                                                </div>
+                                             </div>
+                                             <div className="h-8 w-px bg-white/10 mx-1 hidden sm:block"></div>
+                                             <Tooltip text="Open Database Manager">
+                                                 <button 
+                                                    onClick={() => setIsLibraryOpen(true)}
+                                                    className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0"
+                                                >
+                                                    <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
+                                                    <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">BROWSE DB</span>
+                                                 </button>
+                                             </Tooltip>
+                                        </div>
                                      </div>
 
                                      <div className="flex-1 flex items-center justify-center pr-1 sm:pr-2 h-full py-1">
@@ -417,7 +426,6 @@ const App: React.FC = () => {
                                 </div>
 
                                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 w-full">
-                                    {/* Left Column: Sound Macros */}
                                     <div className="lg:col-span-1 order-2 lg:order-1 h-full">
                                         <CollapsibleSection title="Sound Macros" icon="🎛️" className="h-full">
                                             <ControlPanel 
@@ -435,11 +443,11 @@ const App: React.FC = () => {
                                                 audioBuffer={audioBuffer}
                                                 isProMode={false}
                                                 simpleView="macros"
+                                                onLoadImpulseResponse={loadImpulseResponse}
                                             />
                                         </CollapsibleSection>
                                     </div>
 
-                                    {/* Right Column: Visuals & Sequencing */}
                                     <div className="lg:col-span-3 order-1 lg:order-2 flex flex-col gap-4">
                                         <CollapsibleSection title="Waveform" icon="🌊">
                                             <WaveformDisplay 
@@ -480,6 +488,7 @@ const App: React.FC = () => {
                                                 audioBuffer={audioBuffer}
                                                 isProMode={false}
                                                 simpleView="magic"
+                                                onLoadImpulseResponse={loadImpulseResponse}
                                             />
                                         </CollapsibleSection>
 
@@ -494,7 +503,7 @@ const App: React.FC = () => {
                                                 disabled={!audioBuffer || isLoading}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 isProMode={false}
-                                                slices={slices} // PASS SLICES HERE
+                                                slices={slices} 
                                             />
                                         </CollapsibleSection>
                                     </div>

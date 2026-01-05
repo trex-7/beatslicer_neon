@@ -24,6 +24,7 @@ interface ControlPanelProps {
     simpleView?: 'macros' | 'magic';
     visibleSections?: ('slices' | 'pattern' | 'engine' | 'effects')[];
     effectsLayout?: 'grid' | 'vertical';
+    onLoadImpulseResponse?: (file: File) => Promise<void>;
 }
 
 const subdivisionOptions: { value: NoteSubdivision; label: string }[] = [
@@ -178,10 +179,12 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     isProMode, 
     simpleView, 
     visibleSections, 
-    effectsLayout // Removed default to respect passed prop logic better or force usage
+    effectsLayout,
+    onLoadImpulseResponse
 }) => {
     
     const [aiComplexity, setAiComplexity] = useState(0.25);
+    const irInputRef = useRef<HTMLInputElement>(null);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
 

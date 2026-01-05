@@ -41,6 +41,7 @@ const createPreset = (
         distortion: { isActive: false, amount: 1.0, wet: 0.04 },
         compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
         bitCrusher: { isActive: false, bits: 8, wet: 0 },
+        vinyl: { isActive: false, wet: 1.0 },
         glitch: { 
             chaos: 0, 
             allowReverse: false, 
@@ -49,8 +50,8 @@ const createPreset = (
             pitchShift: true, // Default to preserving length
             allowFormant: true 
         },
-        // Default Order: Compressor -> Distortion -> BitCrusher -> Filter -> Delay -> Reverb
-        order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
+        // Default Order: Compressor -> Distortion -> BitCrusher -> Vinyl -> Filter -> Delay -> Reverb
+        order: ['compressor', 'distortion', 'bitCrusher', 'vinyl', 'filter', 'delay', 'reverb']
     };
 
     // Deep merge params roughly
@@ -62,6 +63,7 @@ const createPreset = (
     if (params.distortion) mergedParams.distortion = { ...baseParams.distortion, ...params.distortion };
     if (params.compressor) mergedParams.compressor = { ...baseParams.compressor, ...params.compressor };
     if (params.bitCrusher) mergedParams.bitCrusher = { ...baseParams.bitCrusher, ...params.bitCrusher };
+    if (params.vinyl) mergedParams.vinyl = { ...baseParams.vinyl, ...params.vinyl };
     if (params.glitch) mergedParams.glitch = { ...baseParams.glitch, ...params.glitch };
 
     return {
@@ -124,7 +126,7 @@ export const FACTORY_PRESETS: Preset[] = [
             filter: { isActive: true, frequency: 2500, q: 0.5, type: 'lowpass', envDepth: 500, lfoDepth: 500, lfoRate: 0.2, isSynced: false, syncValue: '1m' },
             compressor: { isActive: true, threshold: -30, ratio: 2, attack: 0.1, release: 0.4 },
             // Reverb before delay for washed out sound
-            order: ['filter', 'reverb', 'delay', 'compressor', 'distortion', 'bitCrusher'] 
+            order: ['filter', 'reverb', 'delay', 'compressor', 'distortion', 'bitCrusher', 'vinyl'] 
         },
         { mode: 'pendulum' }
     ),
@@ -139,7 +141,7 @@ export const FACTORY_PRESETS: Preset[] = [
             compressor: { isActive: true, threshold: -20, ratio: 12, attack: 0.001, release: 0.1 },
             distortion: { isActive: true, amount: 0.8, wet: 0.3 },
             filter: { isActive: true, frequency: 150, q: 2, type: 'highpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
-            order: ['bitCrusher', 'distortion', 'compressor', 'filter', 'delay', 'reverb']
+            order: ['bitCrusher', 'distortion', 'compressor', 'filter', 'delay', 'reverb', 'vinyl']
         },
         { mode: 'forward' }
     ),

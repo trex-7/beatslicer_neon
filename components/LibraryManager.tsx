@@ -1,8 +1,6 @@
 
-import React, { useRef, useEffect, useState, memo, useMemo } from 'react';
+import React, { useRef, useEffect, useState, memo } from 'react';
 import Tooltip from './Tooltip';
-import InfoIcon from './InfoIcon';
-import { FACTORY_PRESETS } from '../utils/factoryPresets';
 import { supabase } from '../utils/supabaseClient';
 import { 
     fetchLibrary, 
@@ -19,9 +17,11 @@ import {
     type FeedbackItem
 } from '../utils/db';
 import type { KitSample, Preset } from '../types';
-import { stitchAudioFiles, validateFile, MAX_FILE_SIZE_MB, MAX_KIT_FILES, MAX_KIT_TOTAL_MB } from '../utils/audioHelpers';
+import { stitchAudioFiles, validateFile, MAX_KIT_FILES, MAX_KIT_TOTAL_MB } from '../utils/audioHelpers';
 
 interface LibraryManagerProps {
+    isOpen: boolean;
+    onClose: () => void;
     onFileLoad: (file: File) => void;
     onKitLoad: (files: File[] | KitSample[], name: string) => void;
     onDemoLoad: (url: string, name: string) => void;
@@ -31,11 +31,7 @@ interface LibraryManagerProps {
     getAudioWav: () => Promise<Blob | null>;
     isLoading: boolean;
     sampleName: string;
-    className?: string;
-    variant?: 'default' | 'centered' | 'visual-browser' | 'transport' | 'sidebar' | 'hidden';
     user: any;
-    externalIsOpen?: boolean;
-    onExternalClose?: () => void;
 }
 
 const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
@@ -43,7 +39,7 @@ const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
 type TabView = 'dashboard' | 'presets' | 'samples' | 'admin';
 
 const LibraryManager: React.FC<LibraryManagerProps> = memo(({ 
-    onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, isLoading, sampleName, className, variant = 'default', user, externalIsOpen, onExternalClose
+    isOpen, onClose, onFileLoad, onKitLoad, onDemoLoad, onImport, onLoadPreset, user
 }) => {
     const audioInputRef = useRef<HTMLInputElement>(null);
     const kitInputRef = useRef<HTMLInputElement>(null);
@@ -71,24 +67,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const audioUrlRef = useRef<string | null>(null);
     const [previewingId, setPreviewingId] = useState<string | null>(null);
     const [errorId, setErrorId] = useState<string | null>(null);
-    const [internalIsOpen, setInternalIsOpen] = useState(false);
     
     // Upload State
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState("");
-
-    const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
-    
-    const handleClose = () => {
-        if (onExternalClose) onExternalClose();
-        else setInternalIsOpen(false);
-        setActiveTab('dashboard'); 
-        setSearchTerm("");
-        stopPreview();
-    };
-    const handleOpen = () => {
-        setInternalIsOpen(true);
-    };
 
     const [activeTab, setActiveTab] = useState<TabView>('dashboard');
     const [searchTerm, setSearchTerm] = useState("");
@@ -115,7 +97,13 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     };
 
     useEffect(() => {
-        if (isOpen) loadLibraryData();
+        if (isOpen) {
+            loadLibraryData();
+            setActiveTab('dashboard');
+            setSearchTerm("");
+        } else {
+            stopPreview();
+        }
     }, [user, isOpen]);
 
     useEffect(() => {
@@ -195,7 +183,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                 onFileLoad(files[0]);
             }
         }
-        handleClose();
+        onClose();
         event.target.value = ""; 
     };
 
@@ -204,18 +192,16 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         if (files.length > 0) {
             onKitLoad(files, "Imported Kit");
         }
-        handleClose();
+        onClose();
         event.target.value = ""; 
     };
 
-    // User Upload Logic - Including new Relational Kit creation
     const handleUserUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
         
         if (files.length === 0 || !user) return;
 
-        // --- VALIDATION ---
         for (const file of files) {
             const err = validateFile(file);
             if (err) {
@@ -234,52 +220,46 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             alert(`Total upload size exceeds ${MAX_KIT_TOTAL_MB}MB.`);
             return;
         }
-        // ------------------
 
         setIsUploading(true);
         setUploadStatus("Starting upload...");
 
         try {
-            // Check for Kit creation
             if (files.length > 1) {
                 if (window.confirm(`You selected ${files.length} files. Do you want to group them as a Kit?\n\n(This creates a Playable Preset automatically)`)) {
                     const kitName = window.prompt("Enter a Name for this Kit:", "My New Kit");
                     if (!kitName) {
                         setIsUploading(false);
-                        return; // Cancel
+                        return;
                     }
+                    
+                    const kitDesc = window.prompt("Enter a short description (optional):", "");
 
-                    // 1. Create Kit Entry
                     setUploadStatus("Creating Kit Database Entry...");
-                    const kitId = await createKit(user.id, kitName, false, false); // Private by default unless configured otherwise
+                    const kitId = await createKit(user.id, kitName, false, false, kitDesc || "");
                     if (!kitId) throw new Error("Failed to create kit.");
 
                     setUploadStatus("Processing audio & stitching...");
                     const sampleIds: string[] = [];
                     
-                    // 2. Upload Individual Files (skipPrefix=true because we have relation)
                     for (let i = 0; i < files.length; i++) {
                         setUploadStatus(`Uploading file ${i+1}/${files.length}...`);
                         const upload = await uploadSampleToCloud(files[i], files[i].name, user.id, false, kitName, false, true);
                         if (upload) sampleIds.push(upload.id);
                     }
 
-                    // 3. Link Samples to Kit
                     setUploadStatus("Linking samples...");
                     await linkSamplesToKit(kitId, sampleIds);
 
-                    // 4. Stitch and Create Master + Preset
                     setUploadStatus("Stitching Kit Master...");
                     const { blob: masterBlob, slices } = await stitchAudioFiles(files);
                     
                     setUploadStatus("Uploading Kit Master...");
-                    // Ensure master is also tagged as part of kit folder but without DB prefix
                     const masterUpload = await uploadSampleToCloud(masterBlob, `${kitName} (Master).wav`, user.id, false, kitName, false, true);
 
                     if (masterUpload) {
                         setUploadStatus("Saving Preset...");
                         
-                        // Default Params
                         const params = {
                             grainSize: 0.09, overlap: 0.03, detune: 0, playbackRate: 1, bpm: 120,
                             attack: 0.001, release: 0.01, sustain: 0.5,
@@ -298,13 +278,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                             stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
                         };
 
-                        // Save preset (Sample ID is the Master file)
                         await saveCloudPreset(kitName, params as any, sequencer, slices, user.id, masterUpload.id, false, false);
                     }
-
                     alert("Kit Uploaded Successfully!");
                 } else {
-                    // Upload as individuals only
                     for (let i = 0; i < files.length; i++) {
                         setUploadStatus(`Uploading ${i+1}/${files.length}...`);
                         await uploadSampleToCloud(files[i], files[i].name, user.id, false, undefined, true);
@@ -312,7 +289,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     alert("Files Uploaded.");
                 }
             } else {
-                // Single File
                 setUploadStatus("Uploading...");
                 await uploadSampleToCloud(files[0], files[0].name, user.id, false, undefined, true);
                 alert("File Uploaded.");
@@ -335,7 +311,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         try {
             const text = await file.text();
             await onImport(text);
-            handleClose();
+            onClose();
         } catch (e) {
             console.error(e);
             alert("Failed to load preset");
@@ -375,7 +351,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    // Handle Plain Sample Uploads (No Kit Prompt)
     const handleAdminSampleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
@@ -402,7 +377,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    // Trigger for Kit Upload
     const handleTriggerKitUpload = () => {
         if (!adminKitName.trim()) {
             alert("Please enter a Kit Name first.");
@@ -411,7 +385,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         adminKitUploadRef.current?.click();
     };
 
-    // Handle Kit Upload using state name + Relational DB
     const handleAdminKitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files: File[] = Array.from(e.target.files || []);
         e.target.value = "";
@@ -428,25 +401,20 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         try {
             setUploadStatus(`Creating Kit Entry "${kitName}"...`);
             
-            // 1. Create Kit
-            const kitId = await createKit(user.id, kitName, true, true); // Factory + Public
+            const kitId = await createKit(user.id, kitName, true, true);
             if (!kitId) throw new Error("Failed to create kit entry.");
 
             const sampleIds: string[] = [];
 
-            // 2. Upload Files as Kit Parts
             for (let i = 0; i < files.length; i++) {
                 setUploadStatus(`Uploading part ${i + 1}/${files.length}: ${files[i].name}`);
-                // Use kit grouping for folder but skip prefix in title for cleaner DB
                 const res = await uploadSampleToCloud(files[i], files[i].name, user.id, true, kitName, true, true);
                 if (res) sampleIds.push(res.id);
             }
 
-            // 3. Link
             setUploadStatus("Linking samples to kit...");
             await linkSamplesToKit(kitId, sampleIds);
 
-            // 4. Stitch if possible
             if (files.length > 0) {
                 setUploadStatus("Stitching Kit Master...");
                 const { blob: masterBlob, slices } = await stitchAudioFiles(files);
@@ -459,7 +427,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     true, 
                     kitName, 
                     true,
-                    true // Skip prefix for master too? Or keep it? Let's skip to be consistent with new schema
+                    true 
                 );
 
                 if (masterUpload) {
@@ -490,14 +458,14 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         slices, 
                         user.id, 
                         masterUpload.id, 
-                        true, // isFactory
-                        true  // isPublic
+                        true, 
+                        true  
                     );
                 }
             }
 
             await loadLibraryData();
-            setAdminKitName(""); // Reset name on success
+            setAdminKitName(""); 
             alert(`Factory Kit "${kitName}" Created!`);
 
         } catch (e: any) {
@@ -512,17 +480,16 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const loadCloudItem = (item: CloudItem) => {
         stopPreview();
         
-        // Handle Kit Loading (load children into machine)
         if (item.type === 'kit' && item.data && item.data.items) {
             const children = item.data.items as CloudItem[];
             const kitSamples: KitSample[] = children.map(c => ({
                 name: c.label,
                 url: c.url || ''
-            })).filter(c => c.url); // filter invalid
+            })).filter(c => c.url);
             
             if (kitSamples.length > 0) {
                 onKitLoad(kitSamples, item.label);
-                handleClose();
+                onClose();
             }
             return;
         }
@@ -542,7 +509,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         } else if (item.type === 'sample' && item.url) {
              onDemoLoad(item.url, item.label);
         }
-        handleClose();
+        onClose();
     };
 
     const handleDelete = async (item: CloudItem) => {
@@ -557,8 +524,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
         let result: DeleteResult = { success: false };
         if (item.type === 'preset') result = await deleteCloudPreset(item.id);
-        // Deleting a kit is not fully implemented in UI action yet (would need recursive delete of samples), 
-        // but for now treat it like sample or just omit delete button for kit folders.
         else result = await deleteCloudSample(item.id, item.url);
 
         if (!result.success) {
@@ -569,27 +534,12 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         setDeletingId(null);
     };
 
-    const handleRename = async (item: CloudItem) => {
-        const newName = window.prompt("Enter new name:", item.label);
-        if (!newName || newName.trim() === item.label) return;
-        
-        const success = await renameCloudItem(item.type, item.id, newName.trim());
-        if (success) {
-            await loadLibraryData();
-        } else {
-            alert("Failed to rename item.");
-        }
-    };
-
-    // Helper to render individual item row
     const renderItemRow = (item: CloudItem, isKitMember: boolean = false) => {
         const isBroken = errorId === item.id;
         const isMine = user && item._userId === user.id;
         const isPublic = item.isPublic;
         
-        // Visual tweak for Kit Master files
         const isMaster = item.label.includes('(Master)');
-        // Strip legacy tag if present
         const label = item.label.replace(/^\[Kit: .*?\]\s*/, '');
 
         let typeIcon = item.type === 'preset' ? '🎛️' : '💿';
@@ -649,15 +599,12 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         );
     }
 
-    // Refactored Grouping Logic for "Samples" tab
     const renderGroupedList = (items: CloudItem[]) => {
         const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
         if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
 
-        // 1. Explicit Kits (from relational DB)
         const explicitKits = filtered.filter(i => i.type === 'kit');
         
-        // 2. Legacy Group by Kit Tag: [Kit: KitName]
         const legacyKitGroups: Record<string, CloudItem[]> = {};
         const looseItems: CloudItem[] = [];
 
@@ -676,8 +623,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
         return (
             <div className="space-y-3">
-                
-                {/* 1. Explicit Relational Kits */}
                 {explicitKits.map(kit => {
                     const isExpanded = expandedKits.has(kit.id);
                     const children = (kit.data?.items || []) as CloudItem[];
@@ -686,27 +631,41 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     return (
                         <div key={kit.id} className="border border-white/10 rounded-lg overflow-hidden bg-white/5">
                             <div 
-                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                className="flex flex-col p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
                                 onClick={() => toggleKitExpansion(kit.id)}
                             >
-                                <div className="flex items-center gap-3">
-                                    <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
+                                        <div className="flex items-center gap-2">
+                                            {kit.imageUrl ? (
+                                                <img src={kit.imageUrl} className="w-8 h-8 rounded object-cover border border-white/10" alt="Kit" />
+                                            ) : (
+                                                <span className="text-xl">📦</span>
+                                            )}
+                                            <div>
+                                                <span className="text-sm font-bold text-white uppercase tracking-wide block">{kit.label}</span>
+                                                <span className="text-[10px] text-star-dust">{children.length} Files</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xl">📦</span>
-                                        <span className="text-sm font-bold text-white uppercase tracking-wide">{kit.label}</span>
-                                        <span className="text-[10px] bg-white/10 px-1.5 rounded text-star-dust">{children.length} Files</span>
+                                        {isMine && (
+                                            <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit</span>
+                                        )}
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); loadCloudItem(kit); }}
+                                            className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded"
+                                        >
+                                            LOAD KIT
+                                        </button>
                                     </div>
                                 </div>
-                                {isMine && (
-                                    <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit</span>
+                                {isExpanded && kit.description && (
+                                    <div className="mt-2 ml-7 text-xs text-star-dust/70 italic border-l-2 border-white/10 pl-2">
+                                        {kit.description}
+                                    </div>
                                 )}
-                                {/* Kit Load Button (to load all at once) */}
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); loadCloudItem(kit); }}
-                                    className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded"
-                                >
-                                    LOAD KIT
-                                </button>
                             </div>
                             
                             {isExpanded && (
@@ -718,7 +677,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     );
                 })}
 
-                {/* 2. Legacy Kits */}
                 {sortedLegacyKits.map(kitName => {
                     const groupItems = legacyKitGroups[kitName];
                     const isExpanded = expandedKits.has(kitName);
@@ -752,7 +710,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     )
                 })}
 
-                {/* 3. Loose Items */}
                 <div className="space-y-2 mt-4">
                     {looseItems.map(item => renderItemRow(item, false))}
                 </div>
@@ -760,7 +717,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         );
     };
 
-    // Plain list for Presets (they don't need kit grouping usually, as presets ARE the package)
     const renderFlatList = (items: CloudItem[]) => {
         const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
         if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
@@ -776,7 +732,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             <input type="file" accept="audio/*" multiple ref={audioInputRef} onChange={handleAudioFileChange} className="hidden" />
             <input type="file" accept="audio/*" multiple ref={kitInputRef} onChange={handleKitFileChange} className="hidden" />
             <input type="file" accept=".json" ref={presetInputRef} onChange={handlePresetImport} className="hidden" />
-            {/* Split inputs for Admin Uploads */}
             <input type="file" accept="audio/*" multiple ref={adminSampleUploadRef} onChange={handleAdminSampleUpload} className="hidden" />
             <input type="file" accept="audio/*" multiple ref={adminKitUploadRef} onChange={handleAdminKitUpload} className="hidden" />
             <input type="file" accept=".json" ref={adminPresetRef} onChange={handleAdminPresetUpload} className="hidden" />
@@ -784,231 +739,206 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         </>
     );
 
-    const renderContent = () => (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="w-full max-w-5xl h-[85vh] bg-[#0f1319] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
-                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#151a23]">
-                    <div className="flex items-center gap-4">
-                        {activeTab !== 'dashboard' && (
-                            <button onClick={() => { setActiveTab('dashboard'); setSearchTerm(""); }} className="flex items-center gap-1 text-xs font-bold text-hyper-cyan hover:text-white transition-colors"><span>←</span> BACK</button>
-                        )}
-                        <h2 className="text-lg font-bold text-white flex items-center gap-2"><span className="text-hyper-cyan">📚</span> Database Manager</h2>
+    if (!isOpen) return <>{inputs}</>;
+
+    return (
+        <>
+            {inputs}
+            <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="w-full max-w-5xl h-[85vh] bg-[#0f1319] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
+                    <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#151a23]">
+                        <div className="flex items-center gap-4">
+                            {activeTab !== 'dashboard' && (
+                                <button onClick={() => { setActiveTab('dashboard'); setSearchTerm(""); }} className="flex items-center gap-1 text-xs font-bold text-hyper-cyan hover:text-white transition-colors"><span>←</span> BACK</button>
+                            )}
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2"><span className="text-hyper-cyan">📚</span> Database Manager</h2>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => audioInputRef.current?.click()} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs font-bold text-white transition-colors flex items-center gap-2">
+                                <span>📂</span> Upload Local
+                            </button>
+                            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
+                        </div>
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => audioInputRef.current?.click()} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs font-bold text-white transition-colors flex items-center gap-2">
-                            <span>📂</span> Upload Local
-                        </button>
-                        <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
-                    </div>
-                </div>
-                
-                <div className="flex-1 bg-[#0a0d14] relative p-4 overflow-y-auto custom-scrollbar">
-                    {isUploading && (
-                        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
-                            <div className="w-10 h-10 border-4 border-hyper-cyan border-t-transparent rounded-full animate-spin mb-4"></div>
-                            <p className="font-bold">{uploadStatus}</p>
-                        </div>
-                    )}
+                    <div className="flex-1 bg-[#0a0d14] relative p-4 overflow-y-auto custom-scrollbar">
+                        {isUploading && (
+                            <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
+                                <div className="w-10 h-10 border-4 border-hyper-cyan border-t-transparent rounded-full animate-spin mb-4"></div>
+                                <p className="font-bold">{uploadStatus}</p>
+                            </div>
+                        )}
 
-                    {activeTab === 'dashboard' && (
-                        <div className="text-center p-8">
-                            <h1 className="text-2xl font-bold text-white mb-2">Load From...</h1>
-                            <p className="text-star-dust/50 mb-8 text-sm">Select a category or upload locally.</p>
-                            
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-                                <button onClick={() => audioInputRef.current?.click()} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                    <span className="text-2xl group-hover:scale-110 transition-transform">📂</span>
-                                    <div><span className="block text-sm font-bold text-white">Local File</span><span className="block text-[10px] text-white/50">Upload Audio / Kit</span></div>
-                                </button>
-                                <button onClick={() => { setActiveTab('presets'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-hyper-cyan/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                    <span className="text-2xl group-hover:scale-110 transition-transform">🎛️</span>
-                                    <div><span className="block text-sm font-bold text-white">Presets</span><span className="block text-[10px] text-white/50">Database Table</span></div>
-                                </button>
-                                <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                    <span className="text-2xl group-hover:scale-110 transition-transform">💿</span>
-                                    <div><span className="block text-sm font-bold text-white">Samples / Kits</span><span className="block text-[10px] text-white/50">Database Table</span></div>
-                                </button>
-                                {isAdmin && (
-                                    <button onClick={() => setActiveTab('admin')} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">⚡</span>
-                                        <div><span className="block text-sm font-bold text-white">Admin</span><span className="block text-[10px] text-white/50">Tools & Feedback</span></div>
+                        {activeTab === 'dashboard' && (
+                            <div className="text-center p-8">
+                                <h1 className="text-2xl font-bold text-white mb-2">Load From...</h1>
+                                <p className="text-star-dust/50 mb-8 text-sm">Select a category or upload locally.</p>
+                                
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
+                                    <button onClick={() => audioInputRef.current?.click()} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
+                                        <span className="text-2xl group-hover:scale-110 transition-transform">📂</span>
+                                        <div><span className="block text-sm font-bold text-white">Local File</span><span className="block text-[10px] text-white/50">Upload Audio / Kit</span></div>
                                     </button>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'presets' && (
-                        <div className="max-w-4xl mx-auto space-y-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-xl font-bold text-white">Presets Table</h3>
-                                <input type="text" placeholder="Search Presets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
-                            </div>
-                            
-                            {user && (
-                                <div>
-                                    <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Presets</h4>
-                                    {renderFlatList(userPresets)}
-                                </div>
-                            )}
-
-                            <div className={user ? "mt-6" : ""}>
-                                <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                {renderFlatList(publicPresets)}
-                            </div>
-
-                            <div className="mt-6">
-                                <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                {renderFlatList(factoryPresets)}
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'samples' && (
-                        <div className="max-w-4xl mx-auto space-y-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-xl font-bold text-white">Samples & Kits Table</h3>
-                                <div className="flex items-center gap-2">
-                                    {user && (
-                                        <Tooltip text="Upload Sample or Kit to Cloud">
-                                            <button 
-                                                onClick={() => userUploadRef.current?.click()}
-                                                className="px-2 py-1 bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/50 hover:bg-hyper-cyan/20 rounded text-[10px] font-bold uppercase transition-colors"
-                                            >
-                                                ⬆ Cloud Upload
-                                            </button>
-                                        </Tooltip>
-                                    )}
-                                    <input type="text" placeholder="Search Samples..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
-                                </div>
-                            </div>
-
-                            {user && (
-                                <div>
-                                    <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Samples</h4>
-                                    {renderGroupedList(userSamples)}
-                                </div>
-                            )}
-
-                            <div className={user ? "mt-6" : ""}>
-                                <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                {renderGroupedList(publicSamples)}
-                            </div>
-
-                            <div className="mt-6">
-                                <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                {renderGroupedList(factorySamples)}
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'admin' && (
-                        <div className="max-w-4xl mx-auto space-y-8 p-4">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2"><span className="text-yellow-500">⚡</span> Admin Tools</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                                <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
-                                    <div className="w-12 h-12 bg-hyper-cyan/20 text-hyper-cyan rounded-full flex items-center justify-center text-2xl">🎛️</div>
-                                    <div><h4 className="text-sm font-bold text-white">Upload Factory Preset</h4><p className="text-xs text-white/50 mt-1">Select JSON file</p></div>
-                                    <button onClick={() => adminPresetRef.current?.click()} className="mt-2 w-full py-2 bg-hyper-cyan text-deep-space font-bold text-xs rounded hover:bg-white transition-colors">SELECT JSON</button>
-                                </div>
-                                <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
-                                    <div className="w-12 h-12 bg-plasma-pink/20 text-plasma-pink rounded-full flex items-center justify-center text-2xl">💿</div>
-                                    <div><h4 className="text-sm font-bold text-white">Factory Audio Content</h4><p className="text-xs text-white/50 mt-1">WAV / MP3</p></div>
-                                    
-                                    <div className="w-full mt-2 space-y-2">
-                                        <button 
-                                            onClick={() => adminSampleUploadRef.current?.click()} 
-                                            className="w-full py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded border border-white/5 transition-colors"
-                                        >
-                                            Upload Samples (Loose)
+                                    <button onClick={() => { setActiveTab('presets'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-hyper-cyan/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
+                                        <span className="text-2xl group-hover:scale-110 transition-transform">🎛️</span>
+                                        <div><span className="block text-sm font-bold text-white">Presets</span><span className="block text-[10px] text-white/50">Database Table</span></div>
+                                    </button>
+                                    <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
+                                        <span className="text-2xl group-hover:scale-110 transition-transform">💿</span>
+                                        <div><span className="block text-sm font-bold text-white">Samples / Kits</span><span className="block text-[10px] text-white/50">Database Table</span></div>
+                                    </button>
+                                    {isAdmin && (
+                                        <button onClick={() => setActiveTab('admin')} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
+                                            <span className="text-2xl group-hover:scale-110 transition-transform">⚡</span>
+                                            <div><span className="block text-sm font-bold text-white">Admin</span><span className="block text-[10px] text-white/50">Tools & Feedback</span></div>
                                         </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'presets' && (
+                            <div className="max-w-4xl mx-auto space-y-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-xl font-bold text-white">Presets Table</h3>
+                                    <input type="text" placeholder="Search Presets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
+                                </div>
+                                
+                                {user && (
+                                    <div>
+                                        <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Presets</h4>
+                                        {renderFlatList(userPresets)}
+                                    </div>
+                                )}
+
+                                <div className={user ? "mt-6" : ""}>
+                                    <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
+                                    {renderFlatList(publicPresets)}
+                                </div>
+
+                                <div className="mt-6">
+                                    <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
+                                    {renderFlatList(factoryPresets)}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'samples' && (
+                            <div className="max-w-4xl mx-auto space-y-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-xl font-bold text-white">Samples & Kits Table</h3>
+                                    <div className="flex items-center gap-2">
+                                        {user && (
+                                            <Tooltip text="Upload Sample or Kit to Cloud">
+                                                <button 
+                                                    onClick={() => userUploadRef.current?.click()}
+                                                    className="px-2 py-1 bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/50 hover:bg-hyper-cyan/20 rounded text-[10px] font-bold uppercase transition-colors"
+                                                >
+                                                    ⬆ Cloud Upload
+                                                </button>
+                                            </Tooltip>
+                                        )}
+                                        <input type="text" placeholder="Search Samples..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
+                                    </div>
+                                </div>
+
+                                {user && (
+                                    <div>
+                                        <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Samples</h4>
+                                        {renderGroupedList(userSamples)}
+                                    </div>
+                                )}
+
+                                <div className={user ? "mt-6" : ""}>
+                                    <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
+                                    {renderGroupedList(publicSamples)}
+                                </div>
+
+                                <div className="mt-6">
+                                    <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
+                                    {renderGroupedList(factorySamples)}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'admin' && (
+                            <div className="max-w-4xl mx-auto space-y-8 p-4">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2"><span className="text-yellow-500">⚡</span> Admin Tools</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
+                                        <div className="w-12 h-12 bg-hyper-cyan/20 text-hyper-cyan rounded-full flex items-center justify-center text-2xl">🎛️</div>
+                                        <div><h4 className="text-sm font-bold text-white">Upload Factory Preset</h4><p className="text-xs text-white/50 mt-1">Select JSON file</p></div>
+                                        <button onClick={() => adminPresetRef.current?.click()} className="mt-2 w-full py-2 bg-hyper-cyan text-deep-space font-bold text-xs rounded hover:bg-white transition-colors">SELECT JSON</button>
+                                    </div>
+                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
+                                        <div className="w-12 h-12 bg-plasma-pink/20 text-plasma-pink rounded-full flex items-center justify-center text-2xl">💿</div>
+                                        <div><h4 className="text-sm font-bold text-white">Factory Audio Content</h4><p className="text-xs text-white/50 mt-1">WAV / MP3</p></div>
                                         
-                                        <div className="flex gap-2 pt-2 border-t border-white/5">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Kit Name..." 
-                                                value={adminKitName}
-                                                onChange={(e) => setAdminKitName(e.target.value)}
-                                                className="flex-1 bg-black/40 border border-white/10 rounded px-3 text-xs text-white focus:border-plasma-pink outline-none"
-                                            />
+                                        <div className="w-full mt-2 space-y-2">
                                             <button 
-                                                onClick={handleTriggerKitUpload} 
-                                                disabled={!adminKitName.trim()}
-                                                className="px-4 py-2 bg-plasma-pink text-white font-bold text-xs rounded hover:bg-white hover:text-deep-space transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                onClick={() => adminSampleUploadRef.current?.click()} 
+                                                className="w-full py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded border border-white/5 transition-colors"
                                             >
-                                                Upload Kit
+                                                Upload Samples (Loose)
                                             </button>
+                                            
+                                            <div className="flex gap-2 pt-2 border-t border-white/5">
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Kit Name..." 
+                                                    value={adminKitName}
+                                                    onChange={(e) => setAdminKitName(e.target.value)}
+                                                    className="flex-1 bg-black/40 border border-white/10 rounded px-3 text-xs text-white focus:border-plasma-pink outline-none"
+                                                />
+                                                <button 
+                                                    onClick={handleTriggerKitUpload} 
+                                                    disabled={!adminKitName.trim()}
+                                                    className="px-4 py-2 bg-plasma-pink text-white font-bold text-xs rounded hover:bg-white hover:text-deep-space transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    Upload Kit
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div>
-                                <h3 className="text-lg font-bold text-white mb-4">📢 User Feedback</h3>
-                                <div className="bg-black/30 rounded-xl border border-white/10 overflow-hidden">
-                                    {feedbackItems.length === 0 ? (
-                                        <div className="p-4 text-center text-white/30 text-sm italic">No feedback received yet.</div>
-                                    ) : (
-                                        <div className="divide-y divide-white/5">
-                                            {feedbackItems.map(fb => (
-                                                <div key={fb.id} className="p-4 hover:bg-white/5 transition-colors">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${fb.category === 'bug' ? 'bg-red-500/20 text-red-300' : (fb.category === 'feature' ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/50')}`}>
-                                                                {fb.category}
-                                                            </span>
-                                                            <span className="text-xs font-bold text-hyper-cyan">
-                                                                {fb.profiles?.username || (fb.user_id ? fb.user_id.slice(0,6) : 'Anon')}
+                                <div>
+                                    <h3 className="text-lg font-bold text-white mb-4">📢 User Feedback</h3>
+                                    <div className="bg-black/30 rounded-xl border border-white/10 overflow-hidden">
+                                        {feedbackItems.length === 0 ? (
+                                            <div className="p-4 text-center text-white/30 text-sm italic">No feedback received yet.</div>
+                                        ) : (
+                                            <div className="divide-y divide-white/5">
+                                                {feedbackItems.map(fb => (
+                                                    <div key={fb.id} className="p-4 hover:bg-white/5 transition-colors">
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${fb.category === 'bug' ? 'bg-red-500/20 text-red-300' : (fb.category === 'feature' ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/50')}`}>
+                                                                    {fb.category}
+                                                                </span>
+                                                                <span className="text-xs font-bold text-hyper-cyan">
+                                                                    {fb.profiles?.username || (fb.user_id ? fb.user_id.slice(0,6) : 'Anon')}
+                                                                </span>
+                                                            </div>
+                                                            <span className="text-[10px] text-white/30">
+                                                                {new Date(fb.created_at).toLocaleDateString()}
                                                             </span>
                                                         </div>
-                                                        <span className="text-[10px] text-white/30">
-                                                            {new Date(fb.created_at).toLocaleDateString()}
-                                                        </span>
+                                                        <p className="text-sm text-star-dust whitespace-pre-wrap">{fb.message}</p>
                                                     </div>
-                                                    <p className="text-sm text-star-dust whitespace-pre-wrap">{fb.message}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
+        </>
     );
-
-    if (variant === 'hidden') return <>{inputs}{isOpen && renderContent()}</>;
-
-    // Simplified Transport Button
-    if (variant === 'transport') {
-        return (
-            <>
-                {inputs}
-                <div className={`flex items-center gap-3 h-full ${className}`}>
-                     <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)] shrink-0">DB</div>
-                        <div className="flex flex-col min-w-0 justify-center">
-                            <div className="text-white font-bold text-lg outline-none placeholder-white/20 w-32 md:w-48 truncate">My Groove</div>
-                            <div className="text-[10px] text-star-dust truncate flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span><span className="opacity-70">Active Sample:</span><span className="text-hyper-cyan truncate max-w-[100px]">{sampleName}</span></div>
-                        </div>
-                     </div>
-                     <div className="h-8 w-px bg-white/10 mx-1 hidden sm:block"></div>
-                     <Tooltip text="Open Database Manager">
-                         <button onClick={handleOpen} className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0">
-                            <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
-                            <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">BROWSE DB</span>
-                         </button>
-                     </Tooltip>
-                </div>
-                {isOpen && renderContent()}
-            </>
-        )
-    }
-
-    return null; 
 });
 
 export default LibraryManager;

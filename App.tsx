@@ -14,13 +14,13 @@ import SaveDialog from './components/SaveDialog';
 import FeedbackDialog from './components/FeedbackDialog';
 import Transport from './components/Transport';
 import Tooltip from './components/Tooltip';
+import VideoTutorialDialog from './components/VideoTutorialDialog';
 import { supabase } from './utils/supabaseClient';
 
 declare const Tone: any;
 
 const App: React.FC = () => {
-    console.log('App component rendering');
-    const {
+    const { 
         isReady, 
         isPlaying, 
         isLoading, 
@@ -78,6 +78,7 @@ const App: React.FC = () => {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
+    const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
 
@@ -96,6 +97,18 @@ const App: React.FC = () => {
             });
             return () => subscription.unsubscribe();
         }
+    }, []);
+
+    // Startup: Check Quickstart Video Preference with Delay
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v2');
+            if (hasSeen !== 'true') {
+                setIsVideoDialogOpen(true);
+            }
+        }, 1500); // 1.5s delay to ensure app is settled
+        
+        return () => clearTimeout(timer);
     }, []);
 
     // Global Keyboard Shortcuts
@@ -195,6 +208,11 @@ const App: React.FC = () => {
                 user={user}
             />
 
+            <VideoTutorialDialog 
+                isOpen={isVideoDialogOpen}
+                onClose={() => setIsVideoDialogOpen(false)}
+            />
+
             {/* Global Library Manager Modal */}
             <LibraryManager 
                 isOpen={isLibraryOpen}
@@ -231,6 +249,7 @@ const App: React.FC = () => {
                     user={user}
                     sampleName={sampleName}
                     onReportIssue={() => setIsFeedbackDialogOpen(true)}
+                    onOpenVideo={() => setIsVideoDialogOpen(true)}
                 />
             )}
 
@@ -241,6 +260,7 @@ const App: React.FC = () => {
                         onToggleMode={setIsProMode} 
                         onShowMonitor={() => setShowMonitor(true)}
                         user={user}
+                        onOpenVideo={() => setIsVideoDialogOpen(true)}
                     />
                 )}
                 

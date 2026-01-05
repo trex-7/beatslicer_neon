@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import Auth from './Auth';
@@ -21,6 +20,7 @@ interface ProMenuBarProps {
     user: any;
     sampleName: string;
     onReportIssue: () => void;
+    onOpenVideo: () => void;
 }
 
 const MenuDropdown = ({ label, children }: { label: string, children?: React.ReactNode }) => {
@@ -114,7 +114,8 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     onShowMonitor,
     user,
     sampleName,
-    onReportIssue
+    onReportIssue,
+    onOpenVideo
 }) => {
     
     const handleDownloadWav = async () => {
@@ -208,6 +209,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
                 {/* Help Menu */}
                 <MenuDropdown label="HELP">
+                    <MenuItem label="Quickstart Video" onClick={onOpenVideo} />
                     <MenuItem label="Credits" onClick={() => alert("Beat Slicer v0.9.0-beta\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
                     <MenuItem 
                         label="Report Issue / Feedback" 

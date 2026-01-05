@@ -271,6 +271,19 @@ create policy "Users can delete own presets." on public.presets for delete using
 create policy "Anyone can insert feedback." on public.feedback for insert with check (true);
 create policy "Admins can read feedback." on public.feedback for select using (true);
 
+-- 7. VIDEO STORAGE (Optional)
+insert into storage.buckets (id, name, public)
+values ('videos', 'videos', true)
+on conflict (id) do nothing;
+
+create policy "Public Access Videos"
+  on storage.objects for select
+  using ( bucket_id = 'videos' );
+
+create policy "Authenticated Upload Videos"
+  on storage.objects for insert
+  with check ( bucket_id = 'videos' and auth.role() = 'authenticated' );
+
 -- TRIGGER: Create Profile on Signup
 create or replace function public.handle_new_user()
 returns trigger as $$

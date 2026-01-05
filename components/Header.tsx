@@ -1,4 +1,3 @@
-
 import React from 'react';
 import Tooltip from './Tooltip';
 import Auth from './Auth';
@@ -9,9 +8,10 @@ interface HeaderProps {
     onToggleMode: (isPro: boolean) => void;
     onShowMonitor: () => void;
     user: any;
+    onOpenVideo: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor, user }) => {
+const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor, user, onOpenVideo }) => {
     return (
         <header className="relative flex items-center justify-between py-4 mb-4 bg-deep-space/30 rounded-2xl px-6 border border-white/5 shadow-lg">
             {/* Left: Logo */}
@@ -65,6 +65,14 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                         <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
                         <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
                     </div>
+                    <Tooltip text="Watch Tutorial">
+                        <button 
+                            onClick={onOpenVideo}
+                            className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-star-dust hover:text-hyper-cyan hover:border-hyper-cyan hover:bg-white/10 transition-all shadow-md active:scale-95"
+                        >
+                            🎥
+                        </button>
+                    </Tooltip>
                     <Tooltip text="System Monitor & Specs">
                         <button 
                             onClick={onShowMonitor}

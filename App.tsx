@@ -12,6 +12,7 @@ import CollapsibleSection from './components/CollapsibleSection';
 import ProMenuBar from './components/ProMenuBar';
 import SaveDialog from './components/SaveDialog';
 import FeedbackDialog from './components/FeedbackDialog';
+import ContactDialog from './components/ContactDialog';
 import Transport from './components/Transport';
 import Tooltip from './components/Tooltip';
 import VideoTutorialDialog from './components/VideoTutorialDialog';
@@ -79,6 +80,7 @@ const App: React.FC = () => {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
+    const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
     const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
     const [isPromptOpen, setIsPromptOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
@@ -214,6 +216,11 @@ const App: React.FC = () => {
                 user={user}
             />
 
+            <ContactDialog
+                isOpen={isContactDialogOpen}
+                onClose={() => setIsContactDialogOpen(false)}
+            />
+
             <VideoTutorialDialog
                 isOpen={isVideoDialogOpen}
                 onClose={() => setIsVideoDialogOpen(false)}
@@ -267,12 +274,13 @@ const App: React.FC = () => {
 
             <div className={`w-full max-w-[1920px] mx-auto flex flex-col gap-4 ${isProMode ? 'mt-12 px-4 pb-4' : ''}`}>
                 {!isProMode && (
-                    <Header 
-                        isProMode={isProMode} 
-                        onToggleMode={setIsProMode} 
+                    <Header
+                        isProMode={isProMode}
+                        onToggleMode={setIsProMode}
                         onShowMonitor={() => setShowMonitor(true)}
                         user={user}
                         onOpenVideo={() => setIsVideoDialogOpen(true)}
+                        onOpenContact={() => setIsContactDialogOpen(true)}
                     />
                 )}
                 

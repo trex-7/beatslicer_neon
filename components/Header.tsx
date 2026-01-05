@@ -9,9 +9,10 @@ interface HeaderProps {
     onShowMonitor: () => void;
     user: any;
     onOpenVideo: () => void;
+    onOpenContact: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor, user, onOpenVideo }) => {
+const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor, user, onOpenVideo, onOpenContact }) => {
     return (
         <header className="relative flex items-center justify-between py-4 mb-4 bg-deep-space/30 rounded-2xl px-6 border border-white/5 shadow-lg">
             {/* Left: Logo */}
@@ -61,10 +62,10 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                 <div className="flex items-center gap-3 animate-in fade-in duration-300">
                      <Auth user={user} />
                      
-                     <div className="hidden md:block text-[10px] text-white/30 font-mono text-right mr-2 leading-tight border-l border-white/10 pl-3">
-                        <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
-                        <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
-                    </div>
+                     <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-l border-white/10 pl-3">
+                         <span className="font-bold text-white/80">Dev: Sandro Mancino</span><br/>
+                         <button onClick={onOpenContact} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
+                     </div>
                     <Tooltip text="Watch Tutorial">
                         <button 
                             onClick={onOpenVideo}

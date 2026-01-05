@@ -19,7 +19,8 @@ import { supabase } from './utils/supabaseClient';
 declare const Tone: any;
 
 const App: React.FC = () => {
-    const { 
+    console.log('App component rendering');
+    const {
         isReady, 
         isPlaying, 
         isLoading, 

@@ -267,8 +267,9 @@ const App: React.FC = () => {
                     onShowMonitor={() => setShowMonitor(true)}
                     user={user}
                     sampleName={sampleName}
-                    onReportIssue={() => setIsFeedbackDialogOpen(true)}
-                    onOpenVideo={() => setIsVideoDialogOpen(true)}
+                    onReportIssue={() => setIsFeedbackDialogOpen(true)},
+                    onOpenVideo={() => setIsVideoDialogOpen(true)},
+                    onOpenContact={() => setIsContactDialogOpen(true)}
                 />
             )}
 

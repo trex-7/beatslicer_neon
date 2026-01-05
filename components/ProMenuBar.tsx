@@ -10,7 +10,7 @@ interface ProMenuBarProps {
     onSavePreset: (name: string) => Promise<string>;
     onSaveToCloud: () => void;
     getAudioWav: () => Promise<Blob | null>;
-    onExportWav: () => void; 
+    onExportWav: () => void;
     onRandomize: () => void;
     onClearPattern: () => void;
     onAutoSlice: () => void;
@@ -21,6 +21,7 @@ interface ProMenuBarProps {
     sampleName: string;
     onReportIssue: () => void;
     onOpenVideo: () => void;
+    onOpenContact: () => void;
 }
 
 const MenuDropdown = ({ label, children }: { label: string, children?: React.ReactNode }) => {
@@ -115,7 +116,8 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     user,
     sampleName,
     onReportIssue,
-    onOpenVideo
+    onOpenVideo,
+    onOpenContact
 }) => {
     
     const handleDownloadWav = async () => {
@@ -230,9 +232,9 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
             {/* Right Side: Auth / Info */}
             <div className="flex items-center gap-3">
-                 <div className="hidden lg:block text-[9px] text-white/30 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
-                    <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
-                    <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
+                 <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
+                     <span className="font-bold text-white/80">Dev: Sandro Mancino</span><br/>
+                     <button onClick={() => { console.log('Pro contact button clicked'); onOpenContact(); }} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
                  </div>
                  <div className="hidden sm:flex items-center gap-2 text-[10px] text-star-dust/50">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>

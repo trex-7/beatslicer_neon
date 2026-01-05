@@ -682,12 +682,25 @@ export const useAudioEngine = () => {
   // Setup Audio
   useEffect(() => {
     let active = true;
-    
+
+    // Add user gesture handler to start audio context
+    const startAudioOnGesture = async () => {
+      if (Tone.context.state === 'suspended') {
+        await Tone.start();
+      }
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+    };
+    document.addEventListener('click', startAudioOnGesture, { once: true });
+    document.addEventListener('keydown', startAudioOnGesture, { once: true });
+    document.addEventListener('touchstart', startAudioOnGesture, { once: true });
+
     if ((navigator as any).requestMIDIAccess) {
         (navigator as any).requestMIDIAccess({ sysex: false }).then(
-            (access: any) => { 
+            (access: any) => {
                 if (!active) return;
-                midiAccessRef.current = access; 
+                midiAccessRef.current = access;
                 const inputs: MidiDevice[] = [];
                 access.inputs.forEach((input: any) => inputs.push({ id: input.id, name: input.name, manufacturer: input.manufacturer }));
                 setMidiInputs(inputs);

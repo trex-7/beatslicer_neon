@@ -15,6 +15,7 @@ import FeedbackDialog from './components/FeedbackDialog';
 import Transport from './components/Transport';
 import Tooltip from './components/Tooltip';
 import VideoTutorialDialog from './components/VideoTutorialDialog';
+import DemoPromptDialog from './components/DemoPromptDialog';
 import { supabase } from './utils/supabaseClient';
 
 declare const Tone: any;
@@ -79,6 +80,7 @@ const App: React.FC = () => {
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
     const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
+    const [isPromptOpen, setIsPromptOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
 
@@ -104,10 +106,10 @@ const App: React.FC = () => {
         const timer = setTimeout(() => {
             const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v2');
             if (hasSeen !== 'true') {
-                setIsVideoDialogOpen(true);
+                setIsPromptOpen(true);
             }
         }, 1500); // 1.5s delay to ensure app is settled
-        
+
         return () => clearTimeout(timer);
     }, []);
 
@@ -208,9 +210,15 @@ const App: React.FC = () => {
                 user={user}
             />
 
-            <VideoTutorialDialog 
+            <VideoTutorialDialog
                 isOpen={isVideoDialogOpen}
                 onClose={() => setIsVideoDialogOpen(false)}
+            />
+
+            <DemoPromptDialog
+                isOpen={isPromptOpen}
+                onWatchDemo={() => { setIsPromptOpen(false); setIsVideoDialogOpen(true); }}
+                onSkip={() => { setIsPromptOpen(false); localStorage.setItem('beat_slicer_quickstart_seen_v2', 'true'); }}
             />
 
             {/* Global Library Manager Modal */}

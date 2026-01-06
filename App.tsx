@@ -22,13 +22,13 @@ import { supabase } from './utils/supabaseClient';
 declare const Tone: any;
 
 const App: React.FC = () => {
-    const { 
-        isReady, 
-        isPlaying, 
-        isLoading, 
-        audioBuffer, 
-        params, 
-        sequencer, 
+    const {
+        isReady,
+        isPlaying,
+        isLoading,
+        audioBuffer,
+        params,
+        sequencer,
         slices,
         selectedSliceIndex,
         sampleName,
@@ -40,8 +40,8 @@ const App: React.FC = () => {
         midiDebug,
         loadAudioFile,
         loadConstructionKit,
-        togglePlay, 
-        updateParams, 
+        togglePlay,
+        updateParams,
         scrub,
         updateSequencerStep,
         setSequencerMode,
@@ -50,6 +50,7 @@ const App: React.FC = () => {
         setSequencerPlaybackBehavior,
         randomizePattern,
         generateAiBeat,
+        generateAiPattern,
         selectSlice,
         toggleSliceActive,
         updateSlice,
@@ -167,12 +168,13 @@ const App: React.FC = () => {
                 <h3 className="text-xs font-bold text-white uppercase tracking-widest">FX Rack</h3>
             </div>
             <div className="pr-1">
-                <ControlPanel 
-                    params={params} 
+                <ControlPanel
+                    params={params}
                     onParamChange={handleParamChange}
                     onEffectParamChange={handleEffectParamChange}
-                    disabled={!audioBuffer || isLoading} 
+                    disabled={!audioBuffer || isLoading}
                     generateAiBeat={generateAiBeat}
+                    generateAiPattern={generateAiPattern}
                     slices={slices}
                     selectedSliceIndex={selectedSliceIndex}
                     onSliceUpdate={updateSlice}
@@ -382,12 +384,13 @@ const App: React.FC = () => {
                                    </div>
                                     
                                    <div className="w-full">
-                                      <ControlPanel 
-                                        params={params} 
+                                      <ControlPanel
+                                        params={params}
                                         onParamChange={handleParamChange}
                                         onEffectParamChange={handleEffectParamChange}
-                                        disabled={!audioBuffer || isLoading} 
+                                        disabled={!audioBuffer || isLoading}
                                         generateAiBeat={generateAiBeat}
+                                        generateAiPattern={generateAiPattern}
                                         slices={slices}
                                         selectedSliceIndex={selectedSliceIndex}
                                         onSliceUpdate={updateSlice}
@@ -470,12 +473,13 @@ const App: React.FC = () => {
                                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 w-full">
                                     <div className="lg:col-span-1 order-2 lg:order-1 h-full">
                                         <CollapsibleSection title="Sound Macros" icon="🎛️" className="h-full">
-                                            <ControlPanel 
-                                                params={params} 
+                                            <ControlPanel
+                                                params={params}
                                                 onParamChange={handleParamChange}
                                                 onEffectParamChange={handleEffectParamChange}
-                                                disabled={!audioBuffer || isLoading} 
+                                                disabled={!audioBuffer || isLoading}
                                                 generateAiBeat={generateAiBeat}
+                                                generateAiPattern={generateAiPattern}
                                                 slices={slices}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 onSliceUpdate={updateSlice}
@@ -515,12 +519,13 @@ const App: React.FC = () => {
                                         </CollapsibleSection>
 
                                         <CollapsibleSection title="Magic Pattern Gen" icon="✨">
-                                            <ControlPanel 
-                                                params={params} 
+                                            <ControlPanel
+                                                params={params}
                                                 onParamChange={handleParamChange}
                                                 onEffectParamChange={handleEffectParamChange}
-                                                disabled={!audioBuffer || isLoading} 
+                                                disabled={!audioBuffer || isLoading}
                                                 generateAiBeat={generateAiBeat}
+                                                generateAiPattern={generateAiPattern}
                                                 slices={slices}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 onSliceUpdate={updateSlice}

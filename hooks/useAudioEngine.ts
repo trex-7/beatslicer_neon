@@ -6,6 +6,8 @@ import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
 
+/// <reference types="vite/client" />
+
 declare const Tone: any;
 
 // Helper for BitCrusher Curve (Staircase function)
@@ -450,10 +452,33 @@ const initialParams: AllParams = {
 
 const generateDefaultSteps = (count: number): SequencerStep[] => {
   return Array(count).fill(0).map((_, i) => ({
-    active: i % 2 === 0, 
-    sliceIndex: i, 
+    active: i % 2 === 0,
+    sliceIndex: i,
     ratchet: 1
   }));
+};
+
+const STYLE_SEEDS: Record<string, { prompt: string, bpmRange: [number, number] }> = {
+    'techno': {
+        prompt: "Techno style: 4/4 four-on-the-floor kick pattern. Consistent 16th note hi-hats with accents on off-beats. Industrial and repetitive feel.",
+        bpmRange: [125, 135]
+    },
+    'trap': {
+        prompt: "Trap style: Heavy syncopated kicks. Rapid triplet hi-hat rolls (ratchets). Snare on beats 2 and 4.",
+        bpmRange: [140, 160]
+    },
+    'house': {
+        prompt: "House style: 4/4 four-on-the-floor kick. Syncopated 'shuffling' hi-hats on off-beats. Snare or clap on beats 2 and 4.",
+        bpmRange: [120, 128]
+    },
+    'dnb': {
+        prompt: "Drum & Bass style: Fast syncopated breakbeat. Kick on 1 and 3.5. Snare on 2 and 4. Ghost notes and complex hi-hat patterns.",
+        bpmRange: [170, 175]
+    },
+    'hiphop': {
+        prompt: "Hip Hop (Boom Bap) style: Swung 16th notes. Heavy kick on 1 and syncopated variations. Snare on 2 and 4. Laid-back, groovy feel.",
+        bpmRange: [85, 95]
+    }
 };
 
 export const useAudioEngine = () => {
@@ -1360,18 +1385,18 @@ export const useAudioEngine = () => {
       const percs = slices.filter(s => s.type === 'perc').map(s => s.id);
       const allIndices = slices.map(s => s.id);
       const getRand = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)];
-      
+
       setSequencer(prev => {
           const newSteps = prev.steps.map((step, i) => {
               let probability = 0;
               const stepInBar = i % 16;
-              const isDownbeat = i % 4 === 0; 
+              const isDownbeat = i % 4 === 0;
               const isBackbeat = stepInBar === 4 || stepInBar === 12;
-              const isOffbeat = i % 2 !== 0; 
+              const isOffbeat = i % 2 !== 0;
 
-              if (isDownbeat) probability = 0.95 - (complexity * 0.4); 
-              else if (isOffbeat) probability = 0.1 + (complexity * 0.8); 
-              else probability = 0.4 + (complexity * 0.3); 
+              if (isDownbeat) probability = 0.95 - (complexity * 0.4);
+              else if (isOffbeat) probability = 0.1 + (complexity * 0.8);
+              else probability = 0.4 + (complexity * 0.3);
 
               const active = Math.random() < probability;
               if (!active) return { ...step, active: false, ratchet: 1 };
@@ -1393,12 +1418,174 @@ export const useAudioEngine = () => {
 
               let ratchet = 1;
               if (active && Math.random() < (complexity * 0.5)) {
-                  ratchet = Math.floor(Math.random() * 3) + 2; 
+                  ratchet = Math.floor(Math.random() * 3) + 2;
               }
               return { ...step, active: true, sliceIndex, ratchet };
           });
           return { ...prev, steps: newSteps };
       });
+  }, []);
+
+  const generateAiPattern = useCallback(async (model: string, inputType: 'slider' | 'text', stepCount: 8 | 16 | 32, description: string, complexity?: number, apiKey?: string, bpm?: string, style?: string) => {
+      const slices = slicesRef.current;
+      if (slices.length === 0) return;
+
+      // Classify slices
+      const kicks = slices.filter(s => s.type === 'kick');
+      const snares = slices.filter(s => s.type === 'snare');
+      const hats = slices.filter(s => s.type === 'hihat');
+      const percs = slices.filter(s => s.type === 'perc');
+
+      // Build prompt
+      let prompt = `Generate a ${stepCount}-step drum pattern in 4/4 time. Step 1 is the beginning of the beat (downbeat). `;
+      
+      if (style && STYLE_SEEDS[style]) {
+          prompt += `${STYLE_SEEDS[style].prompt} `;
+      }
+
+      if (bpm) {
+          prompt += `At ${bpm} BPM. `;
+      } else if (style && STYLE_SEEDS[style]) {
+          const [min, max] = STYLE_SEEDS[style].bpmRange;
+          prompt += `Suggest a BPM between ${min} and ${max}. `;
+      }
+
+      prompt += `Available slices: `;
+      if (kicks.length) prompt += `${kicks.length} kicks (indices: ${kicks.map(s => s.id).join(',')}), `;
+      if (snares.length) prompt += `${snares.length} snares (indices: ${snares.map(s => s.id).join(',')}), `;
+      if (hats.length) prompt += `${hats.length} hats (indices: ${hats.map(s => s.id).join(',')}), `;
+      if (percs.length) prompt += `${percs.length} percussion (indices: ${percs.map(s => s.id).join(',')}). `;
+
+      if (inputType === 'text') {
+          prompt += `Style description: ${description}. `;
+      } else {
+          const complexityLabel = complexity! < 0.3 ? 'simple' : complexity! < 0.7 ? 'medium' : 'complex';
+          prompt += `Complexity level: ${complexityLabel}. `;
+      }
+
+      prompt += `Create a rhythmic pattern that fits 4/4 time signature, with appropriate emphasis on beats 1, 2, 3, 4. `;
+
+      if (bpm) {
+          prompt += `Return a JSON array of ${stepCount} objects, each with: active (boolean), sliceIndex (number), ratchet (1-4). Only use valid slice indices.`;
+      } else {
+          prompt += `Return a JSON object with "bpm" (suggested tempo) and "pattern" (array of ${stepCount} objects, each with: active (boolean), sliceIndex (number), ratchet (1-4)). Only use valid slice indices.`;
+      }
+try {
+    // Call AI API
+    let envKey = '';
+    if (model === 'deepseek') {
+        envKey = (import.meta as any).env.VITE_DEEPSEEK_API_KEY || '';
+    } else {
+        envKey = (import.meta as any).env.VITE_OPENAI_API_KEY || '';
+    }
+    const effectiveApiKey = apiKey || envKey;
+    if (!effectiveApiKey) {
+        alert('Please provide an API key.');
+        return;
+    }
+
+    let apiUrl = '';
+    let payload: any = {};
+    let headers: any = { 'Content-Type': 'application/json' };
+
+    if (model.startsWith('openai-')) {
+        apiUrl = 'https://api.openai.com/v1/chat/completions';
+        headers['Authorization'] = `Bearer ${effectiveApiKey}`;
+        payload = {
+            model: model === 'openai-gpt4' ? 'gpt-4' : 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 500
+        };
+    } else if (model === 'deepseek') {
+        apiUrl = 'https://api.deepseek.com/v1/chat/completions';
+        headers['Authorization'] = `Bearer ${effectiveApiKey}`;
+        payload = {
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 1000
+        };
+    } else if (model === 'gemini') {
+        apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${effectiveApiKey}`;
+        payload = {
+            contents: [{ parts: [{ text: prompt }] }]
+        };
+    } else if (model === 'claude') {
+        alert('Claude integration not implemented yet.');
+        return;
+    } else {
+        alert('Unsupported model.');
+        return;
+    }
+
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) throw new Error(`AI API call failed: ${response.status} ${response.statusText}`);
+
+    const data = await response.json();
+    let aiResponse = '';
+
+    if (model.startsWith('openai-') || model === 'deepseek') {
+        aiResponse = data.choices[0].message.content;
+    } else if (model === 'gemini') {
+        aiResponse = data.candidates[0].content.parts[0].text;
+    }
+
+    console.log('AI Response:', aiResponse);
+
+    // Try to extract JSON from ```json code block
+    let jsonString = '';
+    let aiData: any;
+    if (bpm) {
+        // Expect array
+        const jsonBlockMatch = aiResponse.match(/```json\s*(\[[\s\S]*?\])\s*```/);
+        if (jsonBlockMatch) {
+            jsonString = jsonBlockMatch[1];
+        } else {
+            const arrayMatch = aiResponse.match(/\[[\s\S]*\]/);
+            if (arrayMatch) jsonString = arrayMatch[0];
+        }
+        if (!jsonString) throw new Error('AI did not return a valid pattern array. Response: ' + aiResponse.substring(0, 200));
+        aiData = { pattern: JSON.parse(jsonString) };
+    } else {
+        // Expect object with bpm and pattern
+        const jsonBlockMatch = aiResponse.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+        if (jsonBlockMatch) {
+            jsonString = jsonBlockMatch[1];
+        } else {
+            const objectMatch = aiResponse.match(/\{[\s\S]*\}/);
+            if (objectMatch) jsonString = objectMatch[0];
+        }
+        if (!jsonString) throw new Error('AI did not return a valid pattern object. Response: ' + aiResponse.substring(0, 200));
+        aiData = JSON.parse(jsonString);
+    }
+
+    const pattern = aiData.pattern;
+    if (aiData.bpm && !bpm) {
+        // Set the suggested BPM
+        updateParams({ bpm: aiData.bpm });
+    }
+
+          // Update sequencer
+          setSequencer(prev => {
+              const newSteps = Array(stepCount).fill(0).map((_, i) => ({
+                  active: pattern[i]?.active || false,
+                  sliceIndex: pattern[i]?.sliceIndex || 0,
+                  ratchet: pattern[i]?.ratchet || 1
+              }));
+              // Pad or truncate to match current stepCount
+              while (newSteps.length < prev.stepCount) newSteps.push({ active: false, sliceIndex: 0, ratchet: 1 });
+              newSteps.splice(prev.stepCount);
+              return { ...prev, steps: newSteps, stepCount: Math.max(prev.stepCount, stepCount) };
+          });
+
+      } catch (error) {
+          console.error('AI Pattern Generation failed:', error);
+          alert(`Failed to generate AI pattern: ${error.message}`);
+      }
   }, []);
 
   const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
@@ -1414,7 +1601,7 @@ export const useAudioEngine = () => {
     isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId, currentPresetId, midiConfig, midiInputs, midiOutputs,
     midiDebug: { log: midiLogRef, clockCount: midiClockCountRef, clockDeltas: midiClockDeltasRef },
     metronomeConfig,
-    loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,
+    loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, generateAiPattern, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,
     loadImpulseResponse
   };
 };

@@ -12,7 +12,6 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-    console.log('ContactDialog render, isOpen:', isOpen);
     if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {

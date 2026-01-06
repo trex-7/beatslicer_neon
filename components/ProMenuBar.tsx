@@ -181,7 +181,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 <MenuDropdown label="FILE">
                     <MenuItem label="New Project" onClick={() => { if(confirm('Clear all settings?')) window.location.reload(); }} />
                     <MenuDivider />
-                    <MenuItem label="Browse Database" onClick={onOpenLibrary} shortcut="Cmd+O" />
+                    <MenuItem label="Load Audio" onClick={onOpenLibrary} shortcut="Cmd+O" />
                     <MenuItem label="Save to Database..." onClick={onSaveToCloud} disabled={!user} shortcut="Cmd+S" />
                     <MenuDivider />
                     <MenuItem label="Export WAV" onClick={handleDownloadWav} />

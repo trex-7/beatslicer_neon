@@ -440,7 +440,7 @@ const App: React.FC = () => {
                                                     className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0"
                                                 >
                                                     <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
-                                                    <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">BROWSE DB</span>
+                                                    <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">LOAD AUDIO</span>
                                                  </button>
                                              </Tooltip>
                                         </div>

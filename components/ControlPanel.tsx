@@ -3,7 +3,6 @@ import React, { useState, memo, useCallback, useRef } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
 import EffectSection from './EffectSection';
-import CollapsibleSection from './CollapsibleSection';
 import Tooltip from './Tooltip';
 import InfoIcon from './InfoIcon';
 import SliceWaveformEditor from './SliceWaveformEditor';
@@ -768,14 +767,14 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
             {/* Effects Rack */}
             {showEffects && (
-                <CollapsibleSection title="Effects Rack" icon="🎛️" defaultOpen={false}>
-                    <div className="space-y-6">
-                        {/* Vertical Stack with Reorder Support */}
-                        <div className="flex flex-col gap-2">
-                            {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
-                        </div>
-                    </div>
-                </CollapsibleSection>
+                <div className="bg-deep-space/50 p-2 sm:p-4 rounded-lg ring-1 ring-white/10 space-y-6">
+                    <EffectSection title="Effects Rack" info="Chain of audio effects. Drag to reorder the signal flow. Top is first, bottom is last.">
+                         {/* Vertical Stack with Reorder Support */}
+                         <div className="flex flex-col gap-2">
+                             {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
+                         </div>
+                    </EffectSection>
+                </div>
             )}
         </div>
     );

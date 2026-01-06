@@ -203,15 +203,6 @@ const Sequencer: React.FC<SequencerProps> = ({
                 </div>
             </div>
 
-            {/* Step Numbers Header */}
-            <div className={`grid ${getGridClass()} mb-2`}>
-                {Array.from({ length: sequencer.stepCount }, (_, i) => (
-                    <div key={`header-${i}`} className="flex items-center justify-center h-6 bg-deep-space/40 rounded border border-white/10">
-                        <span className="text-[10px] font-bold text-hyper-cyan font-mono">{i + 1}</span>
-                    </div>
-                ))}
-            </div>
-
             {/* Steps Grid - Redesigned Pads */}
             <div className={`grid ${getGridClass()}`}>
                 {sequencer.steps.map((step, index) => {
@@ -233,6 +224,10 @@ const Sequencer: React.FC<SequencerProps> = ({
                                     }
                                 `}
                             >
+                                {/* Step Number (Subtle) */}
+                                <span className={`absolute top-1 left-2 text-xs font-mono font-bold ${step.active ? 'opacity-90 mix-blend-screen' : 'opacity-40'}`}>
+                                    {index + 1}
+                                </span>
 
                                 {/* Center Indicator */}
                                 {step.active ? (
@@ -261,8 +256,8 @@ const Sequencer: React.FC<SequencerProps> = ({
                                         <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white animate-pulse"></div>
                                     )}
                                     
-                                    <span className={`text-xs font-black font-mono uppercase tracking-wider ${step.active ? 'opacity-100 mix-blend-hard-light text-white' : 'text-star-dust/70'}`}>
-                                        {step.sliceIndex}
+                                    <span className={`text-[10px] font-bold font-mono uppercase tracking-tight ${step.active ? 'opacity-100 mix-blend-hard-light' : 'text-star-dust/60'}`}>
+                                        SLICE {step.sliceIndex}
                                     </span>
                                 </div>
                             )}

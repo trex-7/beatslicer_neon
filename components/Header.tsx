@@ -63,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                      <Auth user={user} />
                      
                      <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-l border-white/10 pl-3">
-                         <span className="font-bold text-white/80">Dev: Sandro Mancino</span><br/>
+                         <span className="font-bold text-white/80">Creator: Sandro Mancino</span><br/>
                          <button onClick={() => { console.log('Contact button clicked'); onOpenContact(); }} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
                      </div>
                     <Tooltip text="Watch Tutorial">

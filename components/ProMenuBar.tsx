@@ -233,7 +233,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
             {/* Right Side: Auth / Info */}
             <div className="flex items-center gap-3">
                  <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
-                     <span className="font-bold text-white/80">Dev: Sandro Mancino</span><br/>
+                     <span className="font-bold text-white/80">Creator: Sandro Mancino</span><br/>
                      <button onClick={() => { console.log('Pro contact button clicked'); onOpenContact(); }} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
                  </div>
                  <div className="hidden sm:flex items-center gap-2 text-[10px] text-star-dust/50">

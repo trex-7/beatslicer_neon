@@ -194,6 +194,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      const [aiDescription, setAiDescription] = useState('Create a funky house beat with driving kick and syncopated snares');
      const [aiBpm, setAiBpm] = useState('');
      const [aiApiKey, setAiApiKey] = useState('');
+     const [isGenerating, setIsGenerating] = useState(false);
      const irInputRef = useRef<HTMLInputElement>(null);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
@@ -836,18 +837,21 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                                 <button
                                                     onClick={async () => {
                                                         if (generateAiPattern) {
+                                                            setIsGenerating(true);
                                                             try {
                                                                 await generateAiPattern(aiModel, aiInputType, aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle);
                                                             } catch (e) {
                                                                 console.error('AI Generation Error:', e);
                                                                 alert('Failed to generate AI pattern: ' + (e as Error).message);
+                                                            } finally {
+                                                                setIsGenerating(false);
                                                             }
                                                         }
                                                     }}
-                                                    disabled={disabled || !generateAiPattern}
+                                                    disabled={disabled || isGenerating || !generateAiPattern}
                                                     className="w-full py-4 bg-gradient-to-r from-plasma-pink to-purple-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,0,170,0.3)] hover:shadow-[0_0_30px_rgba(255,0,170,0.5)] border border-white/20"
                                                 >
-                                                    🤖 GENERATE AI PATTERN
+                                                    {isGenerating ? '⏳ GENERATING...' : '🤖 GENERATE AI PATTERN'}
                                                 </button>
                                             </Tooltip>
                                         </div>

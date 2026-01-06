@@ -166,7 +166,11 @@ try {
                      if (g.allowOctaveJump && Math.random() < 0.6) {
                          let multipliers = [0.5, 2.0, 4.0, 0.25];
                          if (slice.type === 'kick') multipliers = [2.0, 4.0];
-                         grain.speed *= multipliers[Math.floor(Math.random() * multipliers.length)];
+                         const mult = multipliers[Math.floor(Math.random() * multipliers.length)];
+                         grain.speed *= mult;
+                         if (!g.pitchShift) {
+                             grain.duration /= mult;
+                         }
                      }
 
                      // 3. TIME JITTER (Smearing)

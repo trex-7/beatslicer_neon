@@ -736,7 +736,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <h3 className="text-lg font-bold text-white">Engine & Global</h3>
                                 <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-x-4 gap-y-6">
                                 <Slider 
                                     label="Grain Size" 
                                     min={0.005} 

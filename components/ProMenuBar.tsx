@@ -212,7 +212,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 {/* Help Menu */}
                 <MenuDropdown label="HELP">
                     <MenuItem label="Quickstart Video" onClick={onOpenVideo} />
-                    <MenuItem label="Credits" onClick={() => alert("Beat Slicer v0.9.0-beta\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
+                    <MenuItem label="Credits" onClick={onOpenContact} />
                     <MenuItem 
                         label="Report Issue / Feedback" 
                         onClick={onReportIssue}

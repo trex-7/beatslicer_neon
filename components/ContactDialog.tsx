@@ -75,7 +75,7 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
 
                 <div className="mb-4 text-xs text-star-dust">
                     <p className="font-bold text-white/50">Dev: Sandro Mancino</p>
-                    <p className="text-hyper-cyan">sandromancino.sm@gmail.com</p>
+                    <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
                 </div>
 
                 {status === 'success' ? (

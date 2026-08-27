@@ -1,0 +1,10 @@
+{
+  "name": "Beat Slicer",
+  "description": "An advanced granular synthesizer and real-time effects processor built with React, Tone.js, and AudioWorklet for sample-accurate timing.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

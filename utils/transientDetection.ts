@@ -155,8 +155,12 @@ export const generateTransientSlices = (buffer: any, bpm: number, startTime: num
                 isActive: true,
                 type: type,
                 level: 1.0,
+<<<<<<< HEAD
                 pitch: 0,
                 gate: 100
+=======
+                pitch: 0
+>>>>>>> old-slicer/ai-beat-patterns
             });
         }
     }

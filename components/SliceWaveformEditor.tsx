@@ -108,6 +108,7 @@ const SliceWaveformEditor: React.FC<SliceWaveformEditorProps> = ({ audioBuffer, 
             .attr("fill", "#00f6ff") // Bright Cyan for active
             .attr("d", area)
             .attr("clip-path", `url(#${clipId})`);
+<<<<<<< HEAD
 
         // Gate visual overlay if gate is not 100%
         const gatePct = typeof slice.gate === 'number' ? slice.gate : 100;
@@ -146,6 +147,8 @@ const SliceWaveformEditor: React.FC<SliceWaveformEditorProps> = ({ audioBuffer, 
                 .attr("font-weight", "bold")
                 .text(`GATE ${gatePct}%`);
         }
+=======
+>>>>>>> old-slicer/ai-beat-patterns
             
         // 4. Handles & Controls
         

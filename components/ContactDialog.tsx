@@ -12,7 +12,10 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+<<<<<<< HEAD
     console.log('ContactDialog render, isOpen:', isOpen);
+=======
+>>>>>>> old-slicer/ai-beat-patterns
     if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {

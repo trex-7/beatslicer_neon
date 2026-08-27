@@ -8,6 +8,7 @@ import InfoIcon from './InfoIcon';
 import SliceWaveformEditor from './SliceWaveformEditor';
 
 interface ControlPanelProps {
+<<<<<<< HEAD
     params: AllParams;
     onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
     onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
@@ -26,6 +27,27 @@ interface ControlPanelProps {
     effectsLayout?: 'grid' | 'vertical';
     onLoadImpulseResponse?: (file: File) => Promise<void>;
 }
+=======
+     params: AllParams;
+     onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
+     onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
+     disabled: boolean;
+     generateAiBeat: (complexity: number) => void;
+     generateAiPattern?: (model: string, inputType: 'slider' | 'text', stepCount: 8 | 16 | 32, description: string, complexity?: number, apiKey?: string, bpm?: string) => void;
+     slices: Slice[];
+     selectedSliceIndex: number | null;
+     onSliceUpdate: (index: number, changes: Partial<Slice>) => void;
+     onPlaySlice: (index: number) => void;
+     onLoopSlice: (index: number) => void;
+     sliceLoopState: { index: number | null, isLooping: boolean };
+     audioBuffer: any;
+     isProMode: boolean;
+     simpleView?: 'macros' | 'magic';
+     visibleSections?: ('slices' | 'pattern' | 'engine' | 'effects')[];
+     effectsLayout?: 'grid' | 'vertical';
+     onLoadImpulseResponse?: (file: File) => Promise<void>;
+ }
+>>>>>>> old-slicer/ai-beat-patterns
 
 const subdivisionOptions: { value: NoteSubdivision; label: string }[] = [
     { value: '1m', label: '1 Bar' },
@@ -163,6 +185,7 @@ const getGritFromParams = (distortion: any) => {
 };
 
 
+<<<<<<< HEAD
 const ControlPanel: React.FC<ControlPanelProps> = memo(({ 
     params, 
     onParamChange, 
@@ -185,6 +208,40 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     
     const [aiComplexity, setAiComplexity] = useState(0.25);
     const irInputRef = useRef<HTMLInputElement>(null);
+=======
+const ControlPanel: React.FC<ControlPanelProps> = memo(({
+     params,
+     onParamChange,
+     onEffectParamChange,
+     disabled,
+     generateAiBeat,
+     generateAiPattern,
+     slices,
+     selectedSliceIndex,
+     onSliceUpdate,
+     onPlaySlice,
+     onLoopSlice,
+     sliceLoopState,
+     audioBuffer,
+     isProMode,
+     simpleView,
+     visibleSections,
+     effectsLayout,
+     onLoadImpulseResponse
+ }) => {
+
+     const [aiComplexity, setAiComplexity] = useState(0.25);
+     const [generationMode, setGenerationMode] = useState<'algorithmic' | 'ai'>('ai');
+     const [aiModel, setAiModel] = useState('deepseek');
+     const [aiInputType, setAiInputType] = useState<'slider' | 'text'>('slider');
+     const [aiStepCount, setAiStepCount] = useState<8 | 16 | 32>(32);
+     const [aiStyle, setAiStyle] = useState('custom');
+     const [aiDescription, setAiDescription] = useState('Create a funky house beat with driving kick and syncopated snares');
+     const [aiBpm, setAiBpm] = useState('');
+     const [aiApiKey, setAiApiKey] = useState('');
+     const [isGenerating, setIsGenerating] = useState(false);
+     const irInputRef = useRef<HTMLInputElement>(null);
+>>>>>>> old-slicer/ai-beat-patterns
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
 
@@ -647,11 +704,16 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         <Slider label="Fade In" min={0} max={0.2} step={0.001} value={currentSlice.fadeIn ?? params.attack} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} disabled={disabled} unit="s" defaultValue={params.attack} precision={3} />
                                         <Slider label="Fade Out" min={0} max={0.5} step={0.001} value={currentSlice.fadeOut ?? params.release} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} disabled={disabled} unit="s" defaultValue={params.release} precision={3} />
                                     </div>
+<<<<<<< HEAD
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                                         <Slider label="Gate / Sustain" min={5} max={200} step={1} value={currentSlice.gate ?? 100} onChange={(v) => onSliceUpdate(selectedSliceIndex, { gate: v })} disabled={disabled} unit="%" defaultValue={100} tooltip="Slice Gate / Sustain length (% of slice played: <100% staccato choke, 100% full length, >100% sustain)" precision={0} />
                                         <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
                                     </div>
                                     <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
+=======
+                                     <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
+                                     <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
+>>>>>>> old-slicer/ai-beat-patterns
                                 </div>
                             ) : (
                                 <div className="flex-1 flex items-center justify-center text-star-dust/40 italic text-sm">Select a slice to edit</div>
@@ -664,6 +726,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-hyper-cyan">⚡</span> Pattern Gen
+<<<<<<< HEAD
                                 <InfoIcon text="Algorithmic sequencer. Set complexity using the slider, then click Generate to create a unique sequence." className="ml-2" />
                             </h3>
                             <div className="space-y-6">
@@ -697,6 +760,193 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         🎲 GENERATE PATTERN
                                     </button>
                                 </Tooltip>
+=======
+                                <InfoIcon text="Generate patterns using algorithmic or AI methods." className="ml-2" />
+                            </h3>
+                            <div className="space-y-6">
+                                {/* Generation Mode Toggle */}
+                                <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10">
+                                    <button
+                                        onClick={() => setGenerationMode('algorithmic')}
+                                        className={`flex-1 py-2 text-xs font-bold uppercase rounded transition-all ${generationMode === 'algorithmic' ? 'bg-hyper-cyan text-deep-space shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
+                                    >
+                                        Algorithmic
+                                    </button>
+                                    <button
+                                        onClick={() => setGenerationMode('ai')}
+                                        className={`flex-1 py-2 text-xs font-bold uppercase rounded transition-all ${generationMode === 'ai' ? 'bg-plasma-pink text-white shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
+                                    >
+                                        AI Generated
+                                    </button>
+                                </div>
+
+                                {generationMode === 'algorithmic' ? (
+                                    <>
+                                        <div className="px-1">
+                                            <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
+                                                <span>Ordered</span>
+                                                <span className="text-hyper-cyan">Syncopation</span>
+                                                <span>Chaotic</span>
+                                            </div>
+                                            <Tooltip text="Complexity Level: Low creates structured beats, High creates random glitch patterns.">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="1"
+                                                    step="0.01"
+                                                    value={aiComplexity}
+                                                    onChange={(e) => setAiComplexity(parseFloat(e.target.value))}
+                                                    style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
+                                                    className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all"
+                                                    onDoubleClick={() => setAiComplexity(0.25)}
+                                                />
+                                            </Tooltip>
+                                        </div>
+
+                                        <Tooltip text="Generate a new sequence based on the current entropy level">
+                                            <button
+                                                onClick={() => generateAiBeat(aiComplexity)}
+                                                disabled={disabled}
+                                                className="w-full py-4 bg-gradient-to-r from-hyper-cyan to-blue-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,246,255,0.3)] hover:shadow-[0_0_30px_rgba(0,246,255,0.5)] border border-white/20"
+                                            >
+                                                🎲 GENERATE PATTERN
+                                            </button>
+                                        </Tooltip>
+                                    </>
+                                ) : (
+                                    <>
+                                        {/* AI Options */}
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">API Key</label>
+                                                <input
+                                                    type="password"
+                                                    value={aiApiKey}
+                                                    onChange={(e) => setAiApiKey(e.target.value)}
+                                                    placeholder="Enter API key"
+                                                    className="w-full h-8 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none px-2"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">BPM (optional)</label>
+                                                <input
+                                                    type="number"
+                                                    value={aiBpm}
+                                                    onChange={(e) => setAiBpm(e.target.value)}
+                                                    placeholder="Auto or specify"
+                                                    min="60"
+                                                    max="200"
+                                                    className="w-full h-8 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none px-2"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <div>
+                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">AI Model</label>
+                                                <select
+                                                    value={aiModel}
+                                                    onChange={(e) => setAiModel(e.target.value)}
+                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
+                                                >
+                                                    <option value="openai-gpt4">GPT-4</option>
+                                                    <option value="openai-gpt3.5">GPT-3.5</option>
+                                                    <option value="claude">Claude</option>
+                                                    <option value="deepseek">DeepSeek</option>
+                                                    <option value="gemini">Gemini</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">Style Seed</label>
+                                                <select
+                                                    value={aiStyle}
+                                                    onChange={(e) => setAiStyle(e.target.value)}
+                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
+                                                >
+                                                    <option value="custom">Custom</option>
+                                                    <option value="techno">Techno</option>
+                                                    <option value="trap">Trap</option>
+                                                    <option value="house">House</option>
+                                                    <option value="dnb">D&B</option>
+                                                    <option value="hiphop">Hip Hop</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">Input</label>
+                                                <select
+                                                    value={aiInputType}
+                                                    onChange={(e) => setAiInputType(e.target.value as 'slider' | 'text')}
+                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
+                                                >
+                                                    <option value="slider">Slider</option>
+                                                    <option value="text">Text</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[8, 16, 32].map((count) => (
+                                                    <button
+                                                        key={count}
+                                                        onClick={() => setAiStepCount(count as 8 | 16 | 32)}
+                                                        className={`py-2 text-xs font-bold uppercase rounded border transition-all ${aiStepCount === count ? 'bg-plasma-pink text-white border-plasma-pink' : 'border-white/10 text-star-dust/50 hover:bg-white/5'}`}
+                                                    >
+                                                        {count} Steps
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {aiInputType === 'slider' ? (
+                                                <div className="px-1">
+                                                    <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
+                                                        <span>Simple</span>
+                                                        <span className="text-plasma-pink">Complex</span>
+                                                        <span>Chaotic</span>
+                                                    </div>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="1"
+                                                        step="0.01"
+                                                        value={aiComplexity}
+                                                        onChange={(e) => setAiComplexity(parseFloat(e.target.value))}
+                                                        className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-plasma-pink [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <textarea
+                                                    value={aiDescription}
+                                                    onChange={(e) => setAiDescription(e.target.value)}
+                                                    placeholder="Describe the beat you want..."
+                                                    className="w-full h-20 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none p-2 resize-none"
+                                                />
+                                            )}
+
+                                            <Tooltip text="Generate pattern using AI based on your settings">
+                                                <button
+                                                    onClick={async () => {
+                                                        if (generateAiPattern) {
+                                                            setIsGenerating(true);
+                                                            try {
+                                                                await generateAiPattern(aiModel, aiInputType, aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle);
+                                                            } catch (e) {
+                                                                console.error('AI Generation Error:', e);
+                                                                alert('Failed to generate AI pattern: ' + (e as Error).message);
+                                                            } finally {
+                                                                setIsGenerating(false);
+                                                            }
+                                                        }
+                                                    }}
+                                                    disabled={disabled || isGenerating || !generateAiPattern}
+                                                    className="w-full py-4 bg-gradient-to-r from-plasma-pink to-purple-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,0,170,0.3)] hover:shadow-[0_0_30px_rgba(255,0,170,0.5)] border border-white/20"
+                                                >
+                                                    {isGenerating ? '⏳ GENERATING...' : '🤖 GENERATE AI PATTERN'}
+                                                </button>
+                                            </Tooltip>
+                                        </div>
+                                    </>
+                                )}
+>>>>>>> old-slicer/ai-beat-patterns
 
                                  <div className="pt-3 border-t border-white/10">
                                     <div className="flex justify-between items-center mb-2">
@@ -739,7 +989,11 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <h3 className="text-lg font-bold text-white">Engine & Global</h3>
                                 <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
                             </div>
+<<<<<<< HEAD
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
+=======
+                            <div className="grid grid-cols-2 md:grid-cols-1 gap-x-4 gap-y-6">
+>>>>>>> old-slicer/ai-beat-patterns
                                 <Slider 
                                     label="Grain Size" 
                                     min={0.005} 

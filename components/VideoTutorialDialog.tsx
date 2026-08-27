@@ -7,7 +7,11 @@ interface VideoTutorialDialogProps {
     onClose: () => void;
 }
 
+<<<<<<< HEAD
 const STORAGE_KEY = 'beat_slicer_quickstart_seen_v2';
+=======
+const STORAGE_KEY = 'beat_slicer_quickstart_seen_v3';
+>>>>>>> old-slicer/ai-beat-patterns
 
 const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClose }) => {
     const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -65,6 +69,7 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                 </div>
                 <div className="bg-black flex-1 flex items-center justify-center relative w-full h-full min-h-[300px]">
                     {!hasError ? (
+<<<<<<< HEAD
                         <video 
                             controls 
                             playsInline
@@ -88,11 +93,28 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                             
                             Your browser does not support the video tag.
                         </video>
+=======
+                        <iframe
+                            width="100%"
+                            height="100%"
+                            src="https://www.youtube.com/embed/OccOu9i76L0"
+                            title="Beat Slicer Quickstart Guide"
+                            frameBorder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                            className="w-full h-full min-h-[300px]"
+                            onError={() => {
+                                console.error("YouTube embed load error");
+                                setHasError(true);
+                            }}
+                        ></iframe>
+>>>>>>> old-slicer/ai-beat-patterns
                     ) : (
                         <div className="text-center p-8">
                             <div className="text-4xl mb-4">⚠️</div>
                             <h3 className="text-xl font-bold text-white mb-2">Video Unavailable</h3>
                             <p className="text-star-dust mb-4 text-sm max-w-md">
+<<<<<<< HEAD
                                 The tutorial video could not be loaded. This might be due to a file path issue or browser restriction.
                             </p>
                             <a 
@@ -102,6 +124,17 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                                 className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded font-bold text-xs transition-colors border border-white/5"
                             >
                                 Try Direct Link
+=======
+                                The tutorial video could not be loaded. This might be due to a network issue or browser restriction.
+                            </p>
+                            <a
+                                href="https://youtu.be/OccOu9i76L0?si=GWDO4oITSO6tq9ac"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded font-bold text-xs transition-colors border border-white/5"
+                            >
+                                Open on YouTube
+>>>>>>> old-slicer/ai-beat-patterns
                             </a>
                         </div>
                     )}

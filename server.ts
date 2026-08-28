@@ -11,6 +11,7 @@ import {
   deleteFromS3,
   generatePresignedUploadUrl,
   getS3Config,
+  syncLocalAudioToBucket,
 } from './src/lib/s3.ts';
 import {
   fetchFullLibrary,
@@ -623,8 +624,60 @@ async function startServer() {
     }
   });
 
-  // Seed default factory samples if table is empty
+  // Storage status endpoint
+  app.get('/api/storage/status', async (_req: Request, res: Response) => {
+    const config = getS3Config();
+    const isConfigured = isS3Configured();
+    res.json({
+      configured: isConfigured,
+      bucket: config.bucket || null,
+      region: config.region || null,
+      endpoint: config.endpoint || null,
+      publicBaseUrl: config.publicBaseUrl || null,
+    });
+  });
+
+  // Manually trigger bucket synchronization (uploads all audio in /public/Audio and /public/uploads to Neon bucket)
+  app.post('/api/storage/sync-to-bucket', async (_req: Request, res: Response) => {
+    try {
+      const syncResult = await syncLocalAudioToBucket();
+      
+      // Update samples in database if synced
+      for (const item of syncResult.synced) {
+        try {
+          const sampleName = item.filename.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+          await createSample({
+            title: sampleName,
+            url: item.url,
+            isFactory: true,
+            isPublic: true,
+          });
+        } catch (dbErr) {
+          // ignore duplicate insert errors
+        }
+      }
+
+      res.json({
+        success: true,
+        message: syncResult.isConfigured
+          ? `Synced ${syncResult.synced.length} files to Neon Object Storage bucket`
+          : 'Storage is not configured yet. Set NEON_STORAGE_BUCKET, NEON_STORAGE_ACCESS_KEY_ID, NEON_STORAGE_SECRET_ACCESS_KEY.',
+        details: syncResult,
+      });
+    } catch (err: any) {
+      console.error('Storage sync error:', err);
+      res.status(500).json({ error: err.message || 'Failed to sync storage' });
+    }
+  });
+
+  // Seed default factory samples & sync with Neon Storage if configured
   try {
+    if (isS3Configured()) {
+      console.log('[Storage] S3 / Neon storage is detected. Synchronizing factory assets to bucket...');
+      const syncResult = await syncLocalAudioToBucket();
+      console.log(`[Storage] Synced ${syncResult.synced.length} audio files to Neon Object Storage bucket.`);
+    }
+
     const existingSamples = await fetchFullLibrary();
     if (existingSamples.factorySamples.length === 0) {
       const factoryAudio = [
@@ -635,7 +688,7 @@ async function startServer() {
       for (const fa of factoryAudio) {
         await createSample(fa);
       }
-      console.log('Seeded factory samples into Cloud SQL database');
+      console.log('Seeded factory samples into database');
     }
   } catch (seedErr) {
     console.warn('Initial factory seed check notice:', seedErr);

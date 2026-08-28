@@ -11,12 +11,6 @@ node_modules
 dist
 dist-ssr
 *.local
-<<<<<<< HEAD
-.env
-.env.*
-!.env.example
-=======
->>>>>>> old-slicer/ai-beat-patterns
 
 # Editor directories and files
 .vscode/*
@@ -28,11 +22,25 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-<<<<<<< HEAD
-=======
 
-# Large demo files
+# Large demo and media files
 *.zip
 *.mov
 *.mp4
->>>>>>> old-slicer/ai-beat-patterns
+*.m4v
+
+# Audio files and uploads
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.aac
+*.aif
+*.aiff
+public/Audio/*
+!public/Audio/.gitkeep
+public/uploads/*
+!public/uploads/.gitkeep
+uploads/
+

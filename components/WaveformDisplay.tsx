@@ -491,11 +491,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                                 <div className="w-12 h-12 rounded-full bg-plasma-pink/20 text-plasma-pink flex items-center justify-center text-2xl group-hover:scale-110 transition-transform shadow-lg">📚</div>
                                 <div>
                                     <span className="block text-sm font-bold text-white uppercase tracking-wider">Library</span>
-<<<<<<< HEAD
-                                    <span className="block text-[10px] text-star-dust/70">Browse Community</span>
-=======
                                     <span className="block text-[10px] text-star-dust/70">Load Audio</span>
->>>>>>> old-slicer/ai-beat-patterns
                                 </div>
                             </button>
                         </div>

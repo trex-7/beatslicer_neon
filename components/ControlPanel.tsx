@@ -8,26 +8,6 @@ import InfoIcon from './InfoIcon';
 import SliceWaveformEditor from './SliceWaveformEditor';
 
 interface ControlPanelProps {
-<<<<<<< HEAD
-    params: AllParams;
-    onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
-    onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
-    disabled: boolean;
-    generateAiBeat: (complexity: number) => void;
-    slices: Slice[];
-    selectedSliceIndex: number | null;
-    onSliceUpdate: (index: number, changes: Partial<Slice>) => void;
-    onPlaySlice: (index: number) => void;
-    onLoopSlice: (index: number) => void;
-    sliceLoopState: { index: number | null, isLooping: boolean };
-    audioBuffer: any;
-    isProMode: boolean;
-    simpleView?: 'macros' | 'magic';
-    visibleSections?: ('slices' | 'pattern' | 'engine' | 'effects')[];
-    effectsLayout?: 'grid' | 'vertical';
-    onLoadImpulseResponse?: (file: File) => Promise<void>;
-}
-=======
      params: AllParams;
      onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
      onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
@@ -47,7 +27,6 @@ interface ControlPanelProps {
      effectsLayout?: 'grid' | 'vertical';
      onLoadImpulseResponse?: (file: File) => Promise<void>;
  }
->>>>>>> old-slicer/ai-beat-patterns
 
 const subdivisionOptions: { value: NoteSubdivision; label: string }[] = [
     { value: '1m', label: '1 Bar' },
@@ -185,30 +164,6 @@ const getGritFromParams = (distortion: any) => {
 };
 
 
-<<<<<<< HEAD
-const ControlPanel: React.FC<ControlPanelProps> = memo(({ 
-    params, 
-    onParamChange, 
-    onEffectParamChange, 
-    disabled, 
-    generateAiBeat,
-    slices, 
-    selectedSliceIndex,
-    onSliceUpdate, 
-    onPlaySlice, 
-    onLoopSlice, 
-    sliceLoopState, 
-    audioBuffer, 
-    isProMode, 
-    simpleView, 
-    visibleSections, 
-    effectsLayout,
-    onLoadImpulseResponse
-}) => {
-    
-    const [aiComplexity, setAiComplexity] = useState(0.25);
-    const irInputRef = useRef<HTMLInputElement>(null);
-=======
 const ControlPanel: React.FC<ControlPanelProps> = memo(({
      params,
      onParamChange,
@@ -241,7 +196,6 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      const [aiApiKey, setAiApiKey] = useState('');
      const [isGenerating, setIsGenerating] = useState(false);
      const irInputRef = useRef<HTMLInputElement>(null);
->>>>>>> old-slicer/ai-beat-patterns
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
 
@@ -374,11 +328,11 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                 {(!simpleView || simpleView === 'magic') && (
                     <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 p-4 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center relative group">
                         <div className="absolute top-2 right-2 opacity-50 hover:opacity-100 transition-opacity">
-                            <InfoIcon text="Magic Patterns use AI-style probability to generate rhythms based on slice types (Kick, Snare, etc)." />
+                            <InfoIcon text="Generates rhythmic patterns using probabilistic weighting across classified slice types (Kick, Snare, Hi-Hat, Percussion)." />
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-white mb-1">✨ Magic Patterns</h3>
-                            <p className="text-[10px] text-star-dust/70">Instantly remix your slices with AI logic.</p>
+                            <h3 className="text-lg font-bold text-white mb-1">Pattern Generator</h3>
+                            <p className="text-[10px] text-star-dust/70">Generate dynamic rhythmic patterns based on slice transient types.</p>
                         </div>
                         <div className="flex flex-col gap-3 w-full max-w-sm">
                              <div className="flex justify-between items-center text-[10px] font-bold text-star-dust uppercase tracking-wider px-1">
@@ -397,7 +351,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
                              />
                              <button onClick={() => generateAiBeat(aiComplexity)} className="w-full py-3 bg-gradient-to-r from-hyper-cyan to-blue-500 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 transition-all shadow-lg active:scale-95 border border-white/10">
-                                🎲 GENERATE GROOVE
+                                GENERATE PATTERN
                              </button>
                         </div>
                     </div>
@@ -704,16 +658,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         <Slider label="Fade In" min={0} max={0.2} step={0.001} value={currentSlice.fadeIn ?? params.attack} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} disabled={disabled} unit="s" defaultValue={params.attack} precision={3} />
                                         <Slider label="Fade Out" min={0} max={0.5} step={0.001} value={currentSlice.fadeOut ?? params.release} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} disabled={disabled} unit="s" defaultValue={params.release} precision={3} />
                                     </div>
-<<<<<<< HEAD
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                                        <Slider label="Gate / Sustain" min={5} max={200} step={1} value={currentSlice.gate ?? 100} onChange={(v) => onSliceUpdate(selectedSliceIndex, { gate: v })} disabled={disabled} unit="%" defaultValue={100} tooltip="Slice Gate / Sustain length (% of slice played: <100% staccato choke, 100% full length, >100% sustain)" precision={0} />
-                                        <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
-                                    </div>
-                                    <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
-=======
                                      <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
                                      <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
->>>>>>> old-slicer/ai-beat-patterns
                                 </div>
                             ) : (
                                 <div className="flex-1 flex items-center justify-center text-star-dust/40 italic text-sm">Select a slice to edit</div>
@@ -726,41 +672,6 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                         <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
                              <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                                 <span className="text-hyper-cyan">⚡</span> Pattern Gen
-<<<<<<< HEAD
-                                <InfoIcon text="Algorithmic sequencer. Set complexity using the slider, then click Generate to create a unique sequence." className="ml-2" />
-                            </h3>
-                            <div className="space-y-6">
-                                <div className="px-1">
-                                    <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
-                                        <span>Ordered</span>
-                                        <span className="text-hyper-cyan">Syncopation</span>
-                                        <span>Chaotic</span>
-                                    </div>
-                                    <Tooltip text="Complexity Level: Low creates structured beats, High creates random glitch patterns.">
-                                        <input 
-                                            type="range" 
-                                            min="0" 
-                                            max="1" 
-                                            step="0.01" 
-                                            value={aiComplexity} 
-                                            onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
-                                            style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
-                                            className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
-                                            onDoubleClick={() => setAiComplexity(0.25)} 
-                                        />
-                                    </Tooltip>
-                                </div>
-                                
-                                <Tooltip text="Generate a new sequence based on the current entropy level">
-                                    <button 
-                                        onClick={() => generateAiBeat(aiComplexity)} 
-                                        disabled={disabled} 
-                                        className="w-full py-4 bg-gradient-to-r from-hyper-cyan to-blue-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,246,255,0.3)] hover:shadow-[0_0_30px_rgba(0,246,255,0.5)] border border-white/20"
-                                    >
-                                        🎲 GENERATE PATTERN
-                                    </button>
-                                </Tooltip>
-=======
                                 <InfoIcon text="Generate patterns using algorithmic or AI methods." className="ml-2" />
                             </h3>
                             <div className="space-y-6">
@@ -946,7 +857,6 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         </div>
                                     </>
                                 )}
->>>>>>> old-slicer/ai-beat-patterns
 
                                  <div className="pt-3 border-t border-white/10">
                                     <div className="flex justify-between items-center mb-2">
@@ -989,11 +899,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 <h3 className="text-lg font-bold text-white">Engine & Global</h3>
                                 <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
                             </div>
-<<<<<<< HEAD
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
-=======
                             <div className="grid grid-cols-2 md:grid-cols-1 gap-x-4 gap-y-6">
->>>>>>> old-slicer/ai-beat-patterns
                                 <Slider 
                                     label="Grain Size" 
                                     min={0.005} 

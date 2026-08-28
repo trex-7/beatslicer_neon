@@ -5,18 +5,48 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import fs from 'fs';
+import path from 'path';
 
-// S3 Client configuration supporting AWS S3, Cloudflare R2, MinIO, Wasabi, and custom S3 endpoints
+// S3 / Neon Object Storage configuration supporting Neon Storage, AWS S3, Cloudflare R2, MinIO, Wasabi
 let s3ClientInstance: S3Client | null = null;
 
 export function getS3Config() {
-  const bucket = process.env.S3_BUCKET_NAME || process.env.AWS_S3_BUCKET || process.env.AWS_BUCKET_NAME;
-  const region = process.env.AWS_REGION || process.env.S3_REGION || 'us-east-1';
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY;
-  const endpoint = process.env.S3_ENDPOINT || process.env.AWS_ENDPOINT_URL;
-  const publicBaseUrl = process.env.S3_PUBLIC_URL || process.env.AWS_S3_PUBLIC_URL;
-  const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === 'true';
+  const bucket =
+    process.env.NEON_STORAGE_BUCKET ||
+    process.env.S3_BUCKET_NAME ||
+    process.env.AWS_S3_BUCKET ||
+    process.env.AWS_BUCKET_NAME ||
+    'beat-slicer';
+  const region =
+    process.env.NEON_STORAGE_REGION ||
+    process.env.AWS_REGION ||
+    process.env.S3_REGION ||
+    'us-east-2';
+  const accessKeyId =
+    process.env.NEON_STORAGE_ACCESS_KEY_ID ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    process.env.S3_ACCESS_KEY_ID ||
+    'nak_live_897e7825c27b46c3b913ebb94723a754';
+  const secretAccessKey =
+    process.env.NEON_STORAGE_SECRET_ACCESS_KEY ||
+    process.env.AWS_SECRET_ACCESS_KEY ||
+    process.env.S3_SECRET_ACCESS_KEY ||
+    'nsk_live_dcf0414b01ed8fb651e2f5e15896992ab4304fc43e2ed8fc306e4c2d8251a50d';
+  const endpoint =
+    process.env.AWS_ENDPOINT_URL_S3 ||
+    process.env.NEON_STORAGE_ENDPOINT ||
+    process.env.S3_ENDPOINT ||
+    process.env.AWS_ENDPOINT_URL ||
+    'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech';
+  const publicBaseUrl =
+    process.env.NEON_STORAGE_PUBLIC_URL ||
+    process.env.S3_PUBLIC_URL ||
+    process.env.AWS_S3_PUBLIC_URL;
+  const forcePathStyle =
+    process.env.NEON_STORAGE_FORCE_PATH_STYLE === 'true' ||
+    process.env.S3_FORCE_PATH_STYLE === 'true' ||
+    true;
 
   return {
     bucket,
@@ -168,3 +198,62 @@ export async function generatePresignedDownloadUrl(
 
   return await getSignedUrl(s3, command, { expiresIn: expiresInSeconds });
 }
+
+/**
+ * Synchronizes all factory and local audio files into the Neon S3 storage bucket.
+ */
+export async function syncLocalAudioToBucket(): Promise<{
+  synced: Array<{ filename: string; key: string; url: string }>;
+  errors: Array<{ filename: string; error: string }>;
+  isConfigured: boolean;
+}> {
+  if (!isS3Configured()) {
+    console.log('[Storage Sync] S3 / Neon storage is not configured, skipping cloud sync.');
+    return { synced: [], errors: [], isConfigured: false };
+  }
+
+  const synced: Array<{ filename: string; key: string; url: string }> = [];
+  const errors: Array<{ filename: string; error: string }> = [];
+
+  const audioDirs = [
+    path.join(process.cwd(), 'public', 'Audio'),
+    path.join(process.cwd(), 'public', 'uploads'),
+  ];
+
+  for (const dir of audioDirs) {
+    if (!fs.existsSync(dir)) continue;
+
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const ext = path.extname(file).toLowerCase();
+      if (!['.wav', '.mp3', '.m4a', '.ogg', '.flac', '.m4v'].includes(ext)) {
+        continue;
+      }
+
+      const filePath = path.join(dir, file);
+      try {
+        const stats = fs.statSync(filePath);
+        if (!stats.isFile()) continue;
+
+        const buffer = fs.readFileSync(filePath);
+        const s3Key = `samples/${file}`;
+        const contentType = ext === '.m4v' ? 'video/mp4' : 'audio/wav';
+
+        console.log(`[Storage Sync] Uploading ${file} to Neon bucket at ${s3Key}...`);
+        const result = await uploadBufferToS3(buffer, s3Key, contentType);
+        synced.push({
+          filename: file,
+          key: s3Key,
+          url: result.url,
+        });
+        console.log(`[Storage Sync] Successfully synced ${file} -> ${result.url}`);
+      } catch (err: any) {
+        console.error(`[Storage Sync] Failed to sync ${file}:`, err.message);
+        errors.push({ filename: file, error: err.message || 'Upload failed' });
+      }
+    }
+  }
+
+  return { synced, errors, isConfigured: true };
+}
+

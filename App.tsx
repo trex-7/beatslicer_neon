@@ -12,32 +12,15 @@ import CollapsibleSection from './components/CollapsibleSection';
 import ProMenuBar from './components/ProMenuBar';
 import SaveDialog from './components/SaveDialog';
 import FeedbackDialog from './components/FeedbackDialog';
-<<<<<<< HEAD
-import Transport from './components/Transport';
-import Tooltip from './components/Tooltip';
-import VideoTutorialDialog from './components/VideoTutorialDialog';
-import { getNeonSession, getStoredUser } from './src/lib/neon-auth';
-=======
 import ContactDialog from './components/ContactDialog';
 import Transport from './components/Transport';
 import Tooltip from './components/Tooltip';
 import VideoTutorialDialog from './components/VideoTutorialDialog';
 import DemoPromptDialog from './components/DemoPromptDialog';
-import { supabase } from './utils/supabaseClient';
->>>>>>> old-slicer/ai-beat-patterns
 
 declare const Tone: any;
 
 const App: React.FC = () => {
-<<<<<<< HEAD
-    const { 
-        isReady, 
-        isPlaying, 
-        isLoading, 
-        audioBuffer, 
-        params, 
-        sequencer, 
-=======
     const {
         isReady,
         isPlaying,
@@ -45,7 +28,6 @@ const App: React.FC = () => {
         audioBuffer,
         params,
         sequencer,
->>>>>>> old-slicer/ai-beat-patterns
         slices,
         selectedSliceIndex,
         sampleName,
@@ -57,13 +39,8 @@ const App: React.FC = () => {
         midiDebug,
         loadAudioFile,
         loadConstructionKit,
-<<<<<<< HEAD
-        togglePlay, 
-        updateParams, 
-=======
         togglePlay,
         updateParams,
->>>>>>> old-slicer/ai-beat-patterns
         scrub,
         updateSequencerStep,
         setSequencerMode,
@@ -72,10 +49,7 @@ const App: React.FC = () => {
         setSequencerPlaybackBehavior,
         randomizePattern,
         generateAiBeat,
-<<<<<<< HEAD
-=======
         generateAiPattern,
->>>>>>> old-slicer/ai-beat-patterns
         selectSlice,
         toggleSliceActive,
         updateSlice,
@@ -106,13 +80,9 @@ const App: React.FC = () => {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
-<<<<<<< HEAD
-    const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
-=======
     const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
     const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
     const [isPromptOpen, setIsPromptOpen] = useState(false);
->>>>>>> old-slicer/ai-beat-patterns
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
 
@@ -120,83 +90,39 @@ const App: React.FC = () => {
     const presetInputRef = useRef<HTMLInputElement>(null);
     const audioInputRef = useRef<HTMLInputElement>(null);
 
-<<<<<<< HEAD
-    // Auth State Management (Neon Auth)
+    // Auth State Management (Neon Auth & Local Session)
     useEffect(() => {
-        // Initial local check
-        const initialUser = getStoredUser();
-        if (initialUser) {
-            setUser({
-                id: initialUser.id || initialUser.uid,
-                uid: initialUser.id || initialUser.uid,
-                email: initialUser.email,
-                displayName: initialUser.name || initialUser.email?.split('@')[0],
-                user_metadata: {
-                    username: initialUser.name || initialUser.email?.split('@')[0]
+        const syncUser = () => {
+            const stored = localStorage.getItem('neon_auth_user');
+            if (stored) {
+                try {
+                    setUser(JSON.parse(stored));
+                } catch {
+                    setUser(null);
                 }
-            });
-        }
-
-        // Validate active session with Neon Auth server
-        getNeonSession().then(({ user: neonUser }) => {
-            if (neonUser) {
-                setUser({
-                    id: neonUser.id || neonUser.uid,
-                    uid: neonUser.id || neonUser.uid,
-                    email: neonUser.email,
-                    displayName: neonUser.name || neonUser.email?.split('@')[0],
-                    user_metadata: {
-                        username: neonUser.name || neonUser.email?.split('@')[0]
-                    }
-                });
-            } else if (!initialUser) {
+            } else {
                 setUser(null);
             }
-        });
-
-        // Listen for Neon Auth change events
-        const handleAuthChange = (e: any) => {
-            setUser(e.detail);
         };
-        window.addEventListener('neon_auth_changed', handleAuthChange);
-        return () => window.removeEventListener('neon_auth_changed', handleAuthChange);
-=======
-    // Auth State Management
-    useEffect(() => {
-        if (supabase) {
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                setUser(session?.user ?? null);
-            });
-            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-                setUser(session?.user ?? null);
-            });
-            return () => subscription.unsubscribe();
-        }
->>>>>>> old-slicer/ai-beat-patterns
+
+        syncUser();
+        window.addEventListener('neon_auth_change', syncUser);
+        window.addEventListener('storage', syncUser);
+        return () => {
+            window.removeEventListener('neon_auth_change', syncUser);
+            window.removeEventListener('storage', syncUser);
+        };
     }, []);
 
     // Startup: Check Quickstart Video Preference with Delay
     useEffect(() => {
         const timer = setTimeout(() => {
-<<<<<<< HEAD
-            const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v2');
-            if (hasSeen !== 'true') {
-                setIsVideoDialogOpen(true);
-            }
-        }, 1500); // 1.5s delay to ensure app is settled
-        
-=======
             const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v3');
-            console.log('Checking demo prompt, hasSeen:', hasSeen);
             if (hasSeen !== 'true') {
-                console.log('Opening prompt');
                 setIsPromptOpen(true);
-            } else {
-                console.log('Prompt skipped, already seen');
             }
-        }, 1500); // 1.5s delay to ensure app is settled
+        }, 1500);
 
->>>>>>> old-slicer/ai-beat-patterns
         return () => clearTimeout(timer);
     }, []);
 
@@ -248,14 +174,6 @@ const App: React.FC = () => {
                 <h3 className="text-xs font-bold text-white uppercase tracking-widest">FX Rack</h3>
             </div>
             <div className="pr-1">
-<<<<<<< HEAD
-                <ControlPanel 
-                    params={params} 
-                    onParamChange={handleParamChange}
-                    onEffectParamChange={handleEffectParamChange}
-                    disabled={!audioBuffer || isLoading} 
-                    generateAiBeat={generateAiBeat}
-=======
                 <ControlPanel
                     params={params}
                     onParamChange={handleParamChange}
@@ -263,7 +181,6 @@ const App: React.FC = () => {
                     disabled={!audioBuffer || isLoading}
                     generateAiBeat={generateAiBeat}
                     generateAiPattern={generateAiPattern}
->>>>>>> old-slicer/ai-beat-patterns
                     slices={slices}
                     selectedSliceIndex={selectedSliceIndex}
                     onSliceUpdate={updateSlice}
@@ -307,29 +224,22 @@ const App: React.FC = () => {
                 user={user}
             />
 
-<<<<<<< HEAD
-            <VideoTutorialDialog 
-=======
             <ContactDialog
                 isOpen={isContactDialogOpen}
                 onClose={() => setIsContactDialogOpen(false)}
             />
 
             <VideoTutorialDialog
->>>>>>> old-slicer/ai-beat-patterns
                 isOpen={isVideoDialogOpen}
                 onClose={() => setIsVideoDialogOpen(false)}
             />
 
-<<<<<<< HEAD
-=======
             <DemoPromptDialog
                 isOpen={isPromptOpen}
                 onWatchDemo={() => { setIsPromptOpen(false); setIsVideoDialogOpen(true); }}
                 onSkip={() => { setIsPromptOpen(false); localStorage.setItem('beat_slicer_quickstart_seen_v3', 'true'); }}
             />
 
->>>>>>> old-slicer/ai-beat-patterns
             {/* Global Library Manager Modal */}
             <LibraryManager 
                 isOpen={isLibraryOpen}
@@ -358,7 +268,7 @@ const App: React.FC = () => {
                     getAudioWav={getAudioWav}
                     onExportWav={() => { /* Handled in ProMenuBar via getAudioWav */ }}
                     onRandomize={randomizePattern}
-                    onClearPattern={() => updateSequencerStep(0, { active: false }) /* Placeholder for clear all */}
+                    onClearPattern={() => sequencer.forEach((_, i) => updateSequencerStep(i, { active: false }))}
                     onAutoSlice={autoSlice}
                     onGenerateBeat={(style) => generateAiBeat(style === 'house' ? 0.2 : style === 'break' ? 0.5 : 0.9)}
                     onToggleMode={() => setIsProMode(false)}
@@ -367,23 +277,12 @@ const App: React.FC = () => {
                     sampleName={sampleName}
                     onReportIssue={() => setIsFeedbackDialogOpen(true)}
                     onOpenVideo={() => setIsVideoDialogOpen(true)}
-<<<<<<< HEAD
-=======
                     onOpenContact={() => setIsContactDialogOpen(true)}
->>>>>>> old-slicer/ai-beat-patterns
                 />
             )}
 
             <div className={`w-full max-w-[1920px] mx-auto flex flex-col gap-4 ${isProMode ? 'mt-12 px-4 pb-4' : ''}`}>
                 {!isProMode && (
-<<<<<<< HEAD
-                    <Header 
-                        isProMode={isProMode} 
-                        onToggleMode={setIsProMode} 
-                        onShowMonitor={() => setShowMonitor(true)}
-                        user={user}
-                        onOpenVideo={() => setIsVideoDialogOpen(true)}
-=======
                     <Header
                         isProMode={isProMode}
                         onToggleMode={setIsProMode}
@@ -391,7 +290,6 @@ const App: React.FC = () => {
                         user={user}
                         onOpenVideo={() => setIsVideoDialogOpen(true)}
                         onOpenContact={() => setIsContactDialogOpen(true)}
->>>>>>> old-slicer/ai-beat-patterns
                     />
                 )}
                 
@@ -492,14 +390,6 @@ const App: React.FC = () => {
                                    </div>
                                     
                                    <div className="w-full">
-<<<<<<< HEAD
-                                      <ControlPanel 
-                                        params={params} 
-                                        onParamChange={handleParamChange}
-                                        onEffectParamChange={handleEffectParamChange}
-                                        disabled={!audioBuffer || isLoading} 
-                                        generateAiBeat={generateAiBeat}
-=======
                                       <ControlPanel
                                         params={params}
                                         onParamChange={handleParamChange}
@@ -507,7 +397,6 @@ const App: React.FC = () => {
                                         disabled={!audioBuffer || isLoading}
                                         generateAiBeat={generateAiBeat}
                                         generateAiPattern={generateAiPattern}
->>>>>>> old-slicer/ai-beat-patterns
                                         slices={slices}
                                         selectedSliceIndex={selectedSliceIndex}
                                         onSliceUpdate={updateSlice}
@@ -545,7 +434,7 @@ const App: React.FC = () => {
                                                     📂
                                                 </div>
                                                 <div className="flex flex-col min-w-0 justify-center">
-                                                    <div className="text-white font-bold text-lg outline-none placeholder-white/20 w-32 md:w-48 truncate">My Groove</div>
+                                                    <div className="text-white font-bold text-lg outline-none w-32 md:w-48 truncate">{projectName || 'My Project'}</div>
                                                     <div className="text-[10px] text-star-dust truncate flex items-center gap-1.5">
                                                         <span className={`w-1.5 h-1.5 rounded-full ${audioBuffer ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
                                                         <span className="opacity-70">Sample:</span>
@@ -558,13 +447,9 @@ const App: React.FC = () => {
                                                  <button 
                                                     onClick={() => setIsLibraryOpen(true)}
                                                     className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0"
-                                                >
-                                                    <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
-<<<<<<< HEAD
-                                                    <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">BROWSE DB</span>
-=======
-                                                    <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">LOAD AUDIO</span>
->>>>>>> old-slicer/ai-beat-patterns
+                                                 >
+                                                     <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
+                                                     <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">LOAD AUDIO</span>
                                                  </button>
                                              </Tooltip>
                                         </div>
@@ -594,14 +479,6 @@ const App: React.FC = () => {
                                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 w-full">
                                     <div className="lg:col-span-1 order-2 lg:order-1 h-full">
                                         <CollapsibleSection title="Sound Macros" icon="🎛️" className="h-full">
-<<<<<<< HEAD
-                                            <ControlPanel 
-                                                params={params} 
-                                                onParamChange={handleParamChange}
-                                                onEffectParamChange={handleEffectParamChange}
-                                                disabled={!audioBuffer || isLoading} 
-                                                generateAiBeat={generateAiBeat}
-=======
                                             <ControlPanel
                                                 params={params}
                                                 onParamChange={handleParamChange}
@@ -609,7 +486,6 @@ const App: React.FC = () => {
                                                 disabled={!audioBuffer || isLoading}
                                                 generateAiBeat={generateAiBeat}
                                                 generateAiPattern={generateAiPattern}
->>>>>>> old-slicer/ai-beat-patterns
                                                 slices={slices}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 onSliceUpdate={updateSlice}
@@ -648,15 +524,7 @@ const App: React.FC = () => {
                                             />
                                         </CollapsibleSection>
 
-                                        <CollapsibleSection title="Magic Pattern Gen" icon="✨">
-<<<<<<< HEAD
-                                            <ControlPanel 
-                                                params={params} 
-                                                onParamChange={handleParamChange}
-                                                onEffectParamChange={handleEffectParamChange}
-                                                disabled={!audioBuffer || isLoading} 
-                                                generateAiBeat={generateAiBeat}
-=======
+                                        <CollapsibleSection title="Pattern Generator" icon="⚡">
                                             <ControlPanel
                                                 params={params}
                                                 onParamChange={handleParamChange}
@@ -664,7 +532,6 @@ const App: React.FC = () => {
                                                 disabled={!audioBuffer || isLoading}
                                                 generateAiBeat={generateAiBeat}
                                                 generateAiPattern={generateAiPattern}
->>>>>>> old-slicer/ai-beat-patterns
                                                 slices={slices}
                                                 selectedSliceIndex={selectedSliceIndex}
                                                 onSliceUpdate={updateSlice}

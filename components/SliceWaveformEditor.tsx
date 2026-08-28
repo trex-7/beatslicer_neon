@@ -108,47 +108,6 @@ const SliceWaveformEditor: React.FC<SliceWaveformEditorProps> = ({ audioBuffer, 
             .attr("fill", "#00f6ff") // Bright Cyan for active
             .attr("d", area)
             .attr("clip-path", `url(#${clipId})`);
-<<<<<<< HEAD
-
-        // Gate visual overlay if gate is not 100%
-        const gatePct = typeof slice.gate === 'number' ? slice.gate : 100;
-        if (gatePct !== 100) {
-            const gateRatio = gatePct / 100;
-            const gateEndTime = slice.offset + (slice.duration * gateRatio);
-            const gateX = xScale(Math.min(viewEnd, Math.max(viewStart, gateEndTime)));
-            const sliceEndX = xScale(slice.offset + slice.duration);
-            
-            // If gated shorter than 100%, shade the gated tail
-            if (gatePct < 100 && gateX < sliceEndX) {
-                svg.append("rect")
-                    .attr("x", gateX)
-                    .attr("y", 0)
-                    .attr("width", Math.max(0, sliceEndX - gateX))
-                    .attr("height", height)
-                    .attr("fill", "#000000")
-                    .attr("opacity", 0.55);
-            }
-
-            // Draw Gate marker line
-            svg.append("line")
-                .attr("x1", gateX)
-                .attr("x2", gateX)
-                .attr("y1", 0)
-                .attr("y2", height)
-                .attr("stroke", "#ffaa00")
-                .attr("stroke-width", 1.5)
-                .attr("stroke-dasharray", "3,2");
-
-            svg.append("text")
-                .attr("x", Math.max(2, gateX + 2))
-                .attr("y", 10)
-                .attr("fill", "#ffaa00")
-                .attr("font-size", "9px")
-                .attr("font-weight", "bold")
-                .text(`GATE ${gatePct}%`);
-        }
-=======
->>>>>>> old-slicer/ai-beat-patterns
             
         // 4. Handles & Controls
         

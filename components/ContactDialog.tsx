@@ -12,17 +12,12 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-<<<<<<< HEAD
-    console.log('ContactDialog render, isOpen:', isOpen);
-=======
->>>>>>> old-slicer/ai-beat-patterns
     if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim() || !email.trim() || !message.trim()) return;
 
-        console.log('Contact form submitted:', { name, email, message });
         setIsSubmitting(true);
         setStatus('idle');
 
@@ -39,9 +34,7 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
                 }),
             });
 
-            console.log('Formspree response status:', response.status);
             if (response.ok) {
-                console.log('Message sent successfully');
                 setStatus('success');
                 setTimeout(() => {
                     onClose();
@@ -51,11 +44,9 @@ const ContactDialog: React.FC<ContactDialogProps> = ({ isOpen, onClose }) => {
                     setStatus('idle');
                 }, 1500);
             } else {
-                console.log('Failed to send message');
                 setStatus('error');
             }
-        } catch (error) {
-            console.log('Error sending message:', error);
+        } catch {
             setStatus('error');
         } finally {
             setIsSubmitting(false);

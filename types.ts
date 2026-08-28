@@ -16,11 +16,6 @@ export interface Slice {
   pitch?: number; // Semitones
   fadeIn?: number;
   fadeOut?: number;
-<<<<<<< HEAD
-  gate?: number; // Gate / Sustain percentage (5% to 200%, default 100%)
-  sustain?: number; // Direct sustain duration in seconds or ratio
-=======
->>>>>>> old-slicer/ai-beat-patterns
 }
 
 export interface GranularSynthParams {

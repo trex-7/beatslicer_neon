@@ -6,11 +6,8 @@ import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
 
-<<<<<<< HEAD
-=======
 /// <reference types="vite/client" />
 
->>>>>>> old-slicer/ai-beat-patterns
 declare const Tone: any;
 
 // Helper for BitCrusher Curve (Staircase function)
@@ -68,11 +65,6 @@ try {
             super();
             this.bufferL = null;
             this.bufferR = null;
-<<<<<<< HEAD
-            this.clickHigh = null;
-            this.clickLow = null;
-=======
->>>>>>> old-slicer/ai-beat-patterns
             this.sampleRate = 44100;
             this.currentSample = 0;
             this.isPlaying = false;
@@ -85,17 +77,9 @@ try {
             this.grains = [];
             this.maxGrains = 64; 
             this.pendingTriggers = [];
-<<<<<<< HEAD
-            this.clickVoices = [];
             this.isLooping = true;
             this.mode = 'forward'; // 'forward', 'backward', 'pendulum', 'random'
             this.direction = 1; // 1 or -1 for pendulum
-            this.metronome = { enabled: false, volume: 0.8 };
-=======
-            this.isLooping = true;
-            this.mode = 'forward'; // 'forward', 'backward', 'pendulum', 'random'
-            this.direction = 1; // 1 or -1 for pendulum
->>>>>>> old-slicer/ai-beat-patterns
             this.params = {
                 grainSize: 0.1,
                 overlap: 0.05,
@@ -112,15 +96,6 @@ try {
                 this.bufferL = data.bufferL;
                 this.bufferR = data.bufferR;
                 this.sampleRate = data.sampleRate || 44100;
-<<<<<<< HEAD
-            } else if (data.type === 'loadClickSamples') {
-                this.clickHigh = data.clickHigh;
-                this.clickLow = data.clickLow;
-            } else if (data.type === 'metronome') {
-                if (data.enabled !== undefined) this.metronome.enabled = data.enabled;
-                if (data.volume !== undefined) this.metronome.volume = data.volume;
-=======
->>>>>>> old-slicer/ai-beat-patterns
             } else if (data.type === 'play') {
                 this.isPlaying = data.value;
                 if (this.isPlaying) {
@@ -134,18 +109,10 @@ try {
                         this.direction = 1;
                         this.nextStepTime = this.currentSample; 
                         this.pendingTriggers = [];
-<<<<<<< HEAD
-                        this.clickVoices = [];
-=======
->>>>>>> old-slicer/ai-beat-patterns
                     }
                 } else {
                     this.grains = [];
                     this.pendingTriggers = [];
-<<<<<<< HEAD
-                    this.clickVoices = [];
-=======
->>>>>>> old-slicer/ai-beat-patterns
                 }
             } else if (data.type === 'sequencer') {
                 this.steps = data.steps;
@@ -169,33 +136,6 @@ try {
                 }
             }
         }
-<<<<<<< HEAD
-        spawnClick(isDownbeat) {
-            if (!this.metronome || !this.metronome.enabled) return;
-            const vol = (typeof this.metronome.volume === 'number' ? this.metronome.volume : 0.8);
-            if (vol <= 0.001) return;
-
-            const customBuf = isDownbeat ? this.clickHigh : this.clickLow;
-            if (customBuf && customBuf.length > 0) {
-                this.clickVoices.push({
-                    buffer: customBuf,
-                    pos: 0,
-                    volume: vol
-                });
-            } else {
-                // High-precision punchy woodblock/click synthesis
-                this.clickVoices.push({
-                    isSynth: true,
-                    freq: isDownbeat ? 1760 : 880,
-                    pitchDecay: isDownbeat ? 2400 : 1200,
-                    age: 0,
-                    duration: Math.floor(0.045 * this.sampleRate),
-                    volume: vol
-                });
-            }
-        }
-=======
->>>>>>> old-slicer/ai-beat-patterns
         spawnGrain(sliceIndex, velocity = 1.0, ratchetCount = 1) {
             if (!this.bufferL || !this.slices[sliceIndex]) return;
             const slice = this.slices[sliceIndex];
@@ -228,15 +168,11 @@ try {
                      if (g.allowOctaveJump && Math.random() < 0.6) {
                          let multipliers = [0.5, 2.0, 4.0, 0.25];
                          if (slice.type === 'kick') multipliers = [2.0, 4.0];
-<<<<<<< HEAD
-                         grain.speed *= multipliers[Math.floor(Math.random() * multipliers.length)];
-=======
                          const mult = multipliers[Math.floor(Math.random() * multipliers.length)];
                          grain.speed *= mult;
                          if (!g.pitchShift) {
                              grain.duration /= mult;
                          }
->>>>>>> old-slicer/ai-beat-patterns
                      }
 
                      // 3. TIME JITTER (Smearing)
@@ -269,35 +205,14 @@ try {
                 const pitchMult = Math.pow(2, slice.pitch / 12);
                 grain.speed *= pitchMult;
             }
-<<<<<<< HEAD
-
-            // Gate / Sustain multiplier calculation
-            let gateRatio = 1.0;
-            if (typeof slice.gate === 'number') {
-                gateRatio = slice.gate > 5 ? (slice.gate / 100) : slice.gate;
-            } else if (typeof slice.sustain === 'number') {
-                if (slice.sustain > 0 && slice.duration > 0) {
-                    gateRatio = slice.sustain > 5 ? (slice.sustain / 100) : (slice.sustain / slice.duration);
-                }
-            }
-            gateRatio = Math.max(0.05, Math.min(3.0, gateRatio));
-=======
->>>>>>> old-slicer/ai-beat-patterns
             
             // Duration Logic
             if (this.params.grainSize < 0.15) {
                  // Texture Mode overrides slice duration
-<<<<<<< HEAD
-                 grain.duration = this.params.grainSize * this.sampleRate * gateRatio;
-            } else {
-                 // Slice Mode uses slice duration scaled by gate/sustain
-                 grain.duration = slice.duration * this.sampleRate * gateRatio;
-=======
                  grain.duration = this.params.grainSize * this.sampleRate;
             } else {
                  // Slice Mode uses slice duration
                  grain.duration = slice.duration * this.sampleRate;
->>>>>>> old-slicer/ai-beat-patterns
                  if (ratchetCount > 1) {
                      grain.duration /= ratchetCount;
                  }
@@ -323,17 +238,7 @@ try {
             grain.release = releaseS * this.sampleRate;
             
             if (grain.duration < grain.attack + grain.release) {
-<<<<<<< HEAD
-                const totalAvailable = Math.max(10, grain.duration);
-                const sum = grain.attack + grain.release;
-                if (sum > 0) {
-                    const factor = (totalAvailable * 0.95) / sum;
-                    grain.attack *= factor;
-                    grain.release *= factor;
-                }
-=======
                 grain.duration = grain.attack + grain.release + 500;
->>>>>>> old-slicer/ai-beat-patterns
             }
             
             // Find slot
@@ -427,17 +332,6 @@ try {
                             
                             this.port.postMessage({ type: 'step', value: this.currentStep });
                             
-<<<<<<< HEAD
-                            // Sample-accurate Metronome trigger at the exact step transition (Zero Latency)
-                            if (this.metronome && this.metronome.enabled) {
-                                if (this.currentStep % 4 === 0) {
-                                    const isDownbeat = this.currentStep % 16 === 0;
-                                    this.spawnClick(isDownbeat);
-                                }
-                            }
-                            
-=======
->>>>>>> old-slicer/ai-beat-patterns
                             if (this.steps[this.currentStep]) {
                                 const stepData = this.steps[this.currentStep];
                                 if (stepData.active) {
@@ -507,36 +401,6 @@ try {
                     }
                     grain.age++;
                 }
-<<<<<<< HEAD
-                // Render click voices
-                for (let c = this.clickVoices.length - 1; c >= 0; c--) {
-                    const cv = this.clickVoices[c];
-                    let samp = 0;
-                    if (cv.buffer) {
-                        if (cv.pos < cv.buffer.length) {
-                            samp = cv.buffer[cv.pos] * cv.volume;
-                            cv.pos++;
-                        } else {
-                            this.clickVoices.splice(c, 1);
-                            continue;
-                        }
-                    } else if (cv.isSynth) {
-                        if (cv.age < cv.duration) {
-                            const t = cv.age / this.sampleRate;
-                            const env = Math.exp(-t * 90);
-                            const freq = cv.freq + cv.pitchDecay * Math.exp(-t * 180);
-                            samp = Math.sin(2 * Math.PI * freq * t) * env * cv.volume * 0.85;
-                            cv.age++;
-                        } else {
-                            this.clickVoices.splice(c, 1);
-                            continue;
-                        }
-                    }
-                    left += samp;
-                    right += samp;
-                }
-=======
->>>>>>> old-slicer/ai-beat-patterns
                 if (left > 1.0) left = 1.0; else if (left < -1.0) left = -1.0;
                 if (right > 1.0) right = 1.0; else if (right < -1.0) right = -1.0;
                 outputL[i] = left;
@@ -588,19 +452,12 @@ const initialParams: AllParams = {
 
 const generateDefaultSteps = (count: number): SequencerStep[] => {
   return Array(count).fill(0).map((_, i) => ({
-<<<<<<< HEAD
-    active: i % 2 === 0, 
-    sliceIndex: i, 
-=======
     active: i % 2 === 0,
     sliceIndex: i,
->>>>>>> old-slicer/ai-beat-patterns
     ratchet: 1
   }));
 };
 
-<<<<<<< HEAD
-=======
 const STYLE_SEEDS: Record<string, { prompt: string, bpmRange: [number, number] }> = {
     'techno': {
         prompt: "Techno style: 4/4 four-on-the-floor kick pattern. Consistent 16th note hi-hats with accents on off-beats. Industrial and repetitive feel.",
@@ -624,7 +481,6 @@ const STYLE_SEEDS: Record<string, { prompt: string, bpmRange: [number, number] }
     }
 };
 
->>>>>>> old-slicer/ai-beat-patterns
 export const useAudioEngine = () => {
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -855,14 +711,6 @@ export const useAudioEngine = () => {
   // Setup Audio
   useEffect(() => {
     let active = true;
-<<<<<<< HEAD
-    
-    if ((navigator as any).requestMIDIAccess) {
-        (navigator as any).requestMIDIAccess({ sysex: false }).then(
-            (access: any) => { 
-                if (!active) return;
-                midiAccessRef.current = access; 
-=======
 
     // Add user gesture handler to start audio context
     const startAudioOnGesture = async () => {
@@ -882,7 +730,6 @@ export const useAudioEngine = () => {
             (access: any) => {
                 if (!active) return;
                 midiAccessRef.current = access;
->>>>>>> old-slicer/ai-beat-patterns
                 const inputs: MidiDevice[] = [];
                 access.inputs.forEach((input: any) => inputs.push({ id: input.id, name: input.name, manufacturer: input.manufacturer }));
                 setMidiInputs(inputs);
@@ -941,8 +788,6 @@ export const useAudioEngine = () => {
                 if (event.data.type === 'step') {
                      const step = event.data.value;
                      setSequencer(prev => prev.currentStep === step ? prev : { ...prev, currentStep: step });
-<<<<<<< HEAD
-=======
                      // Metronome Trigger Logic
                      if (metronomeConfigRef.current.enabled && Tone.context.state === 'running') {
                          if (step % 4 === 0) {
@@ -967,7 +812,6 @@ export const useAudioEngine = () => {
                              }
                          }
                      }
->>>>>>> old-slicer/ai-beat-patterns
                 } else if (event.data.type === 'stop') {
                     setIsPlaying(false);
                     setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
@@ -977,36 +821,6 @@ export const useAudioEngine = () => {
             workletNode.current.port.postMessage({ type: 'sequencer', steps: sequencerRef.current.steps, stepCount: sequencerRef.current.stepCount, bpm: paramsRef.current.bpm, isLooping: sequencerRef.current.isLooping, mode: sequencerRef.current.mode });
             workletNode.current.port.postMessage({ type: 'params', params: { ...paramsRef.current } });
             workletNode.current.port.postMessage({ type: 'slices', slices: slicesRef.current });
-<<<<<<< HEAD
-            workletNode.current.port.postMessage({ type: 'metronome', enabled: metronomeConfigRef.current.enabled, volume: metronomeConfigRef.current.volume });
-
-            // Load and pass click audio sample buffers directly to worklet for sample-accurate playback
-            (async () => {
-                try {
-                    const fetchAndDecode = async (url: string) => {
-                        const res = await fetch(url);
-                        if (!res.ok) return null;
-                        const arrayBuf = await res.arrayBuffer();
-                        const audioBuf = await targetContext.decodeAudioData(arrayBuf);
-                        return audioBuf.getChannelData(0);
-                    };
-                    const [clickHigh, clickLow] = await Promise.all([
-                        fetchAndDecode("/Audio/Synth_Block_A_hi.wav"),
-                        fetchAndDecode("/Audio/Synth_Block_A_lo.wav")
-                    ]);
-                    if (clickHigh && clickLow && workletNode.current) {
-                        workletNode.current.port.postMessage({
-                            type: 'loadClickSamples',
-                            clickHigh,
-                            clickLow
-                        });
-                    }
-                } catch (e) {
-                    console.warn("Metronome click using worklet procedural synth fallback", e);
-                }
-            })();
-=======
->>>>>>> old-slicer/ai-beat-patterns
 
             effects.current.nativeBridgeGain = targetContext.createGain();
             workletNode.current.connect(effects.current.nativeBridgeGain);
@@ -1523,17 +1337,6 @@ export const useAudioEngine = () => {
   const updateMetronomeConfig = useCallback((newConfig: Partial<MetronomeConfig>) => {
       setMetronomeConfig(prev => {
           const next = { ...prev, ...newConfig };
-<<<<<<< HEAD
-          metronomeConfigRef.current = next;
-          if (workletNode.current) {
-              workletNode.current.port.postMessage({
-                  type: 'metronome',
-                  enabled: next.enabled,
-                  volume: next.volume
-              });
-          }
-=======
->>>>>>> old-slicer/ai-beat-patterns
           if (metronomeGain.current && newConfig.volume !== undefined) {
               metronomeGain.current.gain.rampTo(newConfig.volume, 0.1);
           }
@@ -1541,20 +1344,6 @@ export const useAudioEngine = () => {
       });
   }, []);
 
-<<<<<<< HEAD
-  useEffect(() => {
-      metronomeConfigRef.current = metronomeConfig;
-      if (workletNode.current) {
-          workletNode.current.port.postMessage({
-              type: 'metronome',
-              enabled: metronomeConfig.enabled,
-              volume: metronomeConfig.volume
-          });
-      }
-  }, [metronomeConfig]);
-
-=======
->>>>>>> old-slicer/ai-beat-patterns
   const togglePreviewOriginal = useCallback(() => {
       if (!previewPlayer.current || !previewPlayer.current.buffer.loaded) return;
       if (isPreviewPlaying) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); } 
@@ -1563,48 +1352,18 @@ export const useAudioEngine = () => {
   const playSliceRaw = useCallback((index: number) => {
       if (!previewPlayer.current || !slices[index]) return;
       previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false });
-<<<<<<< HEAD
-      const s = slices[index];
-      const gateRatio = typeof s.gate === 'number' ? (s.gate > 5 ? s.gate / 100 : s.gate) : (typeof s.sustain === 'number' && s.duration > 0 ? (s.sustain > 5 ? s.sustain / 100 : s.sustain / s.duration) : 1.0);
-      const playDuration = Math.max(0.02, s.duration * Math.max(0.05, Math.min(3.0, gateRatio)));
-      previewPlayer.current.loop = false;
-      previewPlayer.current.start(Tone.now(), s.offset, playDuration);
-  }, [slices]);
-  const toggleSliceLoop = useCallback((index: number) => {
-      if (!previewPlayer.current || !slices[index]) return;
-      if (sliceLoopState.index === index && sliceLoopState.isLooping) { 
-          previewPlayer.current.stop(); 
-          setSliceLoopState({ index: null, isLooping: false }); 
-      } else { 
-          previewPlayer.current.stop(); 
-          setIsPreviewPlaying(false); 
-          const s = slices[index]; 
-          const gateRatio = typeof s.gate === 'number' ? (s.gate > 5 ? s.gate / 100 : s.gate) : (typeof s.sustain === 'number' && s.duration > 0 ? (s.sustain > 5 ? s.sustain / 100 : s.sustain / s.duration) : 1.0);
-          const loopDuration = Math.max(0.02, s.duration * Math.max(0.05, Math.min(3.0, gateRatio)));
-          previewPlayer.current.loopStart = s.offset; 
-          previewPlayer.current.loopEnd = s.offset + loopDuration; 
-          previewPlayer.current.loop = true; 
-          previewPlayer.current.start(Tone.now(), s.offset); 
-          setSliceLoopState({ index, isLooping: true }); 
-      }
-=======
       const s = slices[index]; previewPlayer.current.loop = false; previewPlayer.current.start(Tone.now(), s.offset, s.duration);
   }, [slices]);
   const toggleSliceLoop = useCallback((index: number) => {
       if (!previewPlayer.current || !slices[index]) return;
       if (sliceLoopState.index === index && sliceLoopState.isLooping) { previewPlayer.current.stop(); setSliceLoopState({ index: null, isLooping: false }); } 
       else { previewPlayer.current.stop(); setIsPreviewPlaying(false); const s = slices[index]; previewPlayer.current.loopStart = s.offset; previewPlayer.current.loopEnd = s.offset + s.duration; previewPlayer.current.loop = true; previewPlayer.current.start(Tone.now(), s.offset); setSliceLoopState({ index, isLooping: true }); }
->>>>>>> old-slicer/ai-beat-patterns
   }, [slices, sliceLoopState]);
   const addSlice = useCallback((start: number, end: number) => {
     if (!audioBuffer) return;
     const rawBuffer = audioBuffer.get();
     const nextId = slices.length > 0 ? Math.max(...slices.map(s => s.id)) + 1 : 0;
-<<<<<<< HEAD
-    const newSlice: Slice = { id: nextId, offset: start, duration: end - start, isActive: true, type: classifySlice(rawBuffer, start, end - start), level: 1.0, reverse: false, pitch: 0, gate: 100 };
-=======
     const newSlice: Slice = { id: nextId, offset: start, duration: end - start, isActive: true, type: classifySlice(rawBuffer, start, end - start), level: 1.0, reverse: false, pitch: 0 };
->>>>>>> old-slicer/ai-beat-patterns
     setSlices(prev => [...prev, newSlice]); setSelectedSliceIndex(slices.length);
   }, [audioBuffer, slices]);
   const sliceRegion = useCallback((start: number, end: number) => addSlice(start, end), [addSlice]);
@@ -1626,24 +1385,11 @@ export const useAudioEngine = () => {
       const percs = slices.filter(s => s.type === 'perc').map(s => s.id);
       const allIndices = slices.map(s => s.id);
       const getRand = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)];
-<<<<<<< HEAD
-      
-=======
 
->>>>>>> old-slicer/ai-beat-patterns
       setSequencer(prev => {
           const newSteps = prev.steps.map((step, i) => {
               let probability = 0;
               const stepInBar = i % 16;
-<<<<<<< HEAD
-              const isDownbeat = i % 4 === 0; 
-              const isBackbeat = stepInBar === 4 || stepInBar === 12;
-              const isOffbeat = i % 2 !== 0; 
-
-              if (isDownbeat) probability = 0.95 - (complexity * 0.4); 
-              else if (isOffbeat) probability = 0.1 + (complexity * 0.8); 
-              else probability = 0.4 + (complexity * 0.3); 
-=======
               const isDownbeat = i % 4 === 0;
               const isBackbeat = stepInBar === 4 || stepInBar === 12;
               const isOffbeat = i % 2 !== 0;
@@ -1651,7 +1397,6 @@ export const useAudioEngine = () => {
               if (isDownbeat) probability = 0.95 - (complexity * 0.4);
               else if (isOffbeat) probability = 0.1 + (complexity * 0.8);
               else probability = 0.4 + (complexity * 0.3);
->>>>>>> old-slicer/ai-beat-patterns
 
               const active = Math.random() < probability;
               if (!active) return { ...step, active: false, ratchet: 1 };
@@ -1673,11 +1418,7 @@ export const useAudioEngine = () => {
 
               let ratchet = 1;
               if (active && Math.random() < (complexity * 0.5)) {
-<<<<<<< HEAD
-                  ratchet = Math.floor(Math.random() * 3) + 2; 
-=======
                   ratchet = Math.floor(Math.random() * 3) + 2;
->>>>>>> old-slicer/ai-beat-patterns
               }
               return { ...step, active: true, sliceIndex, ratchet };
           });
@@ -1685,8 +1426,6 @@ export const useAudioEngine = () => {
       });
   }, []);
 
-<<<<<<< HEAD
-=======
   const generateAiPattern = useCallback(async (model: string, inputType: 'slider' | 'text', stepCount: 8 | 16 | 32, description: string, complexity?: number, apiKey?: string, bpm?: string, style?: string) => {
       const slices = slicesRef.current;
       if (slices.length === 0) return;
@@ -1795,8 +1534,6 @@ try {
         aiResponse = data.candidates[0].content.parts[0].text;
     }
 
-    console.log('AI Response:', aiResponse);
-
     // Try to extract JSON from ```json code block
     let jsonString = '';
     let aiData: any;
@@ -1849,7 +1586,6 @@ try {
       }
   }, []);
 
->>>>>>> old-slicer/ai-beat-patterns
   const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
   const toggleSliceActive = useCallback((index: number) => { setSlices(prev => { const newSlices = [...prev]; if (newSlices[index]) newSlices[index] = { ...newSlices[index], isActive: !newSlices[index].isActive }; return newSlices; }); }, []);
   const updateSlice = useCallback((index: number, changes: Partial<Slice>) => { setSlices(prev => { const newSlices = [...prev]; if (newSlices[index]) newSlices[index] = { ...newSlices[index], ...changes }; return newSlices; }); }, []);
@@ -1863,11 +1599,7 @@ try {
     isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId, currentPresetId, midiConfig, midiInputs, midiOutputs,
     midiDebug: { log: midiLogRef, clockCount: midiClockCountRef, clockDeltas: midiClockDeltasRef },
     metronomeConfig,
-<<<<<<< HEAD
-    loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,
-=======
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, generateAiPattern, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,
->>>>>>> old-slicer/ai-beat-patterns
     loadImpulseResponse
   };
 };

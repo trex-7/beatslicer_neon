@@ -1,17 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../utils/supabaseClient';
 
 interface VideoTutorialDialogProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
-<<<<<<< HEAD
-const STORAGE_KEY = 'beat_slicer_quickstart_seen_v2';
-=======
 const STORAGE_KEY = 'beat_slicer_quickstart_seen_v3';
->>>>>>> old-slicer/ai-beat-patterns
 
 const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClose }) => {
     const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -36,20 +31,6 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
         onClose();
     };
 
-    const videoFilename = "Slicer Demo vid 1-Desktop.m4v";
-    const videoSrcEncoded = encodeURIComponent(videoFilename);
-    const videoSrcRaw = videoFilename;
-    
-    // Construct Cloud URL if Supabase is configured
-    let cloudUrl = null;
-    if (supabase) {
-        const { data } = supabase.storage.from('videos').getPublicUrl(videoSrcRaw);
-        // Ensure spaces are encoded to %20 to match the known working URL format
-        if (data && data.publicUrl) {
-            cloudUrl = data.publicUrl.replace(/ /g, '%20');
-        }
-    }
-
     return (
         <div className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
             {/* Click outside to close */}
@@ -69,31 +50,6 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                 </div>
                 <div className="bg-black flex-1 flex items-center justify-center relative w-full h-full min-h-[300px]">
                     {!hasError ? (
-<<<<<<< HEAD
-                        <video 
-                            controls 
-                            playsInline
-                            className="max-h-full max-w-full w-full h-auto object-contain"
-                            onError={() => {
-                                console.error("Video load error: Source unavailable");
-                                setHasError(true);
-                            }}
-                        >
-                            {/* Strategy 0: Cloud Storage (Supabase) */}
-                            {cloudUrl && <source src={cloudUrl} type="video/mp4" />}
-                            
-                            {/* Strategy 1: URL Encoded Local */}
-                            <source src={videoSrcEncoded} type="video/mp4" />
-                            
-                            {/* Strategy 2: Raw Filename Local */}
-                            <source src={videoSrcRaw} type="video/mp4" />
-                            
-                            {/* Strategy 3: Explicit Relative Dot Slash */}
-                            <source src={`./${videoSrcEncoded}`} type="video/mp4" />
-                            
-                            Your browser does not support the video tag.
-                        </video>
-=======
                         <iframe
                             width="100%"
                             height="100%"
@@ -108,23 +64,11 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                                 setHasError(true);
                             }}
                         ></iframe>
->>>>>>> old-slicer/ai-beat-patterns
                     ) : (
                         <div className="text-center p-8">
                             <div className="text-4xl mb-4">⚠️</div>
                             <h3 className="text-xl font-bold text-white mb-2">Video Unavailable</h3>
                             <p className="text-star-dust mb-4 text-sm max-w-md">
-<<<<<<< HEAD
-                                The tutorial video could not be loaded. This might be due to a file path issue or browser restriction.
-                            </p>
-                            <a 
-                                href={cloudUrl || videoSrcEncoded} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded font-bold text-xs transition-colors border border-white/5"
-                            >
-                                Try Direct Link
-=======
                                 The tutorial video could not be loaded. This might be due to a network issue or browser restriction.
                             </p>
                             <a
@@ -134,7 +78,6 @@ const VideoTutorialDialog: React.FC<VideoTutorialDialogProps> = ({ isOpen, onClo
                                 className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded font-bold text-xs transition-colors border border-white/5"
                             >
                                 Open on YouTube
->>>>>>> old-slicer/ai-beat-patterns
                             </a>
                         </div>
                     )}

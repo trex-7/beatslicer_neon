@@ -10,11 +10,7 @@ interface ProMenuBarProps {
     onSavePreset: (name: string) => Promise<string>;
     onSaveToCloud: () => void;
     getAudioWav: () => Promise<Blob | null>;
-<<<<<<< HEAD
-    onExportWav: () => void; 
-=======
     onExportWav: () => void;
->>>>>>> old-slicer/ai-beat-patterns
     onRandomize: () => void;
     onClearPattern: () => void;
     onAutoSlice: () => void;
@@ -25,10 +21,7 @@ interface ProMenuBarProps {
     sampleName: string;
     onReportIssue: () => void;
     onOpenVideo: () => void;
-<<<<<<< HEAD
-=======
     onOpenContact: () => void;
->>>>>>> old-slicer/ai-beat-patterns
 }
 
 const MenuDropdown = ({ label, children }: { label: string, children?: React.ReactNode }) => {
@@ -123,12 +116,8 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     user,
     sampleName,
     onReportIssue,
-<<<<<<< HEAD
-    onOpenVideo
-=======
     onOpenVideo,
     onOpenContact
->>>>>>> old-slicer/ai-beat-patterns
 }) => {
     
     const handleDownloadWav = async () => {
@@ -192,11 +181,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 <MenuDropdown label="FILE">
                     <MenuItem label="New Project" onClick={() => { if(confirm('Clear all settings?')) window.location.reload(); }} />
                     <MenuDivider />
-<<<<<<< HEAD
-                    <MenuItem label="Browse Database" onClick={onOpenLibrary} shortcut="Cmd+O" />
-=======
                     <MenuItem label="Load Audio" onClick={onOpenLibrary} shortcut="Cmd+O" />
->>>>>>> old-slicer/ai-beat-patterns
                     <MenuItem label="Save to Database..." onClick={onSaveToCloud} disabled={!user} shortcut="Cmd+S" />
                     <MenuDivider />
                     <MenuItem label="Export WAV" onClick={handleDownloadWav} />
@@ -227,11 +212,7 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
                 {/* Help Menu */}
                 <MenuDropdown label="HELP">
                     <MenuItem label="Quickstart Video" onClick={onOpenVideo} />
-<<<<<<< HEAD
-                    <MenuItem label="Credits" onClick={() => alert("Beat Slicer v0.9.0-beta\n\nDeveloper: Sandro Mancino\nEmail: sandromancino.sm@gmail.com\n\nBuilt with React, Tone.js, & AudioWorklet.")} />
-=======
                     <MenuItem label="Credits" onClick={onOpenContact} />
->>>>>>> old-slicer/ai-beat-patterns
                     <MenuItem 
                         label="Report Issue / Feedback" 
                         onClick={onReportIssue}
@@ -251,15 +232,9 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
 
             {/* Right Side: Auth / Info */}
             <div className="flex items-center gap-3">
-<<<<<<< HEAD
-                 <div className="hidden lg:block text-[9px] text-white/30 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
-                    <span className="font-bold text-white/50">Dev: Sandro Mancino</span><br/>
-                    <a href="mailto:sandromancino.sm@gmail.com" className="text-hyper-cyan hover:underline">sandromancino.sm@gmail.com</a>
-=======
                  <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
                      <span className="font-bold text-white/80">Creator: Sandro Mancino</span><br/>
-                     <button onClick={() => { console.log('Pro contact button clicked'); onOpenContact(); }} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
->>>>>>> old-slicer/ai-beat-patterns
+                     <button onClick={onOpenContact} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
                  </div>
                  <div className="hidden sm:flex items-center gap-2 text-[10px] text-star-dust/50">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>

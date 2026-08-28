@@ -1,10 +1,6 @@
 
 import React, { useRef, useEffect, useState, memo } from 'react';
 import Tooltip from './Tooltip';
-<<<<<<< HEAD
-=======
-import { supabase } from '../utils/supabaseClient';
->>>>>>> old-slicer/ai-beat-patterns
 import { 
     fetchLibrary, 
     saveCloudPreset, 
@@ -39,11 +35,7 @@ interface LibraryManagerProps {
 
 const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
 
-<<<<<<< HEAD
-type TabView = 'dashboard' | 'presets' | 'samples' | 'admin';
-=======
 type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';
->>>>>>> old-slicer/ai-beat-patterns
 
 const LibraryManager: React.FC<LibraryManagerProps> = memo(({ 
     isOpen, onClose, onFileLoad, onKitLoad, onDemoLoad, onImport, onLoadPreset, user
@@ -86,10 +78,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const isAdmin = user && user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
 
     const loadLibraryData = async () => {
-<<<<<<< HEAD
-=======
-        if (!supabase) return;
->>>>>>> old-slicer/ai-beat-patterns
         const data = await fetchLibrary(user?.id);
         setPublicPresets(data.publicPresets);
         setPublicSamples(data.publicSamples);
@@ -792,13 +780,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                     </button>
                                     <button onClick={() => { setActiveTab('presets'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-hyper-cyan/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
                                         <span className="text-2xl group-hover:scale-110 transition-transform">🎛️</span>
-<<<<<<< HEAD
-                                        <div><span className="block text-sm font-bold text-white">Presets</span><span className="block text-[10px] text-white/50">Database Table</span></div>
-                                    </button>
-                                    <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">💿</span>
-                                        <div><span className="block text-sm font-bold text-white">Samples / Kits</span><span className="block text-[10px] text-white/50">Database Table</span></div>
-=======
                                         <div><span className="block text-sm font-bold text-white">Factory Presets</span><span className="block text-[10px] text-white/50">Database Table</span></div>
                                     </button>
                                     <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
@@ -808,7 +789,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                     <button onClick={() => { setActiveTab('kits'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-purple-500/10 hover:border-purple-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
                                         <span className="text-2xl group-hover:scale-110 transition-transform">📦</span>
                                         <div><span className="block text-sm font-bold text-white">Kits</span><span className="block text-[10px] text-white/50">Grouped Samples</span></div>
->>>>>>> old-slicer/ai-beat-patterns
                                     </button>
                                     {isAdmin && (
                                         <button onClick={() => setActiveTab('admin')} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
@@ -823,11 +803,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         {activeTab === 'presets' && (
                             <div className="max-w-4xl mx-auto space-y-6">
                                 <div className="flex items-center justify-between mb-4">
-<<<<<<< HEAD
-                                    <h3 className="text-xl font-bold text-white">Presets Table</h3>
-=======
                                     <h3 className="text-xl font-bold text-white">Factory Presets Table</h3>
->>>>>>> old-slicer/ai-beat-patterns
                                     <input type="text" placeholder="Search Presets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
                                 </div>
                                 
@@ -853,19 +829,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         {activeTab === 'samples' && (
                             <div className="max-w-4xl mx-auto space-y-6">
                                 <div className="flex items-center justify-between mb-4">
-<<<<<<< HEAD
-                                    <h3 className="text-xl font-bold text-white">Samples & Kits Table</h3>
-                                    <div className="flex items-center gap-2">
-                                        {user && (
-                                            <Tooltip text="Upload Sample or Kit to Cloud">
-                                                <button 
-=======
                                     <h3 className="text-xl font-bold text-white">Samples Table</h3>
                                     <div className="flex items-center gap-2">
                                         {user && (
                                             <Tooltip text="Upload Sample to Cloud">
                                                 <button
->>>>>>> old-slicer/ai-beat-patterns
                                                     onClick={() => userUploadRef.current?.click()}
                                                     className="px-2 py-1 bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/50 hover:bg-hyper-cyan/20 rounded text-[10px] font-bold uppercase transition-colors"
                                                 >
@@ -880,28 +848,17 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                 {user && (
                                     <div>
                                         <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Samples</h4>
-<<<<<<< HEAD
-                                        {renderGroupedList(userSamples)}
-=======
                                         {renderFlatList(userSamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
->>>>>>> old-slicer/ai-beat-patterns
                                     </div>
                                 )}
 
                                 <div className={user ? "mt-6" : ""}>
                                     <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-<<<<<<< HEAD
-                                    {renderGroupedList(publicSamples)}
-=======
                                     {renderFlatList(publicSamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
->>>>>>> old-slicer/ai-beat-patterns
                                 </div>
 
                                 <div className="mt-6">
                                     <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-<<<<<<< HEAD
-                                    {renderGroupedList(factorySamples)}
-=======
                                     {renderFlatList(factorySamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
                                 </div>
                             </div>
@@ -941,7 +898,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                 <div className="mt-6">
                                     <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
                                     {renderGroupedList(factorySamples.filter(s => s.type === 'kit' || s.label.match(/^\[Kit: .*?\]/)))}
->>>>>>> old-slicer/ai-beat-patterns
                                 </div>
                             </div>
                         )}

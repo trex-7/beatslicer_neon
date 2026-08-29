@@ -374,13 +374,32 @@ async function startServer() {
       const userId = req.user!.uid;
       const isAdmin = isUserAdmin(req.user);
       const id = String(req.params.id);
-      const deleted = await deletePreset(id, userId, isAdmin);
+      const deleteFiles = req.query.deleteFiles !== 'false' && req.body?.deleteFiles !== false;
 
-      if (!deleted) {
+      const result = await deletePreset(id, userId, isAdmin, deleteFiles);
+
+      if (!result) {
         return res.status(404).json({ error: 'Preset not found or permission denied' });
       }
 
-      res.json({ success: true });
+      // Cleanup associated sample files from storage (S3 & local disk)
+      const urlsToDelete = [...(result.deletedSampleUrls || [])];
+      if (req.body?.url && !urlsToDelete.includes(req.body.url)) {
+        urlsToDelete.push(req.body.url);
+      }
+
+      for (const sampleUrl of urlsToDelete) {
+        if (sampleUrl) {
+          try {
+            await deleteStorageAsset(sampleUrl);
+          } catch (storageErr) {
+            console.warn(`[Preset Delete] Storage cleanup warning for ${sampleUrl}:`, storageErr);
+          }
+        }
+      }
+
+      console.log(`[Preset Delete] Deleted preset ${id} and ${urlsToDelete.length} associated sample files.`);
+      res.json({ success: true, deletedPreset: result.preset, deletedSampleUrls: urlsToDelete });
     } catch (error: any) {
       console.error('Delete preset error:', error);
       res.status(500).json({ error: error.message || 'Failed to delete preset' });
@@ -565,21 +584,27 @@ async function startServer() {
       const userId = req.user!.uid;
       const isAdmin = isUserAdmin(req.user);
       const id = String(req.params.id);
-      const deleteFiles = req.query.deleteFiles === 'true' || req.body?.deleteFiles === true;
+      const deleteFiles = req.query.deleteFiles !== 'false' && req.body?.deleteFiles !== false;
 
       const result = await deleteKit(id, userId, isAdmin, deleteFiles);
       if (!result) {
         return res.status(404).json({ error: 'Kit not found or permission denied' });
       }
 
-      // Cleanup associated sample files if requested
-      if (deleteFiles && result.deletedSampleUrls && result.deletedSampleUrls.length > 0) {
-        for (const sampleUrl of result.deletedSampleUrls) {
-          await deleteStorageAsset(sampleUrl);
+      // Cleanup associated sample files and cover image from storage (S3 & local disk)
+      const urlsToDelete = [...(result.deletedSampleUrls || [])];
+      for (const sampleUrl of urlsToDelete) {
+        if (sampleUrl) {
+          try {
+            await deleteStorageAsset(sampleUrl);
+          } catch (storageErr) {
+            console.warn(`[Kit Delete] Storage cleanup warning for ${sampleUrl}:`, storageErr);
+          }
         }
       }
 
-      res.json({ success: true, deletedKit: result.kit });
+      console.log(`[Kit Delete] Deleted kit ${id} and ${urlsToDelete.length} associated sample files.`);
+      res.json({ success: true, deletedKit: result.kit, deletedSampleUrls: urlsToDelete });
     } catch (error: any) {
       console.error('Delete kit error:', error);
       res.status(500).json({ error: error.message || 'Failed to delete kit' });

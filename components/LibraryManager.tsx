@@ -616,8 +616,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const handleDelete = async (item: CloudItem) => {
         if (deletingId) return; 
 
-        if (item.type === 'kit') {
-            const confirmed = window.confirm(`⚠️ Are you sure you want to delete kit "${item.label}"? This will remove the kit and associated sample references.`);
+        // Detect if the item is a Kit (either type === 'kit' or labeled with legacy '[Kit: ...]')
+        const isKitItem = item.type === 'kit' || Boolean(item.data?.items) || (item.type !== 'preset' && item.label && item.label.startsWith('[Kit:'));
+
+        if (item.type === 'kit' || (isKitItem && item.type !== 'preset' && item.type !== 'sample')) {
+            const confirmed = window.confirm(`⚠️ Are you sure you want to delete kit "${item.label}"? This will permanently delete the kit and all its associated audio samples and files.`);
             if (!confirmed) return;
 
             setDeletingId(item.id);
@@ -631,7 +634,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             return;
         }
 
-        if (item.type === 'sample' && item.url && item.url.includes('/kits/')) {
+        if (item.type === 'preset') {
+            const confirmed = window.confirm(`⚠️ Are you sure you want to delete preset "${item.label}"? This will permanently delete the preset and all associated audio files.`);
+            if (!confirmed) return;
+        } else if (item.type === 'sample' && item.url && item.url.includes('/kits/')) {
             const confirmed = window.confirm(`⚠️ Warning: "${item.label}" appears to be part of a Kit. Deleting it might break the kit's integrity. Are you sure you want to delete it?`);
             if (!confirmed) return;
         }
@@ -640,7 +646,9 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
         let result: DeleteResult = { success: false };
         if (item.type === 'preset') {
-            result = await deleteCloudPreset(item.id);
+            result = await deleteCloudPreset(item.id, item.url, true);
+        } else if ((item.type as string) === 'kit') {
+            result = await deleteCloudKit(item.id, true);
         } else {
             result = await deleteCloudSample(item.id, item.url);
         }

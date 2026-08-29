@@ -39,7 +39,18 @@ export interface DeleteResult {
 
 // Helper to get auth header
 function getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('neon_auth_token') || localStorage.getItem('auth_token') || '';
+    let token = localStorage.getItem('neon_auth_token') || localStorage.getItem('auth_token') || '';
+    if (!token) {
+        const storedUser = localStorage.getItem('neon_auth_user');
+        if (storedUser) {
+            try {
+                const u = JSON.parse(storedUser);
+                if (u && (u.email || u.uid || u.id)) {
+                    token = 'tok_' + btoa(JSON.stringify({ uid: u.uid || u.id, email: u.email || '' }));
+                }
+            } catch {}
+        }
+    }
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
     };
@@ -304,11 +315,12 @@ export interface StorageObjectItem {
 
 // --- Deletion & Helpers ---
 
-export const deleteCloudPreset = async (id: string): Promise<DeleteResult> => {
+export const deleteCloudPreset = async (id: string, url?: string, deleteFiles: boolean = true): Promise<DeleteResult> => {
     try {
-        const response = await fetch(`/api/presets/${id}`, {
+        const response = await fetch(`/api/presets/${id}?deleteFiles=${deleteFiles}`, {
             method: 'DELETE',
             headers: getAuthHeaders(),
+            body: JSON.stringify({ url, deleteFiles }),
         });
 
         if (!response.ok) {

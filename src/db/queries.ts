@@ -1,6 +1,6 @@
 import { db } from './index.ts';
 import { presets, samples, kits, kitSamples, feedback, users } from './schema.ts';
-import { eq, or, and, desc, inArray } from 'drizzle-orm';
+import { eq, or, and, desc, inArray, like } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 export async function fetchFullLibrary(userId?: string) {
@@ -232,14 +232,58 @@ export async function updatePreset(
   }
 }
 
-export async function deletePreset(id: string, userId: string, isAdmin: boolean = false) {
+export async function deletePreset(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = true) {
   try {
     const condition = isAdmin ? eq(presets.id, id) : and(eq(presets.id, id), eq(presets.userId, userId));
+    const foundPresets = await db.select().from(presets).where(condition).limit(1);
+    if (!foundPresets || foundPresets.length === 0) {
+      return null;
+    }
+
+    const targetPreset = foundPresets[0];
+    const deletedSampleUrls: string[] = [];
+    const sampleIdsToDelete: string[] = [];
+
+    // 1. Check if targetPreset has a sampleId
+    if (targetPreset.sampleId) {
+      const sampleId = targetPreset.sampleId;
+      const sampleRows = await db.select().from(samples).where(eq(samples.id, sampleId)).limit(1);
+      if (sampleRows && sampleRows.length > 0) {
+        if (sampleRows[0].url) {
+          deletedSampleUrls.push(sampleRows[0].url);
+        }
+        if (deleteSamples) {
+          sampleIdsToDelete.push(sampleId);
+        }
+      }
+    }
+
+    // 2. Check if preset parameters or slices contain direct audio URLs
+    if (targetPreset.parameters && typeof targetPreset.parameters === 'object') {
+      const p = targetPreset.parameters as any;
+      if (typeof p.sampleUrl === 'string' && p.sampleUrl) deletedSampleUrls.push(p.sampleUrl);
+      if (typeof p.audioUrl === 'string' && p.audioUrl) deletedSampleUrls.push(p.audioUrl);
+      if (typeof p.url === 'string' && p.url) deletedSampleUrls.push(p.url);
+      if (typeof p.sample === 'string' && (p.sample.startsWith('http') || p.sample.startsWith('/') || p.sample.includes('.'))) {
+        deletedSampleUrls.push(p.sample);
+      }
+    }
+
+    // 3. Delete associated sample record(s) if deleteSamples is true
+    if (sampleIdsToDelete.length > 0) {
+      await db.delete(samples).where(inArray(samples.id, sampleIdsToDelete));
+    }
+
+    // 4. Delete the preset
     const result = await db
       .delete(presets)
       .where(condition)
       .returning();
-    return result.length > 0;
+
+    return {
+      preset: result[0] || targetPreset,
+      deletedSampleUrls: Array.from(new Set(deletedSampleUrls.filter(Boolean))),
+    };
   } catch (error) {
     console.error('Database query failed in deletePreset:', error);
     throw new Error('Failed to delete preset from database', { cause: error });
@@ -286,6 +330,9 @@ export async function deleteSample(id: string, userId: string, isAdmin: boolean 
       return null;
     }
 
+    // Also remove any kit_samples associations
+    await db.delete(kitSamples).where(eq(kitSamples.sampleId, id));
+
     const result = await db
       .delete(samples)
       .where(condition)
@@ -298,7 +345,7 @@ export async function deleteSample(id: string, userId: string, isAdmin: boolean 
   }
 }
 
-export async function deleteKit(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = false) {
+export async function deleteKit(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = true) {
   try {
     const condition = isAdmin ? eq(kits.id, id) : and(eq(kits.id, id), eq(kits.userId, userId));
     const foundKits = await db.select().from(kits).where(condition).limit(1);
@@ -308,8 +355,14 @@ export async function deleteKit(id: string, userId: string, isAdmin: boolean = f
 
     const targetKit = foundKits[0];
     const deletedSampleUrls: string[] = [];
+    const sampleIdsToDelete: Set<string> = new Set();
 
-    // Find linked samples
+    // If kit has coverImageUrl, clean it up as well
+    if (targetKit.coverImageUrl) {
+      deletedSampleUrls.push(targetKit.coverImageUrl);
+    }
+
+    // 1. Find linked samples via kit_samples
     const linked = await db
       .select({
         sampleId: kitSamples.sampleId,
@@ -319,25 +372,53 @@ export async function deleteKit(id: string, userId: string, isAdmin: boolean = f
       .leftJoin(samples, eq(kitSamples.sampleId, samples.id))
       .where(eq(kitSamples.kitId, id));
 
-    const sampleIds = linked.map((l) => l.sampleId).filter(Boolean);
     linked.forEach((l) => {
+      if (l.sampleId) sampleIdsToDelete.add(l.sampleId);
       if (l.url) deletedSampleUrls.push(l.url);
     });
 
-    // 1. Remove kit_samples links
-    await db.delete(kitSamples).where(eq(kitSamples.kitId, id));
+    // 2. Also search for any samples tagged with kit name e.g. [Kit: targetKit.name]
+    if (targetKit.name) {
+      const kitNameTag = `[Kit: ${targetKit.name}]`;
+      const matchingSamples = await db
+        .select({
+          id: samples.id,
+          url: samples.url,
+          title: samples.title,
+        })
+        .from(samples)
+        .where(
+          and(
+            isAdmin ? undefined : eq(samples.userId, targetKit.userId || userId),
+            or(
+              eq(samples.title, targetKit.name),
+              like(samples.title, `%${kitNameTag}%`)
+            )
+          )
+        );
 
-    // 2. If deleteSamples is requested and there are linked samples
-    if (deleteSamples && sampleIds.length > 0) {
-      await db.delete(samples).where(inArray(samples.id, sampleIds));
+      matchingSamples.forEach((s) => {
+        if (s.id) sampleIdsToDelete.add(s.id);
+        if (s.url) deletedSampleUrls.push(s.url);
+      });
     }
 
-    // 3. Remove kit from kits table
+    const allSampleIds = Array.from(sampleIdsToDelete);
+
+    // 3. Remove kit_samples links
+    await db.delete(kitSamples).where(eq(kitSamples.kitId, id));
+
+    // 4. Delete all associated samples from samples table if deleteSamples is true
+    if (deleteSamples && allSampleIds.length > 0) {
+      await db.delete(samples).where(inArray(samples.id, allSampleIds));
+    }
+
+    // 5. Remove kit from kits table
     const result = await db.delete(kits).where(eq(kits.id, id)).returning();
 
     return {
       kit: result[0] || targetKit,
-      deletedSampleUrls,
+      deletedSampleUrls: Array.from(new Set(deletedSampleUrls.filter(Boolean))),
     };
   } catch (error) {
     console.error('Database query failed in deleteKit:', error);

@@ -77,7 +77,25 @@ export async function verifyNeonAuthToken(token: string): Promise<DecodedNeonTok
     console.warn('Neon Auth session verification error:', sessionErr);
   }
 
-  // 3. Fallback verification for tokens starting with neon_ or user_ or valid opaque tokens
+  // 3. Attempt decoding token payload (for app session tokens formatted as tok_<base64>)
+  if (token.startsWith('tok_')) {
+    try {
+      const raw = token.slice(4);
+      const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf-8'));
+      if (parsed && (parsed.uid || parsed.id)) {
+        return {
+          uid: parsed.uid || parsed.id,
+          email: parsed.email || '',
+          name: parsed.name || parsed.email?.split('@')[0] || 'User',
+          ...parsed,
+        };
+      }
+    } catch {
+      // Not base64 json, continue to fallback
+    }
+  }
+
+  // 4. Fallback verification for tokens starting with neon_ or user_ or valid opaque tokens
   if (token.startsWith('neon_') || token.startsWith('user_') || token.length >= 8) {
     const cleanId = token.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 40) || 'neon_user';
     return {

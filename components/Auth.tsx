@@ -32,7 +32,8 @@ const Auth: React.FC<AuthProps> = ({ user }) => {
         try {
             const username = email.split('@')[0];
             const userId = 'neon_' + Math.abs(email.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0)).toString(36);
-            const token = 'tok_' + Math.random().toString(36).substring(2, 15);
+            // Include base64-encoded email payload in token for robust server-side authentication
+            const token = 'tok_' + btoa(JSON.stringify({ uid: userId, email: email.trim() }));
             
             const authUser = {
                 id: userId,

@@ -7,13 +7,17 @@ import {
     uploadSampleToCloud, 
     deleteCloudPreset, 
     deleteCloudSample, 
+    deleteCloudKit,
+    listStorageObjects,
+    deleteStorageObject,
     renameCloudItem,
     fetchAllFeedback,
     createKit,
     linkSamplesToKit,
     type CloudItem,
     type DeleteResult,
-    type FeedbackItem
+    type FeedbackItem,
+    type StorageObjectItem,
 } from '../utils/db';
 import type { KitSample, Preset } from '../types';
 import { stitchAudioFiles, validateFile, MAX_KIT_FILES, MAX_KIT_TOTAL_MB } from '../utils/audioHelpers';
@@ -33,7 +37,10 @@ interface LibraryManagerProps {
     user: any;
 }
 
-const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
+const ADMIN_EMAILS = [
+    'sandromancino.sm@gmail.com',
+    'sandromancino.SM@gmail.com',
+];
 
 type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';
 
@@ -71,11 +78,71 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState("");
 
+    // Storage Admin & Purge State
+    const [storageObjects, setStorageObjects] = useState<StorageObjectItem[]>([]);
+    const [isLoadingStorage, setIsLoadingStorage] = useState(false);
+    const [storageSearch, setStorageSearch] = useState("");
+    const [storageStatus, setStorageStatus] = useState<any>(null);
+    const [manualDeleteTarget, setManualDeleteTarget] = useState("");
+    const [isDeletingStorage, setIsDeletingStorage] = useState(false);
+    const [storageActionMsg, setStorageActionMsg] = useState<{ text: string; success: boolean } | null>(null);
+
+    // Supabase to Neon Migration State
+    const [supabaseUrlInput, setSupabaseUrlInput] = useState("");
+    const [supabaseKeyInput, setSupabaseKeyInput] = useState("");
+    const [supabaseBucketInput, setSupabaseBucketInput] = useState("samples");
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [migrationResult, setMigrationResult] = useState<any>(null);
+
     const [activeTab, setActiveTab] = useState<TabView>('dashboard');
     const [searchTerm, setSearchTerm] = useState("");
     const [deletingId, setDeletingId] = useState<string | null>(null);
     
-    const isAdmin = user && user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
+    const isAdmin = Boolean(
+        user &&
+        user.email &&
+        ADMIN_EMAILS.some((a) => a.toLowerCase().trim() === String(user.email).toLowerCase().trim())
+    );
+
+    const loadStorageInfo = async () => {
+        setIsLoadingStorage(true);
+        try {
+            const statusRes = await fetch('/api/storage/status');
+            const statusData = await statusRes.json();
+            setStorageStatus(statusData);
+
+            const objectsRes = await listStorageObjects();
+            if (objectsRes.success) {
+                setStorageObjects(objectsRes.objects);
+            }
+        } catch (e) {
+            console.error('Error loading storage info:', e);
+        } finally {
+            setIsLoadingStorage(false);
+        }
+    };
+
+    const handleDeleteStorageObject = async (keyOrUrl: string) => {
+        if (!window.confirm(`⚠️ Permanently delete "${keyOrUrl}" from S3 Object Storage?`)) {
+            return;
+        }
+        setIsDeletingStorage(true);
+        setStorageActionMsg(null);
+        try {
+            const res = await deleteStorageObject(keyOrUrl);
+            if (res.success) {
+                setStorageActionMsg({ text: `Successfully deleted: ${keyOrUrl}`, success: true });
+                await loadStorageInfo();
+                await loadLibraryData();
+            } else {
+                setStorageActionMsg({ text: `Failed to delete: ${res.error || 'Unknown error'}`, success: false });
+            }
+        } catch (err: any) {
+            setStorageActionMsg({ text: `Error: ${err.message || 'Delete failed'}`, success: false });
+        } finally {
+            setIsDeletingStorage(false);
+        }
+    };
 
     const loadLibraryData = async () => {
         const data = await fetchLibrary(user?.id);
@@ -105,7 +172,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     }, [user, isOpen]);
 
     useEffect(() => {
-        if (isOpen && activeTab === 'admin') loadFeedback();
+        if (isOpen && activeTab === 'admin' && isAdmin) {
+            loadFeedback();
+            loadStorageInfo();
+        }
     }, [isOpen, activeTab, isAdmin]);
 
     useEffect(() => {
@@ -475,6 +545,39 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
+    const handleRunSupabaseMigration = async () => {
+        setIsMigrating(true);
+        setMigrationResult(null);
+        try {
+            const res = await fetch('/api/storage/migrate-from-supabase', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    supabaseUrl: supabaseUrlInput.trim() || undefined,
+                    supabaseServiceKey: supabaseKeyInput.trim() || undefined,
+                    sourceBucket: supabaseBucketInput.trim() || undefined,
+                    destinationPrefix: 'samples/',
+                    updateDatabaseUrls: true,
+                }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Migration request failed');
+            }
+
+            setMigrationResult(data);
+            await loadLibraryData();
+            alert(data.message || 'Migration completed successfully!');
+        } catch (err: any) {
+            console.error('Supabase Migration failed:', err);
+            setMigrationResult({ success: false, error: err.message });
+            alert('Migration failed: ' + err.message);
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
     const loadCloudItem = (item: CloudItem) => {
         stopPreview();
         
@@ -513,6 +616,21 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const handleDelete = async (item: CloudItem) => {
         if (deletingId) return; 
 
+        if (item.type === 'kit') {
+            const confirmed = window.confirm(`⚠️ Are you sure you want to delete kit "${item.label}"? This will remove the kit and associated sample references.`);
+            if (!confirmed) return;
+
+            setDeletingId(item.id);
+            const result = await deleteCloudKit(item.id, true);
+            if (!result.success) {
+                alert(`Delete kit failed: ${result.error}`);
+            } else {
+                await loadLibraryData();
+            }
+            setDeletingId(null);
+            return;
+        }
+
         if (item.type === 'sample' && item.url && item.url.includes('/kits/')) {
             const confirmed = window.confirm(`⚠️ Warning: "${item.label}" appears to be part of a Kit. Deleting it might break the kit's integrity. Are you sure you want to delete it?`);
             if (!confirmed) return;
@@ -521,8 +639,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         setDeletingId(item.id);
 
         let result: DeleteResult = { success: false };
-        if (item.type === 'preset') result = await deleteCloudPreset(item.id);
-        else result = await deleteCloudSample(item.id, item.url);
+        if (item.type === 'preset') {
+            result = await deleteCloudPreset(item.id);
+        } else {
+            result = await deleteCloudSample(item.id, item.url);
+        }
 
         if (!result.success) {
             alert(`Delete failed: ${result.error}`);
@@ -657,6 +778,16 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                         >
                                             LOAD KIT
                                         </button>
+                                        {(isAdmin || isMine) && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDelete(kit); }}
+                                                disabled={deletingId === kit.id}
+                                                className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-bold rounded transition-colors"
+                                                title="Delete Kit"
+                                            >
+                                                {deletingId === kit.id ? '...' : '🗑 DELETE'}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                                 {isExpanded && kit.description && (
@@ -940,6 +1071,228 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                                 </button>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Storage Admin & Object Purge Panel */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                            <span className="text-hyper-cyan">🗄️</span> S3 / Neon Object Storage Browser & Purge
+                                        </h3>
+                                        <button
+                                            onClick={loadStorageInfo}
+                                            disabled={isLoadingStorage}
+                                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                        >
+                                            <span>{isLoadingStorage ? '⏳' : '🔄'}</span>
+                                            <span>Refresh Files</span>
+                                        </button>
+                                    </div>
+
+                                    {storageActionMsg && (
+                                        <div className={`mb-4 text-xs px-3 py-2 rounded-lg border ${storageActionMsg.success ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}`}>
+                                            {storageActionMsg.text}
+                                        </div>
+                                    )}
+
+                                    <div className="bg-white/5 p-5 rounded-xl border border-white/10 space-y-4">
+                                        {/* Bucket Info */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-black/40 p-3 rounded-lg border border-white/5">
+                                            <div>
+                                                <div className="text-[10px] text-white/50 uppercase font-bold">Storage State</div>
+                                                <div className={`font-mono font-bold ${storageStatus?.configured || storageStatus?.s3Enabled ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                                                    {storageStatus?.configured || storageStatus?.s3Enabled ? '● S3 Connected' : '○ Local Disk'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-[10px] text-white/50 uppercase font-bold">Bucket Name</div>
+                                                <div className="font-mono text-white truncate">{storageStatus?.bucket || 'Default / None'}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-[10px] text-white/50 uppercase font-bold">Region</div>
+                                                <div className="font-mono text-white">{storageStatus?.region || 'auto / us-east-1'}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-[10px] text-white/50 uppercase font-bold">Total Stored Objects</div>
+                                                <div className="font-mono text-hyper-cyan font-bold">{storageObjects.length} files</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Direct Key/URL Purge Tool */}
+                                        <div className="bg-black/30 p-3 rounded-lg border border-red-500/20 space-y-2">
+                                            <div className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                                                <span>🗑</span> Direct Storage Purge by Key / URL:
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="samples/123_kick.wav OR full URL..."
+                                                    value={manualDeleteTarget}
+                                                    onChange={(e) => setManualDeleteTarget(e.target.value)}
+                                                    className="flex-1 bg-black/50 border border-white/10 rounded px-3 py-1.5 text-xs text-white focus:border-red-500 outline-none font-mono"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        if (manualDeleteTarget.trim()) {
+                                                            handleDeleteStorageObject(manualDeleteTarget.trim());
+                                                            setManualDeleteTarget("");
+                                                        }
+                                                    }}
+                                                    disabled={!manualDeleteTarget.trim() || isDeletingStorage}
+                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50"
+                                                >
+                                                    {isDeletingStorage ? 'Purging...' : 'Purge Object'}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Filter & File List */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="text-xs font-bold text-star-dust uppercase tracking-wider">
+                                                    Stored Bucket Files ({storageObjects.filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase())).length})
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Filter storage files..."
+                                                    value={storageSearch}
+                                                    onChange={(e) => setStorageSearch(e.target.value)}
+                                                    className="bg-black/40 border border-white/10 rounded px-2.5 py-1 text-xs text-white outline-none focus:border-hyper-cyan w-48"
+                                                />
+                                            </div>
+
+                                            <div className="max-h-64 overflow-y-auto bg-black/40 rounded-lg border border-white/5 divide-y divide-white/5">
+                                                {isLoadingStorage ? (
+                                                    <div className="p-6 text-center text-white/50 text-xs italic">Loading storage objects...</div>
+                                                ) : storageObjects.length === 0 ? (
+                                                    <div className="p-6 text-center text-white/40 text-xs italic">
+                                                        No storage files found or S3 bucket is empty.
+                                                    </div>
+                                                ) : (
+                                                    storageObjects
+                                                        .filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase()))
+                                                        .map((obj) => {
+                                                            const sizeKB = (obj.size / 1024).toFixed(1);
+                                                            const filename = obj.key.split('/').pop() || obj.key;
+                                                            return (
+                                                                <div key={obj.key} className="p-2.5 flex items-center justify-between hover:bg-white/5 transition-colors text-xs gap-3">
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="font-mono text-white truncate flex items-center gap-2">
+                                                                            <span className="text-plasma-pink">🔊</span>
+                                                                            <span className="truncate">{filename}</span>
+                                                                        </div>
+                                                                        <div className="text-[10px] text-white/40 font-mono truncate">
+                                                                            <span>{obj.key}</span> • <span>{sizeKB} KB</span> {obj.lastModified && `• ${new Date(obj.lastModified).toLocaleDateString()}`}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => togglePreview({ id: obj.key, label: filename, type: 'sample', url: obj.url, isPublic: true })}
+                                                                            className={`w-7 h-7 flex items-center justify-center rounded-full border border-white/10 text-xs transition-colors ${previewingId === obj.key ? 'bg-hyper-cyan text-deep-space animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                                                                            title="Preview Audio"
+                                                                        >
+                                                                            {previewingId === obj.key ? '⏹' : '▶'}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeleteStorageObject(obj.key)}
+                                                                            disabled={isDeletingStorage}
+                                                                            className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded font-bold text-[11px] transition-colors"
+                                                                            title="Permanently Delete File"
+                                                                        >
+                                                                            🗑 Delete
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                        <span>📦</span> Supabase Storage Migration to Neon Bucket
+                                    </h3>
+                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 space-y-4">
+                                        <p className="text-xs text-white/70 leading-relaxed">
+                                            Transfer all audio files and kits from your existing Supabase storage bucket into your connected Neon S3 Object Storage bucket.
+                                        </p>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="text-[10px] font-bold text-white/50 uppercase">Supabase URL (Optional if set in .env)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="https://xyz.supabase.co"
+                                                    value={supabaseUrlInput}
+                                                    onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold text-white/50 uppercase">Service Role / Anon Key</label>
+                                                <input
+                                                    type="password"
+                                                    placeholder="eyJhbGciOi..."
+                                                    value={supabaseKeyInput}
+                                                    onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold text-white/50 uppercase">Supabase Source Bucket</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="samples"
+                                                    value={supabaseBucketInput}
+                                                    onChange={(e) => setSupabaseBucketInput(e.target.value)}
+                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2">
+                                            <button
+                                                onClick={handleRunSupabaseMigration}
+                                                disabled={isMigrating}
+                                                className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs rounded-lg transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                {isMigrating ? (
+                                                    <>
+                                                        <span className="animate-spin inline-block">⏳</span>
+                                                        <span>Migrating Assets to Neon...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>🚀</span>
+                                                        <span>Start Migration to Neon Storage</span>
+                                                    </>
+                                                )}
+                                            </button>
+
+                                            {migrationResult && (
+                                                <div className={`text-xs px-3 py-1.5 rounded ${migrationResult.success ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
+                                                    {migrationResult.message || (migrationResult.success ? 'Migration Complete!' : migrationResult.error)}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {migrationResult?.result?.results && (
+                                            <div className="mt-3 max-h-40 overflow-y-auto bg-black/40 rounded p-3 text-[11px] font-mono space-y-1 text-white/70">
+                                                {migrationResult.result.results.map((r: any, idx: number) => (
+                                                    <div key={idx} className="flex justify-between items-center">
+                                                        <span className="truncate max-w-xs">{r.name}</span>
+                                                        <span className={r.status === 'migrated' ? 'text-emerald-400' : 'text-red-400'}>
+                                                            {r.status === 'migrated' ? '✓ Uploaded to Neon' : `✗ ${r.error || 'Failed'}`}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 

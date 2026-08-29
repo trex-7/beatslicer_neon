@@ -65,7 +65,7 @@ try {
             super();
             this.bufferL = null;
             this.bufferR = null;
-            this.sampleRate = 44100;
+            this.sampleRate = typeof sampleRate !== 'undefined' ? sampleRate : 44100;
             this.currentSample = 0;
             this.isPlaying = false;
             this.bpm = 120;
@@ -80,6 +80,8 @@ try {
             this.isLooping = true;
             this.mode = 'forward'; // 'forward', 'backward', 'pendulum', 'random'
             this.direction = 1; // 1 or -1 for pendulum
+            this.metronome = { enabled: false, volume: 0.8 };
+            this.metronomeClicks = [];
             this.params = {
                 grainSize: 0.1,
                 overlap: 0.05,
@@ -109,10 +111,16 @@ try {
                         this.direction = 1;
                         this.nextStepTime = this.currentSample; 
                         this.pendingTriggers = [];
+                        this.metronomeClicks = [];
                     }
                 } else {
                     this.grains = [];
                     this.pendingTriggers = [];
+                    this.metronomeClicks = [];
+                }
+            } else if (data.type === 'metronome') {
+                if (data.config) {
+                    this.metronome = { ...this.metronome, ...data.config };
                 }
             } else if (data.type === 'sequencer') {
                 this.steps = data.steps;
@@ -135,6 +143,24 @@ try {
                     }
                 }
             }
+        }
+        spawnMetronomeClick(isDownbeat) {
+            const sr = this.sampleRate || (typeof sampleRate !== 'undefined' ? sampleRate : 44100);
+            const startFreq = isDownbeat ? 2800 : 1750;
+            const endFreq = isDownbeat ? 1600 : 950;
+            const durationSec = isDownbeat ? 0.028 : 0.020;
+            const durationSamples = Math.max(64, Math.floor(durationSec * sr));
+            const vol = (typeof this.metronome.volume === 'number' ? this.metronome.volume : 0.8);
+            
+            this.metronomeClicks.push({
+                active: true,
+                age: 0,
+                duration: durationSamples,
+                phase: 0,
+                startFreq: startFreq,
+                endFreq: endFreq,
+                gain: (isDownbeat ? 1.25 : 0.9) * Math.max(0, Math.min(1.5, vol))
+            });
         }
         spawnGrain(sliceIndex, velocity = 1.0, ratchetCount = 1) {
             if (!this.bufferL || !this.slices[sliceIndex]) return;
@@ -332,6 +358,14 @@ try {
                             
                             this.port.postMessage({ type: 'step', value: this.currentStep });
                             
+                            // Sample-accurate Metronome Trigger (Quarter note beats)
+                            if (this.metronome && this.metronome.enabled) {
+                                if (this.currentStep % 4 === 0) {
+                                    const isDownbeat = (this.currentStep % (this.stepCount >= 16 ? 16 : 4)) === 0;
+                                    this.spawnMetronomeClick(isDownbeat);
+                                }
+                            }
+
                             if (this.steps[this.currentStep]) {
                                 const stepData = this.steps[this.currentStep];
                                 if (stepData.active) {
@@ -361,6 +395,33 @@ try {
                 }
                 let left = 0;
                 let right = 0;
+                
+                // Process active metronome clicks (Sample-accurate, zero-latency)
+                let metroSample = 0;
+                const sr = this.sampleRate || (typeof sampleRate !== 'undefined' ? sampleRate : 44100);
+                for (let m = this.metronomeClicks.length - 1; m >= 0; m--) {
+                    const click = this.metronomeClicks[m];
+                    if (!click.active || click.age >= click.duration) {
+                        this.metronomeClicks.splice(m, 1);
+                        continue;
+                    }
+                    const t = click.age / click.duration;
+                    const env = Math.pow(1.0 - t, 2.5);
+                    const currentFreq = click.startFreq + (click.endFreq - click.startFreq) * t;
+                    click.phase += (currentFreq * 2.0 * Math.PI) / sr;
+                    
+                    let tone = Math.sin(click.phase) + 0.25 * Math.sin(click.phase * 2.0);
+                    if (click.age < 0.002 * sr) {
+                        const spike = (1.0 - click.age / (0.002 * sr));
+                        tone += (Math.random() * 2 - 1) * 0.45 * spike;
+                    }
+                    metroSample += tone * env * click.gain;
+                    click.age++;
+                }
+
+                left += metroSample;
+                right += metroSample;
+
                 for (let g = 0; g < this.grains.length; g++) {
                     const grain = this.grains[g];
                     if (!grain.active) continue;
@@ -382,10 +443,12 @@ try {
                         let sampR = r1 + frac * (r2 - r1);
                         
                         let env = 1.0;
-                        if (grain.age < grain.attack) {
-                            env = grain.age / grain.attack;
-                        } else if (grain.age > grain.duration - grain.release) {
-                            env = (grain.duration - grain.age) / grain.release;
+                        if (grain.attack > 0 && grain.age < grain.attack) {
+                            const t = grain.age / grain.attack;
+                            env = 0.5 * (1.0 - Math.cos(Math.PI * Math.max(0, Math.min(1, t))));
+                        } else if (grain.release > 0 && grain.age > grain.duration - grain.release) {
+                            const t = (grain.duration - grain.age) / grain.release;
+                            env = 0.5 * (1.0 - Math.cos(Math.PI * Math.max(0, Math.min(1, t))));
                         }
                         
                         const panL = Math.sqrt(1.0 - grain.pan);
@@ -510,11 +573,6 @@ export const useAudioEngine = () => {
       volume: 0.8
   });
   const metronomeConfigRef = useRef(metronomeConfig);
-  // Ref for sample-based metronome
-  const metronomePlayers = useRef<any>(null);
-  // Ref for fallback synthetic metronome
-  const metronomeSynth = useRef<any>(null);
-  const metronomeGain = useRef<any>(null);
 
   const [midiConfig, setMidiConfig] = useState<MidiConfig>({
       enabled: true,
@@ -556,7 +614,15 @@ export const useAudioEngine = () => {
   
   const midiConfigRef = useRef(midiConfig);
   useEffect(() => { midiConfigRef.current = midiConfig; }, [midiConfig]);
-  useEffect(() => { metronomeConfigRef.current = metronomeConfig; }, [metronomeConfig]);
+  useEffect(() => {
+      metronomeConfigRef.current = metronomeConfig;
+      if (workletNode.current) {
+          workletNode.current.port.postMessage({
+              type: 'metronome',
+              config: metronomeConfig
+          });
+      }
+  }, [metronomeConfig]);
 
   const effects = useRef({
     reverb: null as any,
@@ -788,30 +854,6 @@ export const useAudioEngine = () => {
                 if (event.data.type === 'step') {
                      const step = event.data.value;
                      setSequencer(prev => prev.currentStep === step ? prev : { ...prev, currentStep: step });
-                     // Metronome Trigger Logic
-                     if (metronomeConfigRef.current.enabled && Tone.context.state === 'running') {
-                         if (step % 4 === 0) {
-                             const isDownbeat = step % 16 === 0;
-                             
-                             // Try samples first
-                             if (metronomePlayers.current && metronomePlayers.current.loaded) {
-                                 const sample = isDownbeat ? "high" : "low";
-                                 try {
-                                     metronomePlayers.current.player(sample).start(Tone.now() + 0.05);
-                                 } catch(e) {}
-                             } 
-                             // Fallback to Synth if samples failed or not loaded
-                             else if (metronomeSynth.current) {
-                                 // Use higher pitch for visibility (Woodblock style)
-                                 // C6 (High) / C5 (Low) instead of deep sub C3/C2
-                                 const note = isDownbeat ? "C6" : "C5";
-                                 try {
-                                     // Short, sharp decay
-                                     metronomeSynth.current.triggerAttackRelease(note, "32n", Tone.now() + 0.05);
-                                 } catch(e) {}
-                             }
-                         }
-                     }
                 } else if (event.data.type === 'stop') {
                     setIsPlaying(false);
                     setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 }));
@@ -821,6 +863,7 @@ export const useAudioEngine = () => {
             workletNode.current.port.postMessage({ type: 'sequencer', steps: sequencerRef.current.steps, stepCount: sequencerRef.current.stepCount, bpm: paramsRef.current.bpm, isLooping: sequencerRef.current.isLooping, mode: sequencerRef.current.mode });
             workletNode.current.port.postMessage({ type: 'params', params: { ...paramsRef.current } });
             workletNode.current.port.postMessage({ type: 'slices', slices: slicesRef.current });
+            workletNode.current.port.postMessage({ type: 'metronome', config: metronomeConfigRef.current });
 
             effects.current.nativeBridgeGain = targetContext.createGain();
             workletNode.current.connect(effects.current.nativeBridgeGain);
@@ -828,25 +871,6 @@ export const useAudioEngine = () => {
             Tone.connect(effects.current.nativeBridgeGain, effects.current.inputGain);
 
           } catch(e) { console.error(e); return; }
-
-          metronomeGain.current = new Tone.Gain(0.8).toDestination();
-          
-          // 1. Load Sample Players (Absolute path)
-          metronomePlayers.current = new Tone.Players({
-              high: "/Audio/Synth_Block_A_hi.wav",
-              low: "/Audio/Synth_Block_A_lo.wav"
-          }, () => {
-              console.log("Metronome samples loaded successfully");
-          }).connect(metronomeGain.current);
-
-          // 2. Setup Fallback Synth
-          // Make it punchier and brighter for better audibility
-          metronomeSynth.current = new Tone.MembraneSynth({
-              pitchDecay: 0.01,
-              octaves: 2,
-              oscillator: { type: "sine" },
-              envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 }
-          }).connect(metronomeGain.current);
 
           previewPlayer.current = new Tone.Player().toDestination();
           
@@ -970,9 +994,6 @@ export const useAudioEngine = () => {
       clearTimeout(timer);
       if (typeof schedulerRequestRef.current === 'number') cancelAnimationFrame(schedulerRequestRef.current);
       previewPlayer.current?.dispose();
-      metronomePlayers.current?.dispose();
-      metronomeSynth.current?.dispose();
-      metronomeGain.current?.dispose();
       workletNode.current?.disconnect();
       if (effects.current.modules) Object.values(effects.current.modules).forEach((m: any) => { m.input.dispose(); m.output.dispose(); });
       Object.values(effects.current).forEach((effect: any) => { if (effect && effect.dispose) effect.dispose(); });
@@ -1337,8 +1358,11 @@ export const useAudioEngine = () => {
   const updateMetronomeConfig = useCallback((newConfig: Partial<MetronomeConfig>) => {
       setMetronomeConfig(prev => {
           const next = { ...prev, ...newConfig };
-          if (metronomeGain.current && newConfig.volume !== undefined) {
-              metronomeGain.current.gain.rampTo(newConfig.volume, 0.1);
+          if (workletNode.current) {
+              workletNode.current.port.postMessage({
+                  type: 'metronome',
+                  config: next
+              });
           }
           return next;
       });
@@ -1375,7 +1399,10 @@ export const useAudioEngine = () => {
   const setSequencerPlaybackBehavior = useCallback((behavior: 'reset' | 'continue') => setSequencer(prev => ({ ...prev, playbackBehavior: behavior })), []);
   const randomizePattern = useCallback(() => { setSequencer(prev => { const newSteps = prev.steps.map(s => ({ ...s, active: Math.random() > 0.5, sliceIndex: Math.floor(Math.random() * slicesRef.current.length), ratchet: Math.random() > 0.8 ? Math.floor(Math.random() * 3) + 1 : 1 })); return { ...prev, steps: newSteps }; }); }, []);
   
-  const generateAiBeat = useCallback((inputComplexity: number) => {
+  const generateAiBeat = useCallback((inputComplexity: number, targetBpm?: number, targetStepCount?: number, bars?: number) => {
+      if (targetBpm && !isNaN(targetBpm) && targetBpm >= 30 && targetBpm <= 300) {
+          updateParams({ bpm: targetBpm });
+      }
       const complexity = inputComplexity * 0.6;
       const slices = slicesRef.current;
       if (slices.length === 0) return;
@@ -1387,7 +1414,10 @@ export const useAudioEngine = () => {
       const getRand = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)];
 
       setSequencer(prev => {
-          const newSteps = prev.steps.map((step, i) => {
+          const count = bars ? Math.round(bars * 16) : (targetStepCount || prev.stepCount || 16);
+          const effectiveCount = Math.max(4, Math.min(64, count));
+          const baseSteps = Array(effectiveCount).fill(0).map((_, idx) => prev.steps[idx] || { active: false, sliceIndex: 0, ratchet: 1 });
+          const newSteps = baseSteps.map((step, i) => {
               let probability = 0;
               const stepInBar = i % 16;
               const isDownbeat = i % 4 === 0;
@@ -1422,169 +1452,151 @@ export const useAudioEngine = () => {
               }
               return { ...step, active: true, sliceIndex, ratchet };
           });
-          return { ...prev, steps: newSteps };
+          if (workletNode.current) {
+              workletNode.current.port.postMessage({
+                  type: 'sequencer',
+                  steps: newSteps,
+                  stepCount: effectiveCount,
+                  bpm: targetBpm || paramsRef.current.bpm,
+                  isLooping: prev.isLooping,
+                  mode: prev.mode
+              });
+          }
+          return { ...prev, steps: newSteps, stepCount: effectiveCount };
       });
-  }, []);
+  }, [updateParams]);
 
-  const generateAiPattern = useCallback(async (model: string, inputType: 'slider' | 'text', stepCount: 8 | 16 | 32, description: string, complexity?: number, apiKey?: string, bpm?: string, style?: string) => {
-      const slices = slicesRef.current;
-      if (slices.length === 0) return;
-
-      // Classify slices
-      const kicks = slices.filter(s => s.type === 'kick');
-      const snares = slices.filter(s => s.type === 'snare');
-      const hats = slices.filter(s => s.type === 'hihat');
-      const percs = slices.filter(s => s.type === 'perc');
-
-      // Build prompt
-      let prompt = `Generate a ${stepCount}-step drum pattern in 4/4 time. Step 1 is the beginning of the beat (downbeat). `;
+  const generateAiPattern = useCallback(async (
+      model: string,
+      inputType: 'slider' | 'text',
+      stepCount: number,
+      description: string,
+      complexity?: number,
+      apiKey?: string,
+      bpm?: string,
+      style?: string,
+      bars?: number
+  ) => {
+      let currentSlices = slicesRef.current;
       
-      if (style && STYLE_SEEDS[style]) {
-          prompt += `${STYLE_SEEDS[style].prompt} `;
+      // If slices are empty but we have an audio buffer, auto-generate slices on the fly
+      if (currentSlices.length === 0 && audioBuffer) {
+          try {
+              const autoCreated = generateTransientSlices(audioBuffer, params.bpm || 120, 0, audioBuffer.duration);
+              if (autoCreated.length > 0) {
+                  setSlices(autoCreated);
+                  slicesRef.current = autoCreated;
+                  currentSlices = autoCreated;
+              }
+          } catch (e) {
+              console.warn('Auto-slicing fallback failed:', e);
+          }
       }
 
-      if (bpm) {
-          prompt += `At ${bpm} BPM. `;
-      } else if (style && STYLE_SEEDS[style]) {
-          const [min, max] = STYLE_SEEDS[style].bpmRange;
-          prompt += `Suggest a BPM between ${min} and ${max}. `;
+      if (currentSlices.length === 0) {
+          throw new Error('Please load an audio sample or choose a preset before generating an AI pattern.');
       }
 
-      prompt += `Available slices: `;
-      if (kicks.length) prompt += `${kicks.length} kicks (indices: ${kicks.map(s => s.id).join(',')}), `;
-      if (snares.length) prompt += `${snares.length} snares (indices: ${snares.map(s => s.id).join(',')}), `;
-      if (hats.length) prompt += `${hats.length} hats (indices: ${hats.map(s => s.id).join(',')}), `;
-      if (percs.length) prompt += `${percs.length} percussion (indices: ${percs.map(s => s.id).join(',')}). `;
+      // Classify slice indices
+      const kicks = currentSlices.map((s, idx) => s.type === 'kick' ? idx : -1).filter(idx => idx !== -1);
+      const snares = currentSlices.map((s, idx) => s.type === 'snare' ? idx : -1).filter(idx => idx !== -1);
+      const hats = currentSlices.map((s, idx) => s.type === 'hihat' ? idx : -1).filter(idx => idx !== -1);
+      const percs = currentSlices.map((s, idx) => s.type === 'perc' ? idx : -1).filter(idx => idx !== -1);
 
-      if (inputType === 'text') {
-          prompt += `Style description: ${description}. `;
-      } else {
-          const complexityLabel = complexity! < 0.3 ? 'simple' : complexity! < 0.7 ? 'medium' : 'complex';
-          prompt += `Complexity level: ${complexityLabel}. `;
+      let effectiveDescription = description;
+      if (inputType === 'slider') {
+          const compVal = typeof complexity === 'number' ? complexity : 0.5;
+          effectiveDescription = compVal < 0.35 ? 'Minimal, clean, foundational groove' : compVal < 0.7 ? 'Solid energetic beat with syncopated accents' : 'Complex polyrhythmic pattern with ghost notes and rapid ratchets';
       }
 
-      prompt += `Create a rhythmic pattern that fits 4/4 time signature, with appropriate emphasis on beats 1, 2, 3, 4. `;
+      const effectiveBars = bars || (stepCount ? stepCount / 16 : 1);
+      const effectiveSteps = stepCount || Math.round(effectiveBars * 16);
 
-      if (bpm) {
-          prompt += `Return a JSON array of ${stepCount} objects, each with: active (boolean), sliceIndex (number), ratchet (1-4). Only use valid slice indices.`;
-      } else {
-          prompt += `Return a JSON object with "bpm" (suggested tempo) and "pattern" (array of ${stepCount} objects, each with: active (boolean), sliceIndex (number), ratchet (1-4)). Only use valid slice indices.`;
-      }
-try {
-    // Call AI API
-    let envKey = '';
-    if (model === 'deepseek') {
-        envKey = (import.meta as any).env.VITE_DEEPSEEK_API_KEY || '';
-    } else {
-        envKey = (import.meta as any).env.VITE_OPENAI_API_KEY || '';
-    }
-    const effectiveApiKey = apiKey || envKey;
-    if (!effectiveApiKey) {
-        alert('Please provide an API key.');
-        return;
-    }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20-second network timeout
 
-    let apiUrl = '';
-    let payload: any = {};
-    let headers: any = { 'Content-Type': 'application/json' };
-
-    if (model.startsWith('openai-')) {
-        apiUrl = 'https://api.openai.com/v1/chat/completions';
-        headers['Authorization'] = `Bearer ${effectiveApiKey}`;
-        payload = {
-            model: model === 'openai-gpt4' ? 'gpt-4' : 'gpt-3.5-turbo',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 500
-        };
-    } else if (model === 'deepseek') {
-        apiUrl = 'https://api.deepseek.com/v1/chat/completions';
-        headers['Authorization'] = `Bearer ${effectiveApiKey}`;
-        payload = {
-            model: 'deepseek-chat',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 1000
-        };
-    } else if (model === 'gemini') {
-        apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${effectiveApiKey}`;
-        payload = {
-            contents: [{ parts: [{ text: prompt }] }]
-        };
-    } else if (model === 'claude') {
-        alert('Claude integration not implemented yet.');
-        return;
-    } else {
-        alert('Unsupported model.');
-        return;
-    }
-
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) throw new Error(`AI API call failed: ${response.status} ${response.statusText}`);
-
-    const data = await response.json();
-    let aiResponse = '';
-
-    if (model.startsWith('openai-') || model === 'deepseek') {
-        aiResponse = data.choices[0].message.content;
-    } else if (model === 'gemini') {
-        aiResponse = data.candidates[0].content.parts[0].text;
-    }
-
-    // Try to extract JSON from ```json code block
-    let jsonString = '';
-    let aiData: any;
-    if (bpm) {
-        // Expect array
-        const jsonBlockMatch = aiResponse.match(/```json\s*(\[[\s\S]*?\])\s*```/);
-        if (jsonBlockMatch) {
-            jsonString = jsonBlockMatch[1];
-        } else {
-            const arrayMatch = aiResponse.match(/\[[\s\S]*\]/);
-            if (arrayMatch) jsonString = arrayMatch[0];
-        }
-        if (!jsonString) throw new Error('AI did not return a valid pattern array. Response: ' + aiResponse.substring(0, 200));
-        aiData = { pattern: JSON.parse(jsonString) };
-    } else {
-        // Expect object with bpm and pattern
-        const jsonBlockMatch = aiResponse.match(/```json\s*(\{[\s\S]*?\})\s*```/);
-        if (jsonBlockMatch) {
-            jsonString = jsonBlockMatch[1];
-        } else {
-            const objectMatch = aiResponse.match(/\{[\s\S]*\}/);
-            if (objectMatch) jsonString = objectMatch[0];
-        }
-        if (!jsonString) throw new Error('AI did not return a valid pattern object. Response: ' + aiResponse.substring(0, 200));
-        aiData = JSON.parse(jsonString);
-    }
-
-    const pattern = aiData.pattern;
-    if (aiData.bpm && !bpm) {
-        // Set the suggested BPM
-        updateParams({ bpm: aiData.bpm });
-    }
-
-          // Update sequencer
-          setSequencer(prev => {
-              const newSteps = Array(stepCount).fill(0).map((_, i) => ({
-                  active: pattern[i]?.active || false,
-                  sliceIndex: pattern[i]?.sliceIndex || 0,
-                  ratchet: pattern[i]?.ratchet || 1
-              }));
-              // Pad or truncate to match current stepCount
-              while (newSteps.length < prev.stepCount) newSteps.push({ active: false, sliceIndex: 0, ratchet: 1 });
-              newSteps.splice(prev.stepCount);
-              return { ...prev, steps: newSteps, stepCount: Math.max(prev.stepCount, stepCount) };
+      try {
+          const response = await fetch('/api/ai/generate-pattern', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                  model: model || 'gemini-3.1-flash-lite',
+                  stepCount: effectiveSteps,
+                  bars: effectiveBars,
+                  slicesCount: currentSlices.length,
+                  sliceCategories: { kicks, snares, hats, percs },
+                  style: style || 'custom',
+                  description: effectiveDescription,
+                  complexity: typeof complexity === 'number' ? complexity : 0.5,
+                  bpm: bpm ? Number(bpm) : undefined,
+                  apiKey: apiKey?.trim() || undefined,
+              }),
           });
 
-      } catch (error) {
+          clearTimeout(timeoutId);
+
+          let data: any;
+          try {
+              data = await response.json();
+          } catch (jsonErr) {
+              throw new Error(`Invalid response from AI server (HTTP ${response.status})`);
+          }
+
+          if (!response.ok || !data.success) {
+              throw new Error(data?.error || `AI pattern generation failed with status ${response.status}`);
+          }
+
+          const pattern = data.pattern;
+          const targetBpm = Number(data.suggestedBpm || (bpm ? Number(bpm) : undefined));
+          if (targetBpm && !isNaN(targetBpm) && targetBpm >= 30 && targetBpm <= 300) {
+              updateParams({ bpm: targetBpm });
+          }
+
+          const finalStepsCount = Number(data.stepCount) || effectiveSteps;
+
+          // Apply generated pattern to sequencer
+          setSequencer(prev => {
+              const newSteps = Array(finalStepsCount).fill(0).map((_, i) => ({
+                  active: pattern[i]?.active ?? false,
+                  sliceIndex: pattern[i]?.sliceIndex ?? (i % currentSlices.length),
+                  ratchet: pattern[i]?.ratchet ?? 1,
+              }));
+              if (workletNode.current) {
+                  workletNode.current.port.postMessage({
+                      type: 'sequencer',
+                      steps: newSteps,
+                      stepCount: finalStepsCount,
+                      bpm: targetBpm || paramsRef.current.bpm,
+                      isLooping: prev.isLooping,
+                      mode: prev.mode
+                  });
+              }
+              return {
+                  ...prev,
+                  steps: newSteps,
+                  stepCount: finalStepsCount,
+              };
+          });
+
+          return {
+              success: true,
+              pattern,
+              suggestedBpm: data.suggestedBpm,
+              modelUsed: data.modelUsed || model,
+              bars: data.bars || effectiveBars,
+              stepCount: finalStepsCount,
+          };
+
+      } catch (error: any) {
+          clearTimeout(timeoutId);
           console.error('AI Pattern Generation failed:', error);
-          alert(`Failed to generate AI pattern: ${error.message}`);
+          if (error.name === 'AbortError') {
+              throw new Error('AI request timed out after 35 seconds. Please check your network or try again.');
+          }
+          throw error;
       }
-  }, []);
+  }, [audioBuffer, params.bpm, updateParams]);
 
   const selectSlice = useCallback((index: number) => setSelectedSliceIndex(index), []);
   const toggleSliceActive = useCallback((index: number) => { setSlices(prev => { const newSlices = [...prev]; if (newSlices[index]) newSlices[index] = { ...newSlices[index], isActive: !newSlices[index].isActive }; return newSlices; }); }, []);

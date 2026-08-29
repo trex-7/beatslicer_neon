@@ -12,8 +12,8 @@ interface ControlPanelProps {
      onParamChange: <K extends keyof AllParams>(key: K, value: AllParams[K]) => void;
      onEffectParamChange: <E extends keyof EffectParams, P extends keyof EffectParams[E]>(effect: E, param: P, value: EffectParams[E][P]) => void;
      disabled: boolean;
-     generateAiBeat: (complexity: number) => void;
-     generateAiPattern?: (model: string, inputType: 'slider' | 'text', stepCount: 8 | 16 | 32, description: string, complexity?: number, apiKey?: string, bpm?: string) => void;
+     generateAiBeat: (complexity: number, targetBpm?: number, targetStepCount?: number, bars?: number) => void;
+     generateAiPattern?: (model: string, inputType: 'slider' | 'text', stepCount: number, description: string, complexity?: number, apiKey?: string, bpm?: string, style?: string, bars?: number) => Promise<any> | any;
      slices: Slice[];
      selectedSliceIndex: number | null;
      onSliceUpdate: (index: number, changes: Partial<Slice>) => void;
@@ -163,6 +163,72 @@ const getGritFromParams = (distortion: any) => {
     return distortion.amount;
 };
 
+const GENRE_STYLE_PRESETS = [
+    {
+        id: 'techno',
+        label: '⚡ Techno',
+        bpm: '132',
+        description: 'Driving industrial techno with relentless 4-on-the-floor kicks, syncopated metallic percs, and offbeat hi-hat rolls',
+    },
+    {
+        id: 'house',
+        label: '🪩 Deep House',
+        bpm: '124',
+        description: 'Classic 4-on-the-floor deep house groove with swinging open hi-hats on upbeats and syncopated snare claps',
+    },
+    {
+        id: 'dnb',
+        label: '🚀 Drum & Bass',
+        bpm: '174',
+        description: 'Fast 174 BPM breakbeat jungle pattern with syncopated ghost snares, heavy kick accents, and rapid 32nd ratchets',
+    },
+    {
+        id: 'trap',
+        label: '🎤 Trap & Drill',
+        bpm: '140',
+        description: 'Modern trap groove with sparse heavy sub kicks, crisp snappy claps on beats 3, and rolling hi-hat ratchets',
+    },
+    {
+        id: 'hiphop',
+        label: '🎷 Boom Bap',
+        bpm: '92',
+        description: 'Laid-back 90s boom bap groove with swing pocket kicks, organic ghost snare fills, and lazy hi-hat timing',
+    },
+    {
+        id: 'breakbeat',
+        label: '🇬🇧 UK Garage',
+        bpm: '134',
+        description: 'Bouncy 2-step UK Garage rhythm with shuffled syncopated kicks, skipped snare fills, and skippy shakers',
+    },
+    {
+        id: 'glitch',
+        label: '🌀 Glitch / IDM',
+        bpm: '120',
+        description: 'Complex experimental IDM beat with polyrhythmic micro-repeats, erratic snare stutters, and reverse accents',
+    },
+    {
+        id: 'afrobeat',
+        label: '🌴 Afrobeat',
+        bpm: '106',
+        description: 'Polyrhythmic Afrobeat groove with syncopated log drum patterns, interlocking percussion, and triplet shakers',
+    },
+    {
+        id: 'custom',
+        label: '✍️ Custom',
+        bpm: '',
+        description: 'Create a dynamic rhythm pattern with driving kicks and syncopated percussive accents',
+    },
+];
+
+const PROMPT_SUGGESTION_CHIPS = [
+    '+ Ghost Snares',
+    '+ Rolling Ratchets',
+    '+ Syncopated Kicks',
+    '+ 16th Hi-Hats',
+    '+ Halftime Drop',
+    '+ Triplet Swing',
+    '+ Sparse & Minimal',
+];
 
 const ControlPanel: React.FC<ControlPanelProps> = memo(({
      params,
@@ -185,19 +251,53 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      onLoadImpulseResponse
  }) => {
 
+     const [expandedDrawer, setExpandedDrawer] = useState<'effects' | 'slices' | 'engine' | 'macros' | null>(null);
      const [aiComplexity, setAiComplexity] = useState(0.25);
-     const [generationMode, setGenerationMode] = useState<'algorithmic' | 'ai'>('ai');
-     const [aiModel, setAiModel] = useState('deepseek');
-     const [aiInputType, setAiInputType] = useState<'slider' | 'text'>('slider');
-     const [aiStepCount, setAiStepCount] = useState<8 | 16 | 32>(32);
-     const [aiStyle, setAiStyle] = useState('custom');
-     const [aiDescription, setAiDescription] = useState('Create a funky house beat with driving kick and syncopated snares');
+     const [generationMode, setGenerationMode] = useState<'ai' | 'algorithmic'>('ai');
+     const [aiModel, setAiModel] = useState('gemini-3.1-flash-lite');
+     const [aiInputType, setAiInputType] = useState<'slider' | 'text'>('text');
+     const [aiBars, setAiBars] = useState<number>(1);
+     const [aiStepCount, setAiStepCount] = useState<number>(16);
+     const [aiStyle, setAiStyle] = useState('trap');
+     const [aiDescription, setAiDescription] = useState('Energetic trap beat with syncopated 808 kicks, sharp snare on 5 and 13, and rapid hi-hat rolls');
      const [aiBpm, setAiBpm] = useState('');
      const [aiApiKey, setAiApiKey] = useState('');
      const [isGenerating, setIsGenerating] = useState(false);
+     const [generationStepText, setGenerationStepText] = useState('');
+     const [aiFeedback, setAiFeedback] = useState<{
+         type: 'success' | 'error' | 'info';
+         message: string;
+         details?: string;
+         allowFallback?: boolean;
+     } | null>(null);
      const irInputRef = useRef<HTMLInputElement>(null);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
+
+    const handleSelectGenrePreset = (preset: typeof GENRE_STYLE_PRESETS[0]) => {
+        setAiStyle(preset.id);
+        setAiDescription(preset.description);
+        if (preset.bpm) {
+            setAiBpm(preset.bpm);
+        }
+    };
+
+    const handleAddPromptChip = (chip: string) => {
+        setAiDescription(prev => {
+            const clean = chip.replace(/^\+\s*/, '');
+            if (prev.includes(clean)) return prev;
+            return prev.trim() ? `${prev}, with ${clean.toLowerCase()}` : clean;
+        });
+    };
+
+    const activeEffectCount = [
+        params.compressor?.isActive,
+        params.distortion?.isActive,
+        params.bitCrusher?.isActive,
+        params.filter?.isActive,
+        params.delay?.isActive,
+        params.reverb?.isActive
+    ].filter(Boolean).length;
 
     // --- CUSTOM GRAIN SIZE CURVE HANDLERS ---
     const MIN_GRAIN = 0.01;
@@ -321,41 +421,244 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
     // --- RENDER ---
     if (!isProMode) {
-        // ... (Simple Mode code unchanged - preserving) ...
         const macroGridClass = simpleView === 'macros' ? "grid-cols-1 gap-4" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6";
         return (
             <div className="space-y-6 animate-in fade-in duration-500">
                 {(!simpleView || simpleView === 'magic') && (
-                    <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 p-4 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center relative group">
-                        <div className="absolute top-2 right-2 opacity-50 hover:opacity-100 transition-opacity">
-                            <InfoIcon text="Generates rhythmic patterns using probabilistic weighting across classified slice types (Kick, Snare, Hi-Hat, Percussion)." />
+                    <div className="bg-[#10141d] p-5 rounded-2xl border border-plasma-pink/30 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-hyper-cyan via-plasma-pink to-purple-500"></div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 border-b border-white/10 pb-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-plasma-pink to-purple-600 flex items-center justify-center text-white text-lg shadow-[0_0_15px_rgba(255,0,170,0.4)]">
+                                    ⚡
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-base font-black text-white uppercase tracking-wider">AI Pattern Studio</h3>
+                                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-plasma-pink/20 text-plasma-pink border border-plasma-pink/40">
+                                            FEATURED
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-star-dust/80">Generate intelligent genre rhythms or algorithmic syncopation instantly</p>
+                                </div>
+                            </div>
+
+                            {/* Mode Toggle */}
+                            <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 self-start sm:self-auto">
+                                <button
+                                    onClick={() => setGenerationMode('ai')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1.5 ${generationMode === 'ai' ? 'bg-plasma-pink text-white shadow-[0_0_10px_rgba(255,0,170,0.5)]' : 'text-star-dust/60 hover:text-white'}`}
+                                >
+                                    <span>🤖</span> AI Prompt
+                                </button>
+                                <button
+                                    onClick={() => setGenerationMode('algorithmic')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1.5 ${generationMode === 'algorithmic' ? 'bg-hyper-cyan text-deep-space font-black shadow-[0_0_10px_rgba(0,246,255,0.5)]' : 'text-star-dust/60 hover:text-white'}`}
+                                >
+                                    <span>🎲</span> Groove Slider
+                                </button>
+                            </div>
                         </div>
-                        <div>
-                            <h3 className="text-lg font-bold text-white mb-1">Pattern Generator</h3>
-                            <p className="text-[10px] text-star-dust/70">Generate dynamic rhythmic patterns based on slice transient types.</p>
-                        </div>
-                        <div className="flex flex-col gap-3 w-full max-w-sm">
-                             <div className="flex justify-between items-center text-[10px] font-bold text-star-dust uppercase tracking-wider px-1">
-                                 <span>Structure</span>
-                                 <span>Syncopation</span>
-                                 <span>Chaos</span>
-                             </div>
-                             <input 
-                                type="range" 
-                                min="0" 
-                                max="1" 
-                                step="0.01" 
-                                value={aiComplexity} 
-                                onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
-                                style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
-                                className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
-                             />
-                             <button onClick={() => generateAiBeat(aiComplexity)} className="w-full py-3 bg-gradient-to-r from-hyper-cyan to-blue-500 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 transition-all shadow-lg active:scale-95 border border-white/10">
-                                GENERATE PATTERN
-                             </button>
-                        </div>
+
+                        {generationMode === 'ai' ? (
+                            <div className="space-y-4">
+                                {/* Genre Presets Bar */}
+                                <div>
+                                    <label className="text-[10px] font-bold text-star-dust/70 uppercase tracking-wider mb-1.5 block">Quick Genre Presets</label>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {GENRE_STYLE_PRESETS.map(preset => (
+                                            <button
+                                                key={preset.id}
+                                                onClick={() => handleSelectGenrePreset(preset)}
+                                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${aiStyle === preset.id ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_10px_rgba(255,0,170,0.2)]' : 'bg-black/30 text-star-dust/70 border-white/10 hover:border-white/20 hover:text-white'}`}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Prompt modifiers */}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-star-dust/50 uppercase">Add tags:</span>
+                                    {PROMPT_SUGGESTION_CHIPS.map(chip => (
+                                        <button
+                                            key={chip}
+                                            onClick={() => handleAddPromptChip(chip)}
+                                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/5 hover:bg-white/10 text-star-dust/70 hover:text-white border border-white/5 transition-colors"
+                                        >
+                                            {chip}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Prompt & Model Controls */}
+                                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                                    <div className="md:col-span-8 flex flex-col gap-2">
+                                        <textarea
+                                            value={aiDescription}
+                                            onChange={(e) => setAiDescription(e.target.value)}
+                                            placeholder="Describe the rhythm, syncopation, and groove structure..."
+                                            className="w-full h-20 bg-black/40 text-xs text-white rounded-xl border border-white/10 focus:border-plasma-pink outline-none p-3 resize-none font-mono"
+                                        />
+                                    </div>
+
+                                    <div className="md:col-span-4 flex flex-col justify-between gap-2">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-star-dust/70 uppercase mb-1 block">AI Model</label>
+                                            <select
+                                                value={aiModel}
+                                                onChange={(e) => setAiModel(e.target.value)}
+                                                className="w-full h-8 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-hyper-cyan outline-none px-2 font-medium"
+                                            >
+                                                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Default / Fast)</option>
+                                                <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                                                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Advanced)</option>
+                                                <option value="openai-gpt4o">OpenAI GPT-4o</option>
+                                                <option value="openai-gpt4o-mini">OpenAI GPT-4o Mini</option>
+                                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                                                <option value="deepseek-chat">DeepSeek V3</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <label className="text-[10px] font-bold text-star-dust/70 uppercase">Length / Bars</label>
+                                                <span className="text-[9px] text-plasma-pink font-mono font-bold">{aiBars} Bar{aiBars > 1 ? 's' : ''} ({aiStepCount} Steps)</span>
+                                            </div>
+                                            <div className="grid grid-cols-4 gap-1">
+                                                {[
+                                                    { bars: 0.5, steps: 8, label: '½ Bar' },
+                                                    { bars: 1, steps: 16, label: '1 Bar' },
+                                                    { bars: 2, steps: 32, label: '2 Bars' },
+                                                    { bars: 4, steps: 64, label: '4 Bars' },
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.steps}
+                                                        onClick={() => {
+                                                            setAiBars(opt.bars);
+                                                            setAiStepCount(opt.steps);
+                                                        }}
+                                                        className={`py-1 text-[11px] font-bold rounded-lg border transition-all ${aiStepCount === opt.steps ? 'bg-plasma-pink text-white border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.4)]' : 'bg-black/30 border-white/10 text-star-dust/50 hover:text-white'}`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Generate Button */}
+                                <button
+                                    onClick={async () => {
+                                        if (!generateAiPattern) {
+                                            generateAiBeat(0.35, aiBpm ? Number(aiBpm) : undefined, aiStepCount, aiBars);
+                                            return;
+                                        }
+                                        setIsGenerating(true);
+                                        setAiFeedback({
+                                            type: 'info',
+                                            message: '🤖 AI Model Composing Rhythm...',
+                                            details: `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) groove...`
+                                        });
+                                        try {
+                                            const result = await generateAiPattern(aiModel, 'text', aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle, aiBars);
+                                            const bpmText = result?.suggestedBpm ? ` @ ${result.suggestedBpm} BPM` : '';
+                                            if (result?.suggestedBpm) {
+                                                setAiBpm(String(result.suggestedBpm));
+                                            }
+                                            setAiFeedback({
+                                                type: 'success',
+                                                message: '✨ AI Pattern Applied to Sequencer!',
+                                                details: `Generated ${result?.bars || aiBars}-bar (${result?.stepCount || aiStepCount} steps) pattern with ${result?.modelUsed || aiModel}${bpmText}`
+                                            });
+                                            setTimeout(() => setAiFeedback(prev => prev?.type === 'success' ? null : prev), 5000);
+                                        } catch (err: any) {
+                                            setAiFeedback({
+                                                type: 'error',
+                                                message: 'AI Generation Failed',
+                                                details: err?.message || 'Check network connection or API settings'
+                                            });
+                                        } finally {
+                                            setIsGenerating(false);
+                                        }
+                                    }}
+                                    disabled={disabled || isGenerating}
+                                    className={`w-full py-3.5 bg-gradient-to-r from-plasma-pink via-purple-600 to-hyper-cyan text-white font-black text-sm tracking-widest uppercase rounded-xl transition-all shadow-[0_0_25px_rgba(255,0,170,0.35)] hover:shadow-[0_0_35px_rgba(255,0,170,0.55)] border border-white/20 flex items-center justify-center gap-2 ${isGenerating ? 'opacity-80 cursor-wait animate-pulse' : 'hover:brightness-110 active:scale-[0.99]'}`}
+                                >
+                                    {isGenerating ? (
+                                        <>
+                                            <span className="inline-block animate-spin">⏳</span>
+                                            <span>COMPOSING WITH AI...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>✨</span>
+                                            <span>GENERATE AI BEAT PATTERN</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {aiFeedback && (
+                                    <div className={`p-3 rounded-xl border text-xs transition-all ${
+                                        aiFeedback.type === 'success' ? 'bg-green-500/15 border-green-500/40 text-green-300 shadow-[0_0_15px_rgba(34,197,94,0.15)]' :
+                                        aiFeedback.type === 'error' ? 'bg-red-500/15 border-red-500/40 text-red-300' :
+                                        'bg-plasma-pink/15 border-plasma-pink/40 text-plasma-pink'
+                                    }`}>
+                                        <div className="flex items-center justify-between font-bold">
+                                            <span>{aiFeedback.message}</span>
+                                            <button onClick={() => setAiFeedback(null)} className="text-white/40 hover:text-white text-xs px-1">✕</button>
+                                        </div>
+                                        {aiFeedback.details && <p className="text-[11px] opacity-80 mt-1 font-mono">{aiFeedback.details}</p>}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            /* Algorithmic Mode in Simple */
+                            <div className="space-y-4 max-w-xl mx-auto py-2">
+                                <div className="flex justify-between text-xs font-bold text-star-dust uppercase tracking-wider">
+                                    <span>Minimal & Structured</span>
+                                    <span className="text-hyper-cyan">Syncopated Groove</span>
+                                    <span>Glitch Chaos</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.01" 
+                                    value={aiComplexity} 
+                                    onChange={(e) => setAiComplexity(parseFloat(e.target.value))} 
+                                    style={{ background: `linear-gradient(to right, #00f6ff 0%, #c084fc 50%, #ff00aa 100%)` }}
+                                    className="w-full h-3 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all" 
+                                />
+                                <button 
+                                    onClick={() => {
+                                        generateAiBeat(aiComplexity);
+                                        setAiFeedback({
+                                            type: 'success',
+                                            message: '🎲 Algorithmic Groove Generated!',
+                                            details: `Created pattern with ${Math.round(aiComplexity * 100)}% syncopation.`
+                                        });
+                                        setTimeout(() => setAiFeedback(null), 4000);
+                                    }} 
+                                    disabled={disabled}
+                                    className="w-full py-3 bg-gradient-to-r from-hyper-cyan to-blue-500 text-deep-space font-black text-sm tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg active:scale-95 border border-white/10 uppercase"
+                                >
+                                    GENERATE GROOVE PATTERN
+                                </button>
+                                {aiFeedback && (
+                                    <div className="p-2.5 rounded-lg border text-xs bg-hyper-cyan/10 border-hyper-cyan/40 text-hyper-cyan flex justify-between items-center">
+                                        <span>{aiFeedback.message}</span>
+                                        <button onClick={() => setAiFeedback(null)} className="text-white/40 hover:text-white">✕</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
+
                 {(!simpleView || simpleView === 'macros') && (
                     <div className={`grid ${macroGridClass}`}>
                          <div className="bg-[#151a23] p-3 rounded-xl border border-white/5 flex flex-col items-center gap-2 shadow-inner group hover:border-hyper-cyan/30 transition-colors relative">
@@ -409,6 +712,9 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
     // ==========================================
     
     // Determine visibility
+    const isSingleSectionExplicit = visibleSections && visibleSections.length === 1;
+    const singleSection = isSingleSectionExplicit ? visibleSections[0] : null;
+
     const showSlices = !visibleSections || visibleSections.includes('slices');
     const showPattern = !visibleSections || visibleSections.includes('pattern');
     const showEngine = !visibleSections || visibleSections.includes('engine');
@@ -587,358 +893,686 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         }
     };
 
-    return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            {(showSlices || showPattern || showEngine) && (
-                <div className={`grid grid-cols-1 md:grid-cols-3 gap-6`}>
-                    
-                    {/* Slice Properties Section */}
-                    {showSlices && (
-                        <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/20 shadow-lg shadow-white/5 flex flex-col">
-                             <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
-                                <span className="text-white">◆</span> Slice Control
-                                <InfoIcon text="Select a slice to edit its properties, type, and envelope. Drag graph handles for micro-control." className="ml-2" />
-                            </h3>
-                            {currentSlice && selectedSliceIndex !== null ? (
-                                <div className="space-y-3 flex-1 flex flex-col">
-                                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm font-bold text-hyper-cyan">Slice #{currentSlice.id}</span>
-                                            <div className="flex bg-deep-space/50 rounded border border-white/10 overflow-hidden ml-2">
-                                                <Tooltip text="Play Slice (Raw)">
-                                                    <button onClick={() => onPlaySlice(selectedSliceIndex)} className="px-2 py-1 hover:bg-white/10 transition-colors text-white border-r border-white/10">
-                                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                                                    </button>
-                                                </Tooltip>
-                                                <Tooltip text="Loop Slice">
-                                                     <button onClick={() => onLoopSlice(selectedSliceIndex)} className={`px-2 py-1 transition-colors ${sliceLoopState.index === selectedSliceIndex && sliceLoopState.isLooping ? 'bg-plasma-pink text-white animate-pulse' : 'hover:bg-white/10 text-white/50'}`}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                                    </button>
-                                                </Tooltip>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button onClick={() => onSliceUpdate(selectedSliceIndex, { isActive: !currentSlice.isActive })} className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border transition-colors ${currentSlice.isActive ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
-                                                {currentSlice.isActive ? 'ACTIVE' : 'MUTED'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <SliceWaveformEditor audioBuffer={audioBuffer} slice={currentSlice} onUpdate={(changes) => onSliceUpdate(selectedSliceIndex, changes)} />
+    // If a single section is explicitly requested (e.g., sidebar effects rack), render it directly
+    if (singleSection === 'effects') {
+        return (
+            <div className="bg-deep-space/50 p-2 sm:p-4 rounded-lg ring-1 ring-white/10 space-y-6">
+                <EffectSection title="Effects Rack" info="Chain of audio effects. Drag to reorder the signal flow. Top is first, bottom is last.">
+                    <div className="flex flex-col gap-2">
+                        {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
+                    </div>
+                </EffectSection>
+            </div>
+        );
+    }
 
-                                    <div className="grid grid-cols-5 gap-1">
-                                        {(['kick', 'snare', 'hihat', 'perc'] as SliceType[]).map((t) => (
-                                            <button key={t} onClick={() => updateSliceType(t)} className={`h-6 text-[10px] font-bold uppercase rounded border transition-all ${currentSlice.type === t ? 'bg-white text-deep-space border-white' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
-                                                {t === 'hihat' ? 'Hat' : t}
+    if (singleSection === 'slices') {
+        return (
+            <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/20 shadow-lg shadow-white/5">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+                    <span className="text-white">◆</span> Slice Control
+                </h3>
+                {currentSlice && selectedSliceIndex !== null ? (
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                            <span className="text-sm font-bold text-hyper-cyan">Slice #{currentSlice.id}</span>
+                            <button onClick={() => onSliceUpdate(selectedSliceIndex, { isActive: !currentSlice.isActive })} className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${currentSlice.isActive ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                                {currentSlice.isActive ? 'ACTIVE' : 'MUTED'}
+                            </button>
+                        </div>
+                        <SliceWaveformEditor audioBuffer={audioBuffer} slice={currentSlice} onUpdate={(changes) => onSliceUpdate(selectedSliceIndex, changes)} />
+                    </div>
+                ) : (
+                    <div className="py-8 text-center text-star-dust/40 italic text-sm">Select a slice in the waveform to edit</div>
+                )}
+            </div>
+        );
+    }
+
+    // Render Components for Sections
+    const renderPatternStudio = () => (
+        <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-plasma-pink/40 shadow-2xl shadow-plasma-pink/10 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-hyper-cyan via-plasma-pink to-purple-500"></div>
+
+            {/* Header with Mode Switch */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-plasma-pink to-purple-600 flex items-center justify-center text-white text-xl shadow-[0_0_20px_rgba(255,0,170,0.5)]">
+                        ⚡
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-black text-white uppercase tracking-wider">AI Pattern Studio</h3>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-plasma-pink/20 text-plasma-pink border border-plasma-pink/40 shadow-[0_0_10px_rgba(255,0,170,0.3)]">
+                                MAIN FEATURE
+                            </span>
+                        </div>
+                        <p className="text-xs text-star-dust/70">Compose intelligent drum sequences across Kick, Snare, Hi-Hat & Percussion slices</p>
+                    </div>
+                </div>
+
+                <div className="flex bg-[#0a0d14] rounded-xl p-1 border border-white/10 self-start sm:self-auto">
+                    <button
+                        onClick={() => setGenerationMode('ai')}
+                        className={`px-4 py-1.5 text-xs font-bold uppercase rounded-lg transition-all flex items-center gap-1.5 ${generationMode === 'ai' ? 'bg-plasma-pink text-white shadow-[0_0_12px_rgba(255,0,170,0.6)]' : 'text-star-dust/60 hover:text-white'}`}
+                    >
+                        <span>🤖</span> AI Prompt Mode
+                    </button>
+                    <button
+                        onClick={() => setGenerationMode('algorithmic')}
+                        className={`px-4 py-1.5 text-xs font-bold uppercase rounded-lg transition-all flex items-center gap-1.5 ${generationMode === 'algorithmic' ? 'bg-hyper-cyan text-deep-space font-black shadow-[0_0_12px_rgba(0,246,255,0.6)]' : 'text-star-dust/60 hover:text-white'}`}
+                    >
+                        <span>🎲</span> Algorithmic Slider
+                    </button>
+                </div>
+            </div>
+
+            {generationMode === 'ai' ? (
+                <div className="space-y-5">
+                    {/* Genre Quick Presets */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-[11px] font-bold text-star-dust/80 uppercase tracking-wider flex items-center gap-1.5">
+                                <span>🎵</span> Quick Genre Presets
+                            </label>
+                            <span className="text-[10px] text-star-dust/40">Click any preset to load style prompt & target BPM</span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1.5">
+                            {GENRE_STYLE_PRESETS.map((preset) => (
+                                <button
+                                    key={preset.id}
+                                    onClick={() => handleSelectGenrePreset(preset)}
+                                    className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center truncate ${
+                                        aiStyle === preset.id
+                                            ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_15px_rgba(255,0,170,0.3)] scale-[1.02]'
+                                            : 'bg-black/30 text-star-dust/70 border-white/10 hover:border-white/20 hover:text-white'
+                                    }`}
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Quick Modifier Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[10px] font-bold text-star-dust/50 uppercase mr-1">Add Flavor:</span>
+                        {PROMPT_SUGGESTION_CHIPS.map((chip) => (
+                            <button
+                                key={chip}
+                                onClick={() => handleAddPromptChip(chip)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-mono bg-white/5 hover:bg-white/15 text-star-dust/80 hover:text-white border border-white/10 transition-all active:scale-95"
+                            >
+                                {chip}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Main Settings Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        {/* Prompt & Generation Controls */}
+                        <div className="lg:col-span-8 space-y-4">
+                            <div className="flex flex-col gap-1.5">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-xs font-bold text-star-dust/80 uppercase">AI Pattern Prompt</label>
+                                    <span className="text-[10px] text-star-dust/50 font-mono">{aiDescription.length} chars</span>
+                                </div>
+                                <textarea
+                                    value={aiDescription}
+                                    onChange={(e) => setAiDescription(e.target.value)}
+                                    placeholder="Describe groove feel, kick syncopation, ghost snare placement, hi-hat speed..."
+                                    className="w-full h-24 bg-black/40 text-xs text-white rounded-xl border border-white/10 focus:border-plasma-pink outline-none p-3 resize-none font-mono leading-relaxed shadow-inner"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-star-dust/70 uppercase mb-1 block">AI Model</label>
+                                    <select
+                                        value={aiModel}
+                                        onChange={(e) => setAiModel(e.target.value)}
+                                        className="w-full h-9 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-hyper-cyan outline-none px-2.5 font-medium"
+                                    >
+                                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Default / Fast)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Advanced)</option>
+                                        <option value="openai-gpt4o">OpenAI GPT-4o</option>
+                                        <option value="openai-gpt4o-mini">OpenAI GPT-4o Mini</option>
+                                        <option value="openai-o3-mini">OpenAI o3-mini</option>
+                                        <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                                        <option value="deepseek-chat">DeepSeek V3</option>
+                                        <option value="deepseek-reasoner">DeepSeek R1</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-bold text-star-dust/70 uppercase mb-1 block">Target BPM</label>
+                                    <input
+                                        type="number"
+                                        value={aiBpm}
+                                        onChange={(e) => setAiBpm(e.target.value)}
+                                        placeholder="Current BPM"
+                                        min="60"
+                                        max="220"
+                                        className="w-full h-9 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-plasma-pink outline-none px-2.5 font-mono"
+                                    />
+                                </div>
+
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-[10px] font-bold text-star-dust/70 uppercase">Length / Bars</label>
+                                        <span className="text-[9px] text-plasma-pink font-mono font-bold">{aiBars} Bar{aiBars > 1 ? 's' : ''} ({aiStepCount} Steps)</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1 h-9">
+                                        {[
+                                            { bars: 0.5, steps: 8, label: '½' },
+                                            { bars: 1, steps: 16, label: '1 Bar' },
+                                            { bars: 2, steps: 32, label: '2 Bars' },
+                                            { bars: 4, steps: 64, label: '4 Bars' },
+                                        ].map((opt) => (
+                                            <button
+                                                key={opt.steps}
+                                                onClick={() => {
+                                                    setAiBars(opt.bars);
+                                                    setAiStepCount(opt.steps);
+                                                }}
+                                                className={`text-[11px] font-bold rounded-lg border transition-all ${
+                                                    aiStepCount === opt.steps
+                                                        ? 'bg-plasma-pink text-white border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.5)]'
+                                                        : 'bg-black/30 border-white/10 text-star-dust/60 hover:text-white'
+                                                }`}
+                                            >
+                                                {opt.label}
                                             </button>
                                         ))}
-                                        <button onClick={() => onSliceUpdate(selectedSliceIndex, { reverse: !currentSlice.reverse })} className={`h-6 text-[10px] font-bold uppercase rounded border transition-all ${currentSlice.reverse ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-transparent text-star-dust/50 border-white/10 hover:bg-white/5'}`}>
-                                            Rev
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Optional Custom API Key accordion or field */}
+                            <div>
+                                <label className="text-[10px] font-bold text-star-dust/60 uppercase mb-1 block">
+                                    Custom API Key <span className="text-[9px] font-normal text-star-dust/40">(Optional — Server Gemini key is preconfigured)</span>
+                                </label>
+                                <input
+                                    type="password"
+                                    value={aiApiKey}
+                                    onChange={(e) => setAiApiKey(e.target.value)}
+                                    placeholder={aiModel.startsWith('gemini') ? 'Using platform key (or enter custom key)' : 'Enter API key for selected model'}
+                                    className="w-full h-8 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-plasma-pink outline-none px-2.5 font-mono"
+                                />
+                            </div>
+
+                            {/* Action Button */}
+                            <div className="space-y-2">
+                                <button
+                                    onClick={async () => {
+                                        if (!generateAiPattern) {
+                                            try {
+                                                generateAiBeat(aiComplexity || 0.25, aiBpm ? Number(aiBpm) : undefined, aiStepCount, aiBars);
+                                                setAiFeedback({
+                                                    type: 'success',
+                                                    message: '🎲 Algorithmic Pattern Generated!',
+                                                    details: `Applied ${aiBars}-bar (${aiStepCount} steps) groove to sequencer`
+                                                });
+                                            } catch (err: any) {
+                                                setAiFeedback({ type: 'error', message: 'Generation failed', details: err?.message });
+                                            }
+                                            return;
+                                        }
+
+                                        setIsGenerating(true);
+                                        setGenerationStepText('Connecting to AI Model...');
+                                        setAiFeedback({
+                                            type: 'info',
+                                            message: '🤖 AI Model Composing...',
+                                            details: `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) pattern...`
+                                        });
+
+                                        try {
+                                            setGenerationStepText('Composing rhythms & ratchets...');
+                                            const result = await generateAiPattern(aiModel, aiInputType, aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle, aiBars);
+                                            const bpmText = result?.suggestedBpm ? ` @ ${result.suggestedBpm} BPM` : '';
+                                            const modelLabel = result?.modelUsed || aiModel;
+                                            if (result?.suggestedBpm) {
+                                                setAiBpm(String(result.suggestedBpm));
+                                            }
+                                            
+                                            setAiFeedback({
+                                                type: 'success',
+                                                message: '✨ AI Pattern Generated & Applied to Sequencer!',
+                                                details: `Loaded ${result?.bars || aiBars}-bar (${result?.stepCount || aiStepCount} steps) groove using ${modelLabel}${bpmText}`
+                                            });
+                                            setTimeout(() => {
+                                                setAiFeedback(prev => (prev?.type === 'success' ? null : prev));
+                                            }, 6000);
+                                        } catch (e: any) {
+                                            console.error('AI Generation Error:', e);
+                                            setAiFeedback({
+                                                type: 'error',
+                                                message: 'AI Generation Failed — Fallback Available',
+                                                details: e?.message || 'The AI service timed out or was unreachable.',
+                                                allowFallback: true
+                                            });
+                                        } finally {
+                                            setIsGenerating(false);
+                                            setGenerationStepText('');
+                                        }
+                                    }}
+                                    disabled={disabled || isGenerating}
+                                    className={`w-full py-4 bg-gradient-to-r from-plasma-pink via-purple-600 to-hyper-cyan text-white font-black text-sm tracking-widest uppercase rounded-xl transition-all shadow-[0_0_25px_rgba(255,0,170,0.35)] hover:shadow-[0_0_35px_rgba(255,0,170,0.55)] border border-white/20 flex items-center justify-center gap-2.5 ${
+                                        isGenerating ? 'opacity-80 cursor-wait animate-pulse' : 'hover:brightness-110 active:scale-[0.99]'
+                                    }`}
+                                >
+                                    {isGenerating ? (
+                                        <>
+                                            <span className="inline-block animate-spin text-lg">⏳</span>
+                                            <span>{generationStepText || 'AI MODEL IS COMPOSING PATTERN...'}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-base">✨</span>
+                                            <span>GENERATE AI BEAT PATTERN</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {/* Fallback Action Button when AI call fails */}
+                                {aiFeedback?.allowFallback && (
+                                    <button
+                                        onClick={() => {
+                                            try {
+                                                generateAiBeat(aiComplexity || 0.3);
+                                                setAiFeedback({
+                                                    type: 'success',
+                                                    message: '🎲 Instant Algorithmic Groove Applied!',
+                                                    details: 'Generated smart groove without remote network dependency.'
+                                                });
+                                                setTimeout(() => setAiFeedback(prev => (prev?.type === 'success' ? null : prev)), 5000);
+                                            } catch (err: any) {
+                                                setAiFeedback({ type: 'error', message: 'Fallback failed', details: err?.message });
+                                            }
+                                        }}
+                                        className="w-full py-2.5 bg-hyper-cyan/20 hover:bg-hyper-cyan/30 text-hyper-cyan border border-hyper-cyan/50 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(0,246,255,0.2)]"
+                                    >
+                                        <span>⚡</span>
+                                        <span>Apply Algorithmic Groove Instead (Instant)</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Feedback Banner */}
+                            {aiFeedback && (
+                                <div className={`p-3 rounded-xl border text-xs transition-all animate-fadeIn ${
+                                    aiFeedback.type === 'success' ? 'bg-green-500/15 border-green-500/50 text-green-300 shadow-[0_0_15px_rgba(34,197,94,0.2)]' :
+                                    aiFeedback.type === 'error' ? 'bg-red-500/15 border-red-500/50 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.2)]' :
+                                    'bg-plasma-pink/15 border-plasma-pink/50 text-plasma-pink shadow-[0_0_15px_rgba(255,0,170,0.2)]'
+                                }`}>
+                                    <div className="flex items-center justify-between font-bold">
+                                        <span className="flex items-center gap-1.5">
+                                            {aiFeedback.type === 'success' && '✅'}
+                                            {aiFeedback.type === 'error' && '⚠️'}
+                                            {aiFeedback.type === 'info' && '✨'}
+                                            {aiFeedback.message}
+                                        </span>
+                                        <button 
+                                            onClick={() => setAiFeedback(null)} 
+                                            className="text-white/50 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors"
+                                        >
+                                            ✕
                                         </button>
                                     </div>
-                                    
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Start <InfoIcon text="Fine-tune slice start point" className="w-3 h-3 text-[10px]" /></label>
-                                            <div className="flex gap-1">
-                                                 <button onClick={() => nudgeSliceStart(-0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
-                                                 <button onClick={() => nudgeSliceStart(0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Len <InfoIcon text="Fine-tune slice duration" className="w-3 h-3 text-[10px]" /></label>
-                                            <div className="flex gap-1">
-                                                 <button onClick={() => nudgeSliceDuration(-0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
-                                                 <button onClick={() => nudgeSliceDuration(0.01)} className="flex-1 h-6 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                                        <Slider label="Fade In" min={0} max={0.2} step={0.001} value={currentSlice.fadeIn ?? params.attack} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} disabled={disabled} unit="s" defaultValue={params.attack} precision={3} />
-                                        <Slider label="Fade Out" min={0} max={0.5} step={0.001} value={currentSlice.fadeOut ?? params.release} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} disabled={disabled} unit="s" defaultValue={params.release} precision={3} />
-                                    </div>
-                                     <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
-                                     <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
+                                    {aiFeedback.details && (
+                                        <p className="text-[11px] opacity-90 mt-1 pl-5 break-words font-mono">
+                                            {aiFeedback.details}
+                                        </p>
+                                    )}
                                 </div>
-                            ) : (
-                                <div className="flex-1 flex items-center justify-center text-star-dust/40 italic text-sm">Select a slice to edit</div>
                             )}
                         </div>
-                    )}
 
-                    {/* AI Beat Generator Section (Pro) */}
-                    {showPattern && (
-                        <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-hyper-cyan/50 shadow-lg shadow-hyper-cyan/10">
-                             <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
-                                <span className="text-hyper-cyan">⚡</span> Pattern Gen
-                                <InfoIcon text="Generate patterns using algorithmic or AI methods." className="ml-2" />
-                            </h3>
-                            <div className="space-y-6">
-                                {/* Generation Mode Toggle */}
-                                <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10">
-                                    <button
-                                        onClick={() => setGenerationMode('algorithmic')}
-                                        className={`flex-1 py-2 text-xs font-bold uppercase rounded transition-all ${generationMode === 'algorithmic' ? 'bg-hyper-cyan text-deep-space shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
-                                    >
-                                        Algorithmic
-                                    </button>
-                                    <button
-                                        onClick={() => setGenerationMode('ai')}
-                                        className={`flex-1 py-2 text-xs font-bold uppercase rounded transition-all ${generationMode === 'ai' ? 'bg-plasma-pink text-white shadow-sm' : 'text-star-dust/50 hover:text-white hover:bg-white/5'}`}
-                                    >
-                                        AI Generated
-                                    </button>
+                        {/* Glitch & Chaos Micro-Engine */}
+                        <div className="lg:col-span-4 bg-black/30 p-4 rounded-xl border border-white/10 flex flex-col justify-between space-y-3">
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1.5">
+                                        <span>🎲</span> Glitch Chaos Engine
+                                        <InfoIcon text="Live probability triggers for random micro-stutters, reverse playback, octave jumps, and formant modulation." className="w-3 h-3 text-[10px]" />
+                                    </h4>
+                                    <span className="text-xs font-mono font-bold text-plasma-pink">{Math.round((params.glitch?.chaos || 0) * 100)}%</span>
                                 </div>
+                                <p className="text-[10px] text-star-dust/60 mb-3">Live glitch variations applied during sequencer playback</p>
 
-                                {generationMode === 'algorithmic' ? (
-                                    <>
-                                        <div className="px-1">
-                                            <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
-                                                <span>Ordered</span>
-                                                <span className="text-hyper-cyan">Syncopation</span>
-                                                <span>Chaotic</span>
-                                            </div>
-                                            <Tooltip text="Complexity Level: Low creates structured beats, High creates random glitch patterns.">
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="1"
-                                                    step="0.01"
-                                                    value={aiComplexity}
-                                                    onChange={(e) => setAiComplexity(parseFloat(e.target.value))}
-                                                    style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
-                                                    className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all"
-                                                    onDoubleClick={() => setAiComplexity(0.25)}
-                                                />
-                                            </Tooltip>
-                                        </div>
+                                <Slider label="Chaos Amount" min={0} max={1} step={0.01} value={params.glitch?.chaos || 0} onChange={(v) => onParamChange('glitch', { ...params.glitch, chaos: v })} disabled={disabled} tooltip="Probability of random variations occurring on each step" defaultValue={0} />
 
-                                        <Tooltip text="Generate a new sequence based on the current entropy level">
-                                            <button
-                                                onClick={() => generateAiBeat(aiComplexity)}
-                                                disabled={disabled}
-                                                className="w-full py-4 bg-gradient-to-r from-hyper-cyan to-blue-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,246,255,0.3)] hover:shadow-[0_0_30px_rgba(0,246,255,0.5)] border border-white/20"
-                                            >
-                                                🎲 GENERATE PATTERN
-                                            </button>
-                                        </Tooltip>
-                                    </>
-                                ) : (
-                                    <>
-                                        {/* AI Options */}
-                                    <div className="space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">API Key</label>
-                                                <input
-                                                    type="password"
-                                                    value={aiApiKey}
-                                                    onChange={(e) => setAiApiKey(e.target.value)}
-                                                    placeholder="Enter API key"
-                                                    className="w-full h-8 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none px-2"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">BPM (optional)</label>
-                                                <input
-                                                    type="number"
-                                                    value={aiBpm}
-                                                    onChange={(e) => setAiBpm(e.target.value)}
-                                                    placeholder="Auto or specify"
-                                                    min="60"
-                                                    max="200"
-                                                    className="w-full h-8 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none px-2"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div>
-                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">AI Model</label>
-                                                <select
-                                                    value={aiModel}
-                                                    onChange={(e) => setAiModel(e.target.value)}
-                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
-                                                >
-                                                    <option value="openai-gpt4">GPT-4</option>
-                                                    <option value="openai-gpt3.5">GPT-3.5</option>
-                                                    <option value="claude">Claude</option>
-                                                    <option value="deepseek">DeepSeek</option>
-                                                    <option value="gemini">Gemini</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">Style Seed</label>
-                                                <select
-                                                    value={aiStyle}
-                                                    onChange={(e) => setAiStyle(e.target.value)}
-                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
-                                                >
-                                                    <option value="custom">Custom</option>
-                                                    <option value="techno">Techno</option>
-                                                    <option value="trap">Trap</option>
-                                                    <option value="house">House</option>
-                                                    <option value="dnb">D&B</option>
-                                                    <option value="hiphop">Hip Hop</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-star-dust/70 uppercase mb-1 block">Input</label>
-                                                <select
-                                                    value={aiInputType}
-                                                    onChange={(e) => setAiInputType(e.target.value as 'slider' | 'text')}
-                                                    className="w-full h-8 bg-nebula-blue text-[10px] text-white rounded border border-white/10 focus:border-hyper-cyan outline-none"
-                                                >
-                                                    <option value="slider">Slider</option>
-                                                    <option value="text">Text</option>
-                                                </select>
-                                            </div>
-                                        </div>
+                                <div className="grid grid-cols-2 gap-1.5 mt-3">
+                                    <Tooltip text="Allow Random Repeats (Ratchet rolls)">
+                                        <button onClick={() => onParamChange('glitch', { ...params.glitch, allowRatchet: !params.glitch.allowRatchet })} className={`py-1.5 text-[10px] font-bold uppercase rounded-lg border transition-all ${params.glitch?.allowRatchet ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.3)]' : 'border-white/10 text-star-dust/40'}`}>Ratchet</button>
+                                    </Tooltip>
+                                    <Tooltip text="Allow Random Reverse">
+                                        <button onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })} className={`py-1.5 text-[10px] font-bold uppercase rounded-lg border transition-all ${params.glitch?.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.3)]' : 'border-white/10 text-star-dust/40'}`}>Reverse</button>
+                                    </Tooltip>
+                                    <Tooltip text="Allow Random Octave Jumps (+/- 1200 cents)">
+                                        <button onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })} className={`py-1.5 text-[10px] font-bold uppercase rounded-lg border transition-all ${params.glitch?.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.3)]' : 'border-white/10 text-star-dust/40'}`}>Octave</button>
+                                    </Tooltip>
+                                    <Tooltip text="Allow Random Grain Size Modulation">
+                                        <button onClick={() => onParamChange('glitch', { ...params.glitch, allowFormant: !params.glitch.allowFormant })} className={`py-1.5 text-[10px] font-bold uppercase rounded-lg border transition-all ${params.glitch?.allowFormant ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_8px_rgba(255,0,170,0.3)]' : 'border-white/10 text-star-dust/40'}`}>Formant</button>
+                                    </Tooltip>
+                                </div>
+                            </div>
 
-                                            <div className="grid grid-cols-3 gap-2">
-                                                {[8, 16, 32].map((count) => (
-                                                    <button
-                                                        key={count}
-                                                        onClick={() => setAiStepCount(count as 8 | 16 | 32)}
-                                                        className={`py-2 text-xs font-bold uppercase rounded border transition-all ${aiStepCount === count ? 'bg-plasma-pink text-white border-plasma-pink' : 'border-white/10 text-star-dust/50 hover:bg-white/5'}`}
-                                                    >
-                                                        {count} Steps
-                                                    </button>
-                                                ))}
-                                            </div>
+                            <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                                <span className="text-[10px] text-star-dust/70 font-bold uppercase">Pitch Mode</span>
+                                <Tooltip text="Pitch Shift preserves grain duration; Tape mode modulates playback speed">
+                                    <button onClick={() => onParamChange('glitch', { ...params.glitch, pitchShift: !params.glitch.pitchShift })} className={`text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors border ${params.glitch?.pitchShift ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_8px_rgba(0,246,255,0.4)]' : 'bg-white/10 text-star-dust border-white/10'}`}>
+                                        {params.glitch?.pitchShift ? 'P.SHIFT (Fixed Len)' : 'TAPE (Var Len)'}
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                /* Algorithmic Mode */
+                <div className="space-y-6 max-w-xl mx-auto py-4">
+                    <div className="px-1">
+                        <div className="flex justify-between text-xs uppercase tracking-wider font-bold text-star-dust mb-2">
+                            <span>Minimal & Structured</span>
+                            <span className="text-hyper-cyan">Syncopated Groove</span>
+                            <span>Chaotic & Random</span>
+                        </div>
+                        <Tooltip text="Complexity Level: Low creates structured beats, High creates random glitch patterns.">
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={aiComplexity}
+                                onChange={(e) => setAiComplexity(parseFloat(e.target.value))}
+                                style={{ background: `linear-gradient(to right, #60a5fa 0%, #c084fc 50%, #f472b6 100%)` }}
+                                className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all"
+                                onDoubleClick={() => setAiComplexity(0.25)}
+                            />
+                        </Tooltip>
+                    </div>
 
-                                            {aiInputType === 'slider' ? (
-                                                <div className="px-1">
-                                                    <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-star-dust mb-1">
-                                                        <span>Simple</span>
-                                                        <span className="text-plasma-pink">Complex</span>
-                                                        <span>Chaotic</span>
-                                                    </div>
-                                                    <input
-                                                        type="range"
-                                                        min="0"
-                                                        max="1"
-                                                        step="0.01"
-                                                        value={aiComplexity}
-                                                        onChange={(e) => setAiComplexity(parseFloat(e.target.value))}
-                                                        className="w-full h-4 rounded-lg appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-plasma-pink [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-deep-space [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 transition-all"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <textarea
-                                                    value={aiDescription}
-                                                    onChange={(e) => setAiDescription(e.target.value)}
-                                                    placeholder="Describe the beat you want..."
-                                                    className="w-full h-20 bg-nebula-blue text-xs text-white rounded border border-white/10 focus:border-plasma-pink outline-none p-2 resize-none"
-                                                />
-                                            )}
+                    <button
+                        onClick={() => {
+                            try {
+                                generateAiBeat(aiComplexity);
+                                setAiFeedback({
+                                    type: 'success',
+                                    message: '🎲 Algorithmic Pattern Generated!',
+                                    details: `Created groove with ${Math.round(aiComplexity * 100)}% syncopation.`
+                                });
+                                setTimeout(() => setAiFeedback(prev => prev?.type === 'success' ? null : prev), 4000);
+                            } catch (err: any) {
+                                setAiFeedback({
+                                    type: 'error',
+                                    message: 'Pattern Generation Failed',
+                                    details: err.message
+                                });
+                            }
+                        }}
+                        disabled={disabled}
+                        className="w-full py-4 bg-gradient-to-r from-hyper-cyan to-blue-600 text-deep-space font-black text-sm tracking-widest uppercase rounded-xl hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,246,255,0.4)] border border-white/20"
+                    >
+                        🎲 GENERATE ALGORITHMIC GROOVE
+                    </button>
 
-                                            <Tooltip text="Generate pattern using AI based on your settings">
-                                                <button
-                                                    onClick={async () => {
-                                                        if (generateAiPattern) {
-                                                            setIsGenerating(true);
-                                                            try {
-                                                                await generateAiPattern(aiModel, aiInputType, aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle);
-                                                            } catch (e) {
-                                                                console.error('AI Generation Error:', e);
-                                                                alert('Failed to generate AI pattern: ' + (e as Error).message);
-                                                            } finally {
-                                                                setIsGenerating(false);
-                                                            }
-                                                        }
-                                                    }}
-                                                    disabled={disabled || isGenerating || !generateAiPattern}
-                                                    className="w-full py-4 bg-gradient-to-r from-plasma-pink to-purple-600 text-white font-black text-sm tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,0,170,0.3)] hover:shadow-[0_0_30px_rgba(255,0,170,0.5)] border border-white/20"
-                                                >
-                                                    {isGenerating ? '⏳ GENERATING...' : '🤖 GENERATE AI PATTERN'}
-                                                </button>
-                                            </Tooltip>
-                                        </div>
-                                    </>
+                    {aiFeedback && (
+                        <div className="p-3 rounded-xl border text-xs bg-hyper-cyan/10 border-hyper-cyan/40 text-hyper-cyan flex justify-between items-center">
+                            <span>{aiFeedback.message}</span>
+                            <button onClick={() => setAiFeedback(null)} className="text-white/40 hover:text-white text-xs">✕</button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+
+    const renderSliceControl = () => (
+        <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-white/20 shadow-lg shadow-white/5 flex flex-col space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span className="text-hyper-cyan">◆</span> Slice Control
+                    <InfoIcon text="Select a slice to edit its properties, type classification, micro-nudge offsets, and envelope fades." className="ml-1" />
+                </h3>
+                {currentSlice && selectedSliceIndex !== null && (
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => onSliceUpdate(selectedSliceIndex, { isActive: !currentSlice.isActive })} className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase border transition-colors ${currentSlice.isActive ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                            {currentSlice.isActive ? 'ACTIVE' : 'MUTED'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {currentSlice && selectedSliceIndex !== null ? (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-hyper-cyan">Slice #{currentSlice.id}</span>
+                            <div className="flex bg-deep-space/50 rounded-lg border border-white/10 overflow-hidden ml-2">
+                                <Tooltip text="Play Slice (Raw)">
+                                    <button onClick={() => onPlaySlice(selectedSliceIndex)} className="px-2.5 py-1 hover:bg-white/10 transition-colors text-white border-r border-white/10">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                    </button>
+                                </Tooltip>
+                                <Tooltip text="Loop Slice">
+                                    <button onClick={() => onLoopSlice(selectedSliceIndex)} className={`px-2.5 py-1 transition-colors ${sliceLoopState.index === selectedSliceIndex && sliceLoopState.isLooping ? 'bg-plasma-pink text-white animate-pulse' : 'hover:bg-white/10 text-white/50'}`}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        </div>
+                    </div>
+
+                    <SliceWaveformEditor audioBuffer={audioBuffer} slice={currentSlice} onUpdate={(changes) => onSliceUpdate(selectedSliceIndex, changes)} />
+
+                    <div className="grid grid-cols-5 gap-1.5">
+                        {(['kick', 'snare', 'hihat', 'perc'] as SliceType[]).map((t) => (
+                            <button key={t} onClick={() => updateSliceType(t)} className={`h-7 text-xs font-bold uppercase rounded-lg border transition-all ${currentSlice.type === t ? 'bg-white text-deep-space border-white shadow-sm' : 'bg-transparent text-star-dust/60 border-white/10 hover:bg-white/5'}`}>
+                                {t === 'hihat' ? 'Hat' : t}
+                            </button>
+                        ))}
+                        <button onClick={() => onSliceUpdate(selectedSliceIndex, { reverse: !currentSlice.reverse })} className={`h-7 text-xs font-bold uppercase rounded-lg border transition-all ${currentSlice.reverse ? 'bg-yellow-500 text-black border-yellow-500 font-black' : 'bg-transparent text-star-dust/60 border-white/10 hover:bg-white/5'}`}>
+                            Rev
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Start Offset <InfoIcon text="Fine-tune slice start point" className="w-3 h-3 text-[10px]" /></label>
+                            <div className="flex gap-1">
+                                <button onClick={() => nudgeSliceStart(-0.01)} className="flex-1 h-7 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
+                                <button onClick={() => nudgeSliceStart(0.01)} className="flex-1 h-7 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-star-dust/70 uppercase flex items-center gap-1">Duration <InfoIcon text="Fine-tune slice duration" className="w-3 h-3 text-[10px]" /></label>
+                            <div className="flex gap-1">
+                                <button onClick={() => nudgeSliceDuration(-0.01)} className="flex-1 h-7 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'<'}</button>
+                                <button onClick={() => nudgeSliceDuration(0.01)} className="flex-1 h-7 bg-nebula-blue hover:bg-white/20 rounded border border-white/10 text-white text-xs">{'>'}</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-white/10">
+                        <Slider label="Fade In" min={0} max={0.2} step={0.001} value={currentSlice.fadeIn ?? params.attack} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeIn: v })} disabled={disabled} unit="s" defaultValue={params.attack} precision={3} />
+                        <Slider label="Fade Out" min={0} max={0.5} step={0.001} value={currentSlice.fadeOut ?? params.release} onChange={(v) => onSliceUpdate(selectedSliceIndex, { fadeOut: v })} disabled={disabled} unit="s" defaultValue={params.release} precision={3} />
+                        <Slider label="Level" min={0} max={3.2} step={0.01} value={currentSlice.level ?? 1.0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { level: v })} disabled={disabled} unit="x" defaultValue={1.0} tooltip="Slice Gain (Max +10dB)" />
+                        <Slider label="Pitch" min={-24} max={24} step={1} value={currentSlice.pitch ?? 0} onChange={(v) => onSliceUpdate(selectedSliceIndex, { pitch: v })} disabled={disabled} unit="st" tooltip="Slice Pitch Shift (Semitones)" defaultValue={0} />
+                    </div>
+                </div>
+            ) : (
+                <div className="py-12 flex flex-col items-center justify-center text-star-dust/50 italic text-sm gap-2">
+                    <span className="text-2xl opacity-40">✂️</span>
+                    <span>Click on any slice in the waveform above to open its micro-controls</span>
+                </div>
+            )}
+        </div>
+    );
+
+    const renderEngineControls = () => (
+        <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-white/10 shadow-lg space-y-4">
+            <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                <span className="text-xl">⚙️</span>
+                <h3 className="text-base font-bold text-white">Engine & Granular Parameters</h3>
+                <InfoIcon text="Master Playback Rate, Swing Shuffle, and Granular Synthesis Engine Parameters" className="ml-1" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                <Slider 
+                    label="Grain Size" 
+                    min={0.005} 
+                    max={0.5} 
+                    step={0.001} 
+                    value={params.grainSize ?? 0.06} 
+                    onChange={(v) => onParamChange('grainSize', v)} 
+                    disabled={disabled} 
+                    unit="s" 
+                    log={true}
+                    tooltip="Duration of each audio grain (Logarithmic scale)" 
+                    defaultValue={0.06} 
+                    precision={3}
+                />
+                <Slider label="Overlap" min={0.01} max={0.5} step={0.001} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" log tooltip="Crossfade duration between grains" defaultValue={0.04} precision={3} />
+                <Slider label="Detune" min={-1200} max={1200} step={1} value={params.detune} onChange={(v) => onParamChange('detune', v)} disabled={disabled} unit="cnt" tooltip="Global Pitch Shift" defaultValue={0} />
+                <Slider label="Playback Rate" min={0.1} max={4} step={0.01} value={params.playbackRate} onChange={(v) => onParamChange('playbackRate', v)} disabled={disabled} unit="x" tooltip="Playback Speed" defaultValue={1.0} />
+                <Slider label="Swing / Shuffle" min={0} max={1} step={0.01} value={params.swing ?? 0} onChange={(v) => onParamChange('swing', v)} disabled={disabled} unit="%" tooltip="Shuffle feel (0 = Straight, 100 = Triplet)" defaultValue={0} precision={2} />
+                <Slider label="Attack" min={0.001} max={1.0} step={0.001} value={params.attack} onChange={(v) => onParamChange('attack', v)} disabled={disabled} unit="s" log tooltip="Grain envelope attack" defaultValue={0.005} precision={3} />
+                <Slider label="Release" min={0.001} max={2.0} step={0.001} value={params.release} onChange={(v) => onParamChange('release', v)} disabled={disabled} unit="s" log tooltip="Grain envelope release" defaultValue={0.1} precision={3} />
+                <Slider label="Sustain" min={0} max={2.0} step={0.01} value={params.sustain} onChange={(v) => onParamChange('sustain', v)} disabled={disabled} unit="s" tooltip="Grain sustain length" defaultValue={0.5} />
+            </div>
+        </div>
+    );
+
+    const renderEffectsRackUnit = () => (
+        <div className="bg-deep-space/50 p-4 rounded-2xl ring-1 ring-white/10 space-y-4">
+            <EffectSection title="Effects Rack" info="Chain of audio effects. Drag to reorder the signal flow. Top is first, bottom is last.">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
+                </div>
+            </EffectSection>
+        </div>
+    );
+
+    const renderMacrosUnit = () => (
+        <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-white/10 shadow-lg space-y-4">
+            <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                <span className="text-xl">🎚️</span>
+                <h3 className="text-base font-bold text-white">Sound Macros</h3>
+                <InfoIcon text="High-level macroscopic controls for instant sonic character shaping" className="ml-1" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Slider label="Texture" min={0} max={1} step={0.01} value={1 - ((params.grainSize - 0.02) / 0.48)} onChange={updateTextureMacro} disabled={disabled} tooltip="Granular density & time stretch texture" defaultValue={0.5} />
+                <Slider label="Space" min={0} max={1} step={0.01} value={params.reverb?.wet ?? 0} onChange={updateReverbMacro} disabled={disabled} tooltip="Master reverb ambience" defaultValue={0.3} />
+                <Slider label="Echo" min={0} max={1} step={0.01} value={params.delay?.wet ?? 0} onChange={updateDelayMacro} disabled={disabled} tooltip="Master delay echo" defaultValue={0.2} />
+                <Slider label="Grit" min={0} max={1} step={0.01} value={params.distortion?.amount ?? 0} onChange={updateDirtMacro} disabled={disabled} tooltip="Analog saturation & distortion drive" defaultValue={0} />
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="space-y-4 animate-in fade-in duration-500">
+            {/* 1. MAIN FEATURE: AI PATTERN STUDIO (ALWAYS VISIBLE & PROMINENT) */}
+            {renderPatternStudio()}
+
+            {/* 2. SECONDARY CONTROLS DRAWER BAR (COLLAPSED BY DEFAULT) */}
+            <div className="bg-[#0c0f16]/90 p-2 rounded-2xl border border-white/10 shadow-xl backdrop-blur-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-star-dust/50 pl-2 hidden sm:inline">
+                            Studio Drawers:
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {/* Effects Rack Drawer Toggle */}
+                            <button
+                                onClick={() => setExpandedDrawer(expandedDrawer === 'effects' ? null : 'effects')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                    expandedDrawer === 'effects'
+                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
+                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
+                                }`}
+                            >
+                                <span>🎛️</span>
+                                <span>Effects Rack</span>
+                                {activeEffectCount > 0 && (
+                                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold ${
+                                        expandedDrawer === 'effects' ? 'bg-deep-space text-hyper-cyan' : 'bg-hyper-cyan/20 text-hyper-cyan'
+                                    }`}>
+                                        {activeEffectCount}
+                                    </span>
                                 )}
+                            </button>
 
-                                 <div className="pt-3 border-t border-white/10">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h4 className="text-xs font-bold text-plasma-pink uppercase flex items-center gap-1">Glitch Chaos <InfoIcon text="Global probability settings for random glitch effects (separate from pattern generation)." className="w-3 h-3 text-[10px]" /></h4>
-                                        <span className="text-[10px] text-star-dust/50">{Math.round((params.glitch?.chaos || 0) * 100)}%</span>
-                                    </div>
-                                    <Slider label="" min={0} max={1} step={0.01} value={params.glitch?.chaos || 0} onChange={(v) => onParamChange('glitch', { ...params.glitch, chaos: v })} disabled={disabled} tooltip="Probability of random variations occurring on each step" defaultValue={0} />
-                                    <div className="grid grid-cols-2 gap-2 mt-2">
-                                        <Tooltip text="Allow Random Repeats (Ratchet)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowRatchet: !params.glitch.allowRatchet })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowRatchet ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Ratchet</button>
-                                        </Tooltip>
-                                        <Tooltip text="Allow Random Reverse">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowReverse: !params.glitch.allowReverse })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowReverse ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Rev</button>
-                                        </Tooltip>
-                                        <Tooltip text="Allow Random Octave Jumps (+/- 1200 cents)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowOctaveJump: !params.glitch.allowOctaveJump })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowOctaveJump ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Octave</button>
-                                        </Tooltip>
-                                        <Tooltip text="Allow Random Grain Size Modulation (Robotic/Formant Textures)">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, allowFormant: !params.glitch.allowFormant })} className={`py-1 text-[10px] font-bold uppercase rounded border ${params.glitch.allowFormant ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink' : 'border-white/10 text-star-dust/40'}`}>Formant</button>
-                                        </Tooltip>
-                                    </div>
-                                    <div className="mt-2 flex items-center justify-between bg-deep-space/40 rounded px-2 py-1 border border-white/5">
-                                        <span className="text-[10px] text-star-dust/60 font-bold uppercase">Pitch Mode</span>
-                                        <Tooltip text="Pitch Shift: Random pitch changes preserve length (Detune). Tape Speed: Pitch changes affect speed/length (Rate).">
-                                            <button onClick={() => onParamChange('glitch', { ...params.glitch, pitchShift: !params.glitch.pitchShift })} className={`text-[10px] font-bold px-2 py-0.5 rounded transition-colors ${params.glitch.pitchShift ? 'bg-hyper-cyan text-deep-space' : 'bg-white/10 text-star-dust'}`}>
-                                                {params.glitch.pitchShift ? 'P.SHIFT (Fixed Len)' : 'TAPE (Var Len)'}
-                                            </button>
-                                        </Tooltip>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                            {/* Slice Control Drawer Toggle */}
+                            <button
+                                onClick={() => setExpandedDrawer(expandedDrawer === 'slices' ? null : 'slices')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                    expandedDrawer === 'slices'
+                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
+                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
+                                }`}
+                            >
+                                <span>✂️</span>
+                                <span>Slice Control</span>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                                    expandedDrawer === 'slices' ? 'bg-deep-space text-hyper-cyan' : 'bg-black/40 text-star-dust/80'
+                                }`}>
+                                    {selectedSliceIndex !== null ? `#${slices[selectedSliceIndex]?.id || selectedSliceIndex + 1}` : `${slices.length}`}
+                                </span>
+                            </button>
 
-                    {/* BPM & Engine & Global Controls */}
-                    {showEngine && (
-                        <div className="bg-deep-space/80 p-4 rounded-lg ring-1 ring-white/10 shadow-lg space-y-4">
-                             <div className="flex items-center gap-2 border-b border-white/10 pb-2 mb-2">
-                                <span className="text-xl">⚙️</span>
-                                <h3 className="text-lg font-bold text-white">Engine & Global</h3>
-                                <InfoIcon text="Master Tempo and Granular Synthesis Engine Parameters" className="ml-2" />
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-1 gap-x-4 gap-y-6">
-                                <Slider 
-                                    label="Grain Size" 
-                                    min={0.005} 
-                                    max={0.5} 
-                                    step={0.001} 
-                                    value={params.grainSize ?? 0.06} 
-                                    onChange={(v) => onParamChange('grainSize', v)} 
-                                    disabled={disabled} 
-                                    unit="s" 
-                                    log={true}
-                                    tooltip="Duration of each audio grain (Logarithmic scale)" 
-                                    defaultValue={0.06} 
-                                    precision={3}
-                                />
-                                
-                                <Slider label="Overlap" min={0.01} max={0.5} step={0.001} value={params.overlap} onChange={(v) => onParamChange('overlap', v)} disabled={disabled} unit="s" log tooltip="Crossfade duration" defaultValue={0.04} precision={3} />
-                                <Slider label="Detune" min={-1200} max={1200} step={1} value={params.detune} onChange={(v) => onParamChange('detune', v)} disabled={disabled} unit="cnt" tooltip="Pitch shift" defaultValue={0} />
-                                <Slider label="Rate" min={0.1} max={4} step={0.01} value={params.playbackRate} onChange={(v) => onParamChange('playbackRate', v)} disabled={disabled} unit="x" tooltip="Playback Speed" defaultValue={1.0} />
-                                <Slider label="Swing" min={0} max={1} step={0.01} value={params.swing ?? 0} onChange={(v) => onParamChange('swing', v)} disabled={disabled} unit="%" tooltip="Shuffle feel (0 = Straight, 100 = Triplet)" defaultValue={0} precision={2} />
-                                <Slider label="Attack" min={0.001} max={1.0} step={0.001} value={params.attack} onChange={(v) => onParamChange('attack', v)} disabled={disabled} unit="s" log tooltip="Grain envelope attack" defaultValue={0.005} precision={3} />
-                                <Slider label="Release" min={0.001} max={2.0} step={0.001} value={params.release} onChange={(v) => onParamChange('release', v)} disabled={disabled} unit="s" log tooltip="Grain envelope release" defaultValue={0.1} precision={3} />
-                                <Slider label="Sustain" min={0} max={2.0} step={0.01} value={params.sustain} onChange={(v) => onParamChange('sustain', v)} disabled={disabled} unit="s" tooltip="Grain sustain length" defaultValue={0.5} />
-                            </div>
+                            {/* Engine & Granular Drawer Toggle */}
+                            <button
+                                onClick={() => setExpandedDrawer(expandedDrawer === 'engine' ? null : 'engine')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                    expandedDrawer === 'engine'
+                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
+                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
+                                }`}
+                            >
+                                <span>⚙️</span>
+                                <span>Engine & Global</span>
+                            </button>
+
+                            {/* Sound Macros Drawer Toggle */}
+                            <button
+                                onClick={() => setExpandedDrawer(expandedDrawer === 'macros' ? null : 'macros')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                    expandedDrawer === 'macros'
+                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
+                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
+                                }`}
+                            >
+                                <span>🎚️</span>
+                                <span>Macros</span>
+                            </button>
                         </div>
+                    </div>
+
+                    {/* Status & Close Trigger */}
+                    {expandedDrawer && (
+                        <button
+                            onClick={() => setExpandedDrawer(null)}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-star-dust/60 hover:text-white hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-1 self-end sm:self-auto"
+                        >
+                            <span>✕</span>
+                            <span>Collapse Drawer</span>
+                        </button>
                     )}
                 </div>
-            )}
 
-            {/* Effects Rack */}
-            {showEffects && (
-                <div className="bg-deep-space/50 p-2 sm:p-4 rounded-lg ring-1 ring-white/10 space-y-6">
-                    <EffectSection title="Effects Rack" info="Chain of audio effects. Drag to reorder the signal flow. Top is first, bottom is last.">
-                         {/* Vertical Stack with Reorder Support */}
-                         <div className="flex flex-col gap-2">
-                             {(params.order || ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']).map((id) => renderEffect(id))}
-                         </div>
-                    </EffectSection>
-                </div>
-            )}
+                {/* EXPANDED DRAWER CONTENT (Rendered only when user expands a tab) */}
+                {expandedDrawer && (
+                    <div className="mt-3 pt-3 border-t border-white/10 animate-in fade-in slide-in-from-top-2 duration-300">
+                        {expandedDrawer === 'effects' && renderEffectsRackUnit()}
+                        {expandedDrawer === 'slices' && renderSliceControl()}
+                        {expandedDrawer === 'engine' && renderEngineControls()}
+                        {expandedDrawer === 'macros' && renderMacrosUnit()}
+                    </div>
+                )}
+            </div>
         </div>
     );
 });

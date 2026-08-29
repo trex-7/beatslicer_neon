@@ -295,6 +295,13 @@ export const renameCloudItem = async (
     }
 };
 
+export interface StorageObjectItem {
+    key: string;
+    size: number;
+    lastModified?: string;
+    url: string;
+}
+
 // --- Deletion & Helpers ---
 
 export const deleteCloudPreset = async (id: string): Promise<DeleteResult> => {
@@ -332,6 +339,67 @@ export const deleteCloudSample = async (id: string, url?: string): Promise<Delet
         return { success: true };
     } catch (e: any) {
         console.error("Error deleting sample:", e);
+        return { success: false, error: e.message || "Unknown error" };
+    }
+};
+
+export const deleteCloudKit = async (id: string, deleteFiles: boolean = true): Promise<DeleteResult> => {
+    try {
+        const response = await fetch(`/api/kits/${id}?deleteFiles=${deleteFiles}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ deleteFiles }),
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            return { success: false, error: errData.error || `HTTP ${response.status}` };
+        }
+
+        return { success: true };
+    } catch (e: any) {
+        console.error("Error deleting kit:", e);
+        return { success: false, error: e.message || "Unknown error" };
+    }
+};
+
+export const listStorageObjects = async (prefix: string = ''): Promise<{ success: boolean; objects: StorageObjectItem[]; error?: string }> => {
+    try {
+        const response = await fetch(`/api/storage/objects?prefix=${encodeURIComponent(prefix)}`, {
+            method: 'GET',
+            headers: getAuthHeaders(),
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            return { success: false, objects: [], error: errData.error || `HTTP ${response.status}` };
+        }
+
+        const data = await response.json();
+        return { success: true, objects: data.objects || [] };
+    } catch (e: any) {
+        console.error("Error listing storage objects:", e);
+        return { success: false, objects: [], error: e.message || "Failed to list objects" };
+    }
+};
+
+export const deleteStorageObject = async (keyOrUrl: string): Promise<DeleteResult> => {
+    try {
+        const response = await fetch('/api/storage/delete-object', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ key: keyOrUrl, url: keyOrUrl }),
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            return { success: false, error: errData.error || `HTTP ${response.status}` };
+        }
+
+        const data = await response.json();
+        return { success: data.success || true };
+    } catch (e: any) {
+        console.error("Error deleting storage object:", e);
         return { success: false, error: e.message || "Unknown error" };
     }
 };

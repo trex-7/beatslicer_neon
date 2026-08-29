@@ -8,7 +8,7 @@ interface SequencerProps {
     sequencer: SequencerState;
     onStepChange: (index: number, changes: Partial<SequencerStep>) => void;
     onModeChange: (mode: SequencerMode) => void;
-    onStepCountChange: (count: 8 | 16 | 32) => void;
+    onStepCountChange: (count: 8 | 16 | 32 | 64) => void;
     onRandomize: () => void;
     onEditModeToggle: (mode: 'trigger' | 'ratchet') => void;
     onPlaybackBehaviorChange?: (behavior: 'reset' | 'continue') => void;
@@ -154,18 +154,19 @@ const Sequencer: React.FC<SequencerProps> = ({
                 <div className="flex gap-2 items-center flex-wrap w-full sm:w-auto justify-end">
                      {isProMode && (
                          <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10 scale-90 sm:scale-100 items-center">
-                            {[8, 16, 32].map((count) => (
+                            {[8, 16, 32, 64].map((count) => (
                                 <button
                                     key={count}
-                                    onClick={() => onStepCountChange(count as 8|16|32)}
+                                    onClick={() => onStepCountChange(count as 8 | 16 | 32 | 64)}
                                     disabled={disabled}
                                     className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
                                         sequencer.stepCount === count 
                                         ? 'bg-nebula-blue text-white shadow-sm' 
                                         : 'text-star-dust/50 hover:text-white hover:bg-white/5'
                                     }`}
+                                    title={`${count} Steps (${count / 16} Bar${count !== 16 ? 's' : ''})`}
                                 >
-                                    {count}
+                                    {count === 64 ? '64 (4B)' : count === 32 ? '32 (2B)' : count === 16 ? '16 (1B)' : '8 (½B)'}
                                 </button>
                             ))}
                         </div>

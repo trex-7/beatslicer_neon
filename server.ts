@@ -9,10 +9,15 @@ import {
   isS3Configured,
   uploadBufferToS3,
   deleteFromS3,
+  deleteStorageAsset,
+  listS3Objects,
+  extractS3KeyFromUrl,
   generatePresignedUploadUrl,
   getS3Config,
   syncLocalAudioToBucket,
 } from './src/lib/s3.ts';
+import { migrateSupabaseToNeonStorage } from './src/lib/supabase-migrator.ts';
+import { generatePatternWithAI } from './src/lib/ai-pattern-service.ts';
 import {
   fetchFullLibrary,
   createPreset,
@@ -21,11 +26,25 @@ import {
   createSample,
   deleteSample,
   createKit,
+  deleteKit,
   linkSamplesToKit,
   renameItem,
   createFeedback,
   getAllFeedback,
 } from './src/db/queries.ts';
+
+export const ADMIN_EMAILS = [
+  'sandromancino.sm@gmail.com',
+  'sandromancino.SM@gmail.com',
+  (process.env.ADMIN_EMAIL || '').toLowerCase().trim(),
+  (process.env.ADMIN_EMAILS || '').toLowerCase().trim(),
+].filter(Boolean);
+
+export function isUserAdmin(user?: { email?: string; uid?: string } | null): boolean {
+  if (!user || !user.email) return false;
+  const email = user.email.toLowerCase().trim();
+  return ADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase().trim() === email);
+}
 
 async function startServer() {
   const app = express();
@@ -353,8 +372,9 @@ async function startServer() {
   app.delete('/api/presets/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user!.uid;
+      const isAdmin = isUserAdmin(req.user);
       const id = String(req.params.id);
-      const deleted = await deletePreset(id, userId);
+      const deleted = await deletePreset(id, userId, isAdmin);
 
       if (!deleted) {
         return res.status(404).json({ error: 'Preset not found or permission denied' });
@@ -378,6 +398,44 @@ async function startServer() {
       customEndpoint: Boolean(config.endpoint),
       storageType: s3Ready ? 's3' : 'local_disk',
     });
+  });
+
+  // List Objects directly from S3 / Neon storage bucket
+  app.get('/api/storage/objects', optionalAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const prefix = String(req.query.prefix || '');
+      const limit = Number(req.query.limit) || 200;
+      const objects = await listS3Objects(prefix, limit);
+      res.json({ success: true, count: objects.length, objects });
+    } catch (error: any) {
+      console.error('List storage objects error:', error);
+      res.status(500).json({ error: error.message || 'Failed to list storage objects', objects: [] });
+    }
+  });
+
+  // Delete Object directly from storage (S3 / local disk)
+  app.post('/api/storage/delete-object', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const isAdmin = isUserAdmin(req.user);
+      const { key, url } = req.body || {};
+      const target = key || url;
+
+      if (!target) {
+        return res.status(400).json({ error: 'Object key or url is required' });
+      }
+
+      console.log(`[Storage Admin] Delete requested by ${req.user?.email || req.user?.uid} (admin: ${isAdmin}) for: ${target}`);
+      const cleanupResult = await deleteStorageAsset(target);
+
+      res.json({
+        success: cleanupResult.s3Deleted || cleanupResult.diskDeleted,
+        target,
+        ...cleanupResult,
+      });
+    } catch (error: any) {
+      console.error('Delete storage object error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete storage object' });
+    }
   });
 
   // Presigned URL for direct S3 upload
@@ -481,43 +539,50 @@ async function startServer() {
   app.delete('/api/samples/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user!.uid;
+      const isAdmin = isUserAdmin(req.user);
       const id = String(req.params.id);
-      const deleted = await deleteSample(id, userId);
+      const deleted = await deleteSample(id, userId, isAdmin);
 
       if (!deleted) {
         return res.status(404).json({ error: 'Sample not found or permission denied' });
       }
 
-      const sampleUrl = req.body?.url;
-      // Cleanup S3 object if it was stored in S3
-      if (sampleUrl && (sampleUrl.includes('amazonaws.com') || sampleUrl.includes('/samples/'))) {
-        try {
-          const urlObj = new URL(sampleUrl.startsWith('http') ? sampleUrl : `http://dummy.com${sampleUrl}`);
-          const key = urlObj.pathname.replace(/^\/+/, '').split('/').slice(-2).join('/');
-          if (key && key.startsWith('samples/')) {
-            await deleteFromS3(key);
-          }
-        } catch (e) {
-          console.warn('Could not delete S3 object:', e);
-        }
+      const sampleUrl = req.body?.url || deleted.url;
+      if (sampleUrl) {
+        await deleteStorageAsset(sampleUrl);
       }
 
-      // Cleanup local file if stored locally
-      if (sampleUrl && sampleUrl.startsWith('/uploads/')) {
-        const filePath = path.join(process.cwd(), 'public', sampleUrl);
-        if (fs.existsSync(filePath)) {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (e) {
-            console.warn('Could not remove file on disk:', e);
-          }
-        }
-      }
-
-      res.json({ success: true });
+      res.json({ success: true, deletedSample: deleted });
     } catch (error: any) {
       console.error('Delete sample error:', error);
       res.status(500).json({ error: error.message || 'Failed to delete sample' });
+    }
+  });
+
+  // Delete Kit
+  app.delete('/api/kits/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const isAdmin = isUserAdmin(req.user);
+      const id = String(req.params.id);
+      const deleteFiles = req.query.deleteFiles === 'true' || req.body?.deleteFiles === true;
+
+      const result = await deleteKit(id, userId, isAdmin, deleteFiles);
+      if (!result) {
+        return res.status(404).json({ error: 'Kit not found or permission denied' });
+      }
+
+      // Cleanup associated sample files if requested
+      if (deleteFiles && result.deletedSampleUrls && result.deletedSampleUrls.length > 0) {
+        for (const sampleUrl of result.deletedSampleUrls) {
+          await deleteStorageAsset(sampleUrl);
+        }
+      }
+
+      res.json({ success: true, deletedKit: result.kit });
+    } catch (error: any) {
+      console.error('Delete kit error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete kit' });
     }
   });
 
@@ -670,29 +735,107 @@ async function startServer() {
     }
   });
 
-  // Seed default factory samples & sync with Neon Storage if configured
-  try {
-    if (isS3Configured()) {
-      console.log('[Storage] S3 / Neon storage is detected. Synchronizing factory assets to bucket...');
-      const syncResult = await syncLocalAudioToBucket();
-      console.log(`[Storage] Synced ${syncResult.synced.length} audio files to Neon Object Storage bucket.`);
-    }
+  // Migrate files directly from Supabase Storage to Neon S3 Object Storage bucket
+  app.post('/api/storage/migrate-from-supabase', async (req: Request, res: Response) => {
+    try {
+      const {
+        supabaseUrl,
+        supabaseServiceKey,
+        sourceBucket,
+        destinationPrefix,
+        updateDatabaseUrls,
+      } = req.body || {};
 
-    const existingSamples = await fetchFullLibrary();
-    if (existingSamples.factorySamples.length === 0) {
-      const factoryAudio = [
-        { id: 'synth_block_a_hi', title: 'Synth Block A (Hi)', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
-        { id: 'synth_block_a_lo', title: 'Synth Block A (Lo)', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
-        { id: 'noise_16_16', title: 'Noise 16/16', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
-      ];
-      for (const fa of factoryAudio) {
-        await createSample(fa);
+      console.log('[Storage Migration] Initiating Supabase to Neon migration...');
+      const result = await migrateSupabaseToNeonStorage({
+        supabaseUrl,
+        supabaseServiceKey,
+        sourceBucket,
+        destinationPrefix,
+        updateDatabaseUrls: updateDatabaseUrls !== false,
+      });
+
+      // Ensure any newly migrated files are reflected in the samples table
+      for (const item of result.results) {
+        if (item.status === 'migrated' && item.neonUrl) {
+          try {
+            const sampleName = item.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+            await createSample({
+              title: sampleName,
+              url: item.neonUrl,
+              isFactory: false,
+              isPublic: true,
+            });
+          } catch (dbErr) {
+            // ignore duplicate insert error
+          }
+        }
       }
-      console.log('Seeded factory samples into database');
+
+      res.json({
+        success: true,
+        message: `Successfully migrated ${result.migratedCount} files from Supabase to Neon Object Storage bucket "${result.bucket}".`,
+        result,
+      });
+    } catch (err: any) {
+      console.error('Supabase storage migration error:', err);
+      res.status(500).json({
+        success: false,
+        error: err.message || 'Supabase migration failed',
+      });
     }
-  } catch (seedErr) {
-    console.warn('Initial factory seed check notice:', seedErr);
-  }
+  });
+
+  // AI Pattern Generation Route (supports Gemini 3.7 Flash, Gemini 2.5 Flash, Gemini 3.1 Pro, GPT-4o, Claude, DeepSeek)
+  app.post('/api/ai/generate-pattern', async (req: Request, res: Response) => {
+    try {
+      const {
+        model,
+        stepCount,
+        bars,
+        slicesCount,
+        sliceCategories,
+        style,
+        description,
+        complexity,
+        bpm,
+        apiKey,
+      } = req.body || {};
+
+      const resolvedBars = bars ? Number(bars) : (stepCount ? Number(stepCount) / 16 : 1);
+      const resolvedSteps = Math.max(4, Math.min(64, Math.round(resolvedBars * 16)));
+
+      console.log(`[AI Pattern] Generating pattern with model: "${model || 'gemini-3.7-flash'}", bars: ${resolvedBars}, steps: ${resolvedSteps}, style: "${style || 'custom'}"`);
+
+      const result = await generatePatternWithAI({
+        model,
+        stepCount: resolvedSteps,
+        bars: resolvedBars,
+        slicesCount: Number(slicesCount) || 8,
+        sliceCategories,
+        style,
+        description,
+        complexity: typeof complexity === 'number' ? complexity : 0.5,
+        bpm,
+        apiKey,
+      });
+
+      res.json({
+        success: true,
+        pattern: result.pattern,
+        suggestedBpm: result.suggestedBpm,
+        modelUsed: result.modelUsed,
+        bars: result.bars || resolvedBars,
+        stepCount: result.stepCount || resolvedSteps,
+      });
+    } catch (err: any) {
+      console.error('[AI Pattern Error]:', err.message);
+      res.status(500).json({
+        success: false,
+        error: err.message || 'AI pattern generation failed',
+      });
+    }
+  });
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== 'production') {
@@ -711,6 +854,33 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Beat Slicer Server running on http://0.0.0.0:${PORT}`);
+
+    // Asynchronously perform background seed and Neon storage sync without blocking startup
+    (async () => {
+      try {
+        if (isS3Configured()) {
+          console.log('[Storage] Neon storage is configured. Running background sync...');
+          syncLocalAudioToBucket()
+            .then((res) => console.log(`[Storage] Synced ${res.synced.length} files to bucket.`))
+            .catch((e) => console.warn('[Storage] Sync notice:', e.message));
+        }
+
+        const existingSamples = await fetchFullLibrary();
+        if (existingSamples.factorySamples.length === 0) {
+          const factoryAudio = [
+            { id: 'synth_block_a_hi', title: 'Synth Block A (Hi)', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
+            { id: 'synth_block_a_lo', title: 'Synth Block A (Lo)', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
+            { id: 'noise_16_16', title: 'Noise 16/16', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
+          ];
+          for (const fa of factoryAudio) {
+            await createSample(fa);
+          }
+          console.log('Seeded factory samples into database');
+        }
+      } catch (seedErr) {
+        console.warn('Background seed/sync notice:', seedErr);
+      }
+    })();
   });
 }
 

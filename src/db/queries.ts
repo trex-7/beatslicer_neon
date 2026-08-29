@@ -232,11 +232,12 @@ export async function updatePreset(
   }
 }
 
-export async function deletePreset(id: string, userId: string) {
+export async function deletePreset(id: string, userId: string, isAdmin: boolean = false) {
   try {
+    const condition = isAdmin ? eq(presets.id, id) : and(eq(presets.id, id), eq(presets.userId, userId));
     const result = await db
       .delete(presets)
-      .where(and(eq(presets.id, id), eq(presets.userId, userId)))
+      .where(condition)
       .returning();
     return result.length > 0;
   } catch (error) {
@@ -275,16 +276,72 @@ export async function createSample(data: {
   }
 }
 
-export async function deleteSample(id: string, userId: string) {
+export async function deleteSample(id: string, userId: string, isAdmin: boolean = false) {
   try {
+    const condition = isAdmin ? eq(samples.id, id) : and(eq(samples.id, id), eq(samples.userId, userId));
+    
+    // Fetch the sample first so we can return its URL for storage cleanup
+    const found = await db.select().from(samples).where(condition).limit(1);
+    if (!found || found.length === 0) {
+      return null;
+    }
+
     const result = await db
       .delete(samples)
-      .where(and(eq(samples.id, id), eq(samples.userId, userId)))
+      .where(condition)
       .returning();
-    return result.length > 0;
+
+    return result.length > 0 ? found[0] : null;
   } catch (error) {
     console.error('Database query failed in deleteSample:', error);
     throw new Error('Failed to delete sample from database', { cause: error });
+  }
+}
+
+export async function deleteKit(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = false) {
+  try {
+    const condition = isAdmin ? eq(kits.id, id) : and(eq(kits.id, id), eq(kits.userId, userId));
+    const foundKits = await db.select().from(kits).where(condition).limit(1);
+    if (!foundKits || foundKits.length === 0) {
+      return null;
+    }
+
+    const targetKit = foundKits[0];
+    const deletedSampleUrls: string[] = [];
+
+    // Find linked samples
+    const linked = await db
+      .select({
+        sampleId: kitSamples.sampleId,
+        url: samples.url,
+      })
+      .from(kitSamples)
+      .leftJoin(samples, eq(kitSamples.sampleId, samples.id))
+      .where(eq(kitSamples.kitId, id));
+
+    const sampleIds = linked.map((l) => l.sampleId).filter(Boolean);
+    linked.forEach((l) => {
+      if (l.url) deletedSampleUrls.push(l.url);
+    });
+
+    // 1. Remove kit_samples links
+    await db.delete(kitSamples).where(eq(kitSamples.kitId, id));
+
+    // 2. If deleteSamples is requested and there are linked samples
+    if (deleteSamples && sampleIds.length > 0) {
+      await db.delete(samples).where(inArray(samples.id, sampleIds));
+    }
+
+    // 3. Remove kit from kits table
+    const result = await db.delete(kits).where(eq(kits.id, id)).returning();
+
+    return {
+      kit: result[0] || targetKit,
+      deletedSampleUrls,
+    };
+  } catch (error) {
+    console.error('Database query failed in deleteKit:', error);
+    throw new Error('Failed to delete kit from database', { cause: error });
   }
 }
 

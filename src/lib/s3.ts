@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'fs';
@@ -11,41 +12,46 @@ import path from 'path';
 // S3 / Neon Object Storage configuration supporting Neon Storage, AWS S3, Cloudflare R2, MinIO, Wasabi
 let s3ClientInstance: S3Client | null = null;
 
+function cleanEnv(val?: string): string {
+  if (!val) return '';
+  return val.trim().replace(/^["']|["']$/g, '').trim();
+}
+
 export function getS3Config() {
   const bucket =
-    process.env.NEON_STORAGE_BUCKET ||
-    process.env.S3_BUCKET_NAME ||
-    process.env.AWS_S3_BUCKET ||
-    process.env.AWS_BUCKET_NAME ||
+    cleanEnv(process.env.NEON_STORAGE_BUCKET) ||
+    cleanEnv(process.env.S3_BUCKET_NAME) ||
+    cleanEnv(process.env.AWS_S3_BUCKET) ||
+    cleanEnv(process.env.AWS_BUCKET_NAME) ||
     'beat-slicer';
   const region =
-    process.env.NEON_STORAGE_REGION ||
-    process.env.AWS_REGION ||
-    process.env.S3_REGION ||
+    cleanEnv(process.env.NEON_STORAGE_REGION) ||
+    cleanEnv(process.env.AWS_REGION) ||
+    cleanEnv(process.env.S3_REGION) ||
     'us-east-2';
   const accessKeyId =
-    process.env.NEON_STORAGE_ACCESS_KEY_ID ||
-    process.env.AWS_ACCESS_KEY_ID ||
-    process.env.S3_ACCESS_KEY_ID ||
+    cleanEnv(process.env.NEON_STORAGE_ACCESS_KEY_ID) ||
+    cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
+    cleanEnv(process.env.S3_ACCESS_KEY_ID) ||
     'nak_live_897e7825c27b46c3b913ebb94723a754';
   const secretAccessKey =
-    process.env.NEON_STORAGE_SECRET_ACCESS_KEY ||
-    process.env.AWS_SECRET_ACCESS_KEY ||
-    process.env.S3_SECRET_ACCESS_KEY ||
+    cleanEnv(process.env.NEON_STORAGE_SECRET_ACCESS_KEY) ||
+    cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
+    cleanEnv(process.env.S3_SECRET_ACCESS_KEY) ||
     'nsk_live_dcf0414b01ed8fb651e2f5e15896992ab4304fc43e2ed8fc306e4c2d8251a50d';
   const endpoint =
-    process.env.AWS_ENDPOINT_URL_S3 ||
-    process.env.NEON_STORAGE_ENDPOINT ||
-    process.env.S3_ENDPOINT ||
-    process.env.AWS_ENDPOINT_URL ||
+    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
+    cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.S3_ENDPOINT) ||
+    cleanEnv(process.env.AWS_ENDPOINT_URL) ||
     'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech';
   const publicBaseUrl =
-    process.env.NEON_STORAGE_PUBLIC_URL ||
-    process.env.S3_PUBLIC_URL ||
-    process.env.AWS_S3_PUBLIC_URL;
+    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL) ||
+    cleanEnv(process.env.S3_PUBLIC_URL) ||
+    cleanEnv(process.env.AWS_S3_PUBLIC_URL);
   const forcePathStyle =
-    process.env.NEON_STORAGE_FORCE_PATH_STYLE === 'true' ||
-    process.env.S3_FORCE_PATH_STYLE === 'true' ||
+    cleanEnv(process.env.NEON_STORAGE_FORCE_PATH_STYLE) === 'true' ||
+    cleanEnv(process.env.S3_FORCE_PATH_STYLE) === 'true' ||
     true;
 
   return {
@@ -123,11 +129,56 @@ export async function uploadBufferToS3(
 }
 
 /**
+ * Extracts the clean S3 object key from a full URL or relative path.
+ */
+export function extractS3KeyFromUrl(urlOrKey: string): string | null {
+  if (!urlOrKey) return null;
+  const trimmed = urlOrKey.trim();
+
+  // If already a relative key without http
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    let clean = trimmed.replace(/^\/+/, '');
+    const config = getS3Config();
+    if (config.bucket && clean.startsWith(`${config.bucket}/`)) {
+      clean = clean.substring(config.bucket.length + 1);
+    }
+    return clean || null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+    const config = getS3Config();
+    if (config.bucket && pathname.startsWith(`${config.bucket}/`)) {
+      pathname = pathname.substring(config.bucket.length + 1);
+    }
+    return pathname || null;
+  } catch (e) {
+    const match = trimmed.match(/https?:\/\/[^\/]+\/(.+)$/);
+    if (match && match[1]) {
+      let pathPart = decodeURIComponent(match[1]).replace(/^\/+/, '');
+      const config = getS3Config();
+      if (config.bucket && pathPart.startsWith(`${config.bucket}/`)) {
+        pathPart = pathPart.substring(config.bucket.length + 1);
+      }
+      return pathPart;
+    }
+    return null;
+  }
+}
+
+/**
  * Deletes an object from S3 storage by key.
  */
-export async function deleteFromS3(key: string): Promise<boolean> {
+export async function deleteFromS3(keyOrUrl: string): Promise<boolean> {
   if (!isS3Configured()) return false;
   try {
+    const key = extractS3KeyFromUrl(keyOrUrl);
+    if (!key) {
+      console.warn(`[S3] Could not extract valid key from: "${keyOrUrl}"`);
+      return false;
+    }
+
     const s3 = getS3Client();
     const config = getS3Config();
     const command = new DeleteObjectCommand({
@@ -135,10 +186,106 @@ export async function deleteFromS3(key: string): Promise<boolean> {
       Key: key,
     });
     await s3.send(command);
+    console.log(`[S3] Successfully deleted object "${key}" from bucket "${config.bucket}"`);
     return true;
   } catch (error) {
-    console.error(`Failed to delete object "${key}" from S3:`, error);
+    console.error(`Failed to delete object "${keyOrUrl}" from S3:`, error);
     return false;
+  }
+}
+
+/**
+ * Deletes an asset from both S3 and local disk (if present).
+ */
+export async function deleteStorageAsset(keyOrUrl: string): Promise<{ s3Deleted: boolean; diskDeleted: boolean }> {
+  let s3Deleted = false;
+  let diskDeleted = false;
+
+  // 1. Delete from S3
+  if (isS3Configured()) {
+    try {
+      s3Deleted = await deleteFromS3(keyOrUrl);
+    } catch (err) {
+      console.warn('[Storage] S3 deletion error:', err);
+    }
+  }
+
+  // 2. Delete from local disk if it was an uploaded or local file
+  try {
+    const filename = path.basename(keyOrUrl.split('?')[0]);
+    if (filename) {
+      const candidatePaths = [
+        path.join(process.cwd(), 'public', 'uploads', filename),
+        path.join(process.cwd(), 'public', 'Audio', filename),
+      ];
+
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+          try {
+            fs.unlinkSync(p);
+            diskDeleted = true;
+            console.log(`[Storage] Deleted local file on disk: ${p}`);
+          } catch (e) {
+            console.warn(`[Storage] Failed to unlink local file ${p}:`, e);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Local disk cleanup error:', err);
+  }
+
+  return { s3Deleted, diskDeleted };
+}
+
+export interface S3ObjectItem {
+  key: string;
+  size: number;
+  lastModified?: string;
+  url: string;
+}
+
+/**
+ * Lists all objects stored in the S3 / Neon storage bucket.
+ */
+export async function listS3Objects(prefix: string = '', maxKeys: number = 200): Promise<S3ObjectItem[]> {
+  if (!isS3Configured()) return [];
+  try {
+    const s3 = getS3Client();
+    const config = getS3Config();
+
+    const command = new ListObjectsV2Command({
+      Bucket: config.bucket!,
+      Prefix: prefix || undefined,
+      MaxKeys: maxKeys,
+    });
+
+    const response = await s3.send(command);
+    if (!response.Contents || response.Contents.length === 0) {
+      return [];
+    }
+
+    return response.Contents.map((obj) => {
+      const key = obj.Key || '';
+      let url = '';
+      if (config.publicBaseUrl) {
+        url = `${config.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
+      } else if (config.endpoint) {
+        url = `${config.endpoint.replace(/\/+$/, '')}/${config.bucket}/${key}`;
+      } else {
+        url = `https://${config.bucket}.s3.${config.region}.amazonaws.com/${key}`;
+      }
+
+      return {
+        key,
+        size: obj.Size || 0,
+        lastModified: obj.LastModified ? obj.LastModified.toISOString() : undefined,
+        url,
+      };
+    });
+  } catch (error) {
+    console.error('[S3] Failed to list objects:', error);
+    return [];
   }
 }
 

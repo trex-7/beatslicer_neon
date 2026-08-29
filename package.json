@@ -11,14 +11,32 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
+    "@aws-sdk/client-s3": "^3.1120.0",
+    "@aws-sdk/s3-request-presigner": "^3.1120.0",
+    "@google/genai": "^2.19.0",
     "@supabase/supabase-js": "2.39.3",
-    "jszip": "3.10.1"
+    "better-auth": "^1.7.2",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "firebase": "^12.18.0",
+    "firebase-admin": "^14.3.0",
+    "jose": "^6.2.10",
+    "jszip": "3.10.1",
+    "multer": "^2.2.0",
+    "pg": "^8.23.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
     "@vitejs/plugin-react": "^5.1.1",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

@@ -156,24 +156,43 @@ const Transport: React.FC<TransportProps> = ({
                 {/* Metronome */}
                 {metronomeConfig && onMetronomeConfigChange && (
                     <div className="relative flex-1" ref={metronomeRef}>
-                        <button 
-                            onClick={() => onMetronomeConfigChange({ enabled: !metronomeConfig.enabled })}
-                            onContextMenu={(e) => { e.preventDefault(); setShowMetronome(!showMetronome); }}
-                            className={`h-10 px-3 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all w-full ${metronomeConfig.enabled ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.1)]' : 'bg-black/40 text-star-dust border-white/10 hover:border-white/30'}`}
-                        >
-                            <span className="text-lg">⏲</span>
-                        </button>
+                        <Tooltip text={metronomeConfig.enabled ? "Metronome Click: ON (Click to mute)" : "Metronome Click: OFF (Click to unmute)"}>
+                            <button 
+                                onClick={() => onMetronomeConfigChange({ enabled: !metronomeConfig.enabled })}
+                                onContextMenu={(e) => { e.preventDefault(); setShowMetronome(!showMetronome); }}
+                                className={`h-10 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all w-full select-none ${
+                                    metronomeConfig.enabled 
+                                        ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/60 shadow-[0_0_12px_rgba(234,179,8,0.3)] ring-1 ring-yellow-500/50' 
+                                        : 'bg-black/40 text-star-dust/70 border-white/10 hover:border-white/30 hover:text-white'
+                                }`}
+                                title="Toggle Metronome Click"
+                            >
+                                <span className="text-sm leading-none">⏱</span>
+                                <span className="text-[10px] uppercase font-mono tracking-wider font-extrabold">
+                                    {metronomeConfig.enabled ? 'CLICK ON' : 'CLICK'}
+                                </span>
+                            </button>
+                        </Tooltip>
                         
-                        {/* Settings Popover (Right Click or via UI?) -> Let's add a small arrow or just toggle on right click */}
+                        {/* Settings Popover (Right Click or Arrow) */}
                         <div className="absolute top-0 right-0 -mr-1 -mt-1">
-                             <button onClick={(e) => { e.stopPropagation(); setShowMetronome(!showMetronome); }} className="w-4 h-4 bg-[#1a1f2b] border border-white/20 rounded-full flex items-center justify-center text-[8px] text-white hover:bg-white/20">
+                             <button 
+                                onClick={(e) => { e.stopPropagation(); setShowMetronome(!showMetronome); }} 
+                                className="w-4 h-4 bg-[#1a1f2b] border border-white/20 rounded-full flex items-center justify-center text-[8px] text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                                title="Metronome Volume Settings"
+                             >
                                 ▼
                              </button>
                         </div>
 
                         {showMetronome && (
-                            <div className="absolute left-0 top-full mt-2 w-48 bg-[#1a1f2b] border border-white/20 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95">
-                                <h4 className="text-xs font-bold text-white mb-2 flex items-center gap-2">Metronome <span className="text-yellow-500 text-[10px]">{metronomeConfig.enabled ? 'ON' : 'OFF'}</span></h4>
+                            <div className="absolute left-0 top-full mt-2 w-52 bg-[#1a1f2b] border border-white/20 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95">
+                                <h4 className="text-xs font-bold text-white mb-2 flex items-center justify-between">
+                                    <span>Metronome Click</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${metronomeConfig.enabled ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/10 text-star-dust'}`}>
+                                        {metronomeConfig.enabled ? 'ACTIVE' : 'MUTED'}
+                                    </span>
+                                </h4>
                                 <div className="space-y-2">
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-star-dust flex justify-between">
@@ -184,11 +203,11 @@ const Transport: React.FC<TransportProps> = ({
                                             min="0" max="1" step="0.01" 
                                             value={metronomeConfig.volume} 
                                             onChange={(e) => onMetronomeConfigChange({ volume: parseFloat(e.target.value) })}
-                                            className="w-full h-1.5 bg-black/40 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
+                                            className="w-full h-1.5 bg-black/40 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-yellow-400 [&::-webkit-slider-thumb]:rounded-full"
                                         />
                                     </div>
-                                    <div className="text-[10px] text-white/30 italic">
-                                        Click sounds on 1/4 notes. High pitch on downbeat.
+                                    <div className="text-[10px] text-white/40 italic">
+                                        Plays on quarter-note beats (Steps 1, 5, 9, 13...). Downbeat is accented.
                                     </div>
                                 </div>
                             </div>

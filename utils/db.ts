@@ -466,3 +466,18 @@ export const uploadSampleToCloud = async (
         return null;
     }
 };
+
+export const sendFeedback = async (message: string, category: string = 'general'): Promise<boolean> => {
+    try {
+        const response = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ message, category }),
+        });
+        return response.ok;
+    } catch (e) {
+        console.error("Error sending feedback:", e);
+        return false;
+    }
+};
+

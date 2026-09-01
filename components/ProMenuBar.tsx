@@ -1,104 +1,47 @@
 import React, { useState, useRef, useEffect } from 'react';
-import JSZip from 'jszip';
-import Auth from './Auth';
+import { 
+    Folder, 
+    Save, 
+    Download, 
+    Upload, 
+    Sparkles, 
+    Activity, 
+    Sliders, 
+    Scissors, 
+    HelpCircle, 
+    RotateCcw, 
+    FileAudio, 
+    Share2, 
+    MessageSquare, 
+    Mail, 
+    Video, 
+    User as UserIcon,
+    ChevronDown
+} from 'lucide-react';
 
 interface ProMenuBarProps {
     projectName: string;
     setProjectName: (name: string) => void;
     onOpenLibrary: () => void;
-    onImportPreset: () => void;
-    onSavePreset: (name: string) => Promise<string>;
+    onImportPreset: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onSavePreset: () => void;
     onSaveToCloud: () => void;
     getAudioWav: () => Promise<Blob | null>;
-    onExportWav: () => void;
+    onExportWav?: () => void;
     onRandomize: () => void;
     onClearPattern: () => void;
     onAutoSlice: () => void;
     onGenerateBeat: (style: 'house' | 'break' | 'chaos') => void;
     onToggleMode: () => void;
     onShowMonitor: () => void;
-    user: any;
-    sampleName: string;
-    onReportIssue: () => void;
-    onOpenVideo: () => void;
-    onOpenContact: () => void;
+    user?: any;
+    sampleName?: string;
+    onReportIssue?: () => void;
+    onOpenVideo?: () => void;
+    onOpenContact?: () => void;
 }
 
-const MenuDropdown = ({ label, children }: { label: string, children?: React.ReactNode }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (ref.current && !ref.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    return (
-        <div className="relative z-50" ref={ref}>
-            <button 
-                onClick={() => setIsOpen(!isOpen)}
-                className={`px-3 py-1 text-xs font-medium rounded hover:bg-white/10 transition-colors ${isOpen ? 'bg-white/10 text-white' : 'text-star-dust'}`}
-            >
-                {label}
-            </button>
-            {isOpen && (
-                <div className="absolute left-0 top-full mt-1 w-48 bg-[#1a1f2b] border border-white/10 rounded-lg shadow-xl py-1 flex flex-col min-w-[160px]">
-                    {React.Children.map(children, (child) => {
-                        if (React.isValidElement(child)) {
-                            const element = child as React.ReactElement<any>;
-                            // Only attach click handler to close menu if it's not a direct link
-                            // or pass the close handler down
-                            return React.cloneElement(element, { 
-                                onClick: (e: React.MouseEvent) => {
-                                    element.props.onClick?.(e);
-                                    setIsOpen(false);
-                                }
-                            });
-                        }
-                        return child;
-                    })}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const MenuItem = ({ label, onClick, href, shortcut, disabled, danger }: { label: string, onClick?: () => void, href?: string, shortcut?: string, disabled?: boolean, danger?: boolean }) => {
-    const className = `text-left px-4 py-2 text-xs hover:bg-hyper-cyan/10 hover:text-hyper-cyan transition-colors flex justify-between items-center group w-full ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${danger ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' : 'text-star-dust'}`;
-
-    if (href && !disabled) {
-        return (
-            <a 
-                href={href} 
-                className={className}
-                onClick={onClick} // Pass onClick to allow menu closing via parent cloneElement
-            >
-                <span>{label}</span>
-                {shortcut && <span className="text-[10px] opacity-30 font-mono group-hover:opacity-100">{shortcut}</span>}
-            </a>
-        )
-    }
-
-    return (
-        <button 
-            onClick={onClick}
-            disabled={disabled}
-            className={className}
-        >
-            <span>{label}</span>
-            {shortcut && <span className="text-[10px] opacity-30 font-mono group-hover:opacity-100">{shortcut}</span>}
-        </button>
-    );
-};
-
-const MenuDivider = () => <div className="h-px bg-white/5 my-1 mx-2"></div>;
-
-const ProMenuBar: React.FC<ProMenuBarProps> = ({
+export const ProMenuBar: React.FC<ProMenuBarProps> = ({
     projectName,
     setProjectName,
     onOpenLibrary,
@@ -106,7 +49,6 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     onSavePreset,
     onSaveToCloud,
     getAudioWav,
-    onExportWav,
     onRandomize,
     onClearPattern,
     onAutoSlice,
@@ -117,133 +59,307 @@ const ProMenuBar: React.FC<ProMenuBarProps> = ({
     sampleName,
     onReportIssue,
     onOpenVideo,
-    onOpenContact
+    onOpenContact,
 }) => {
-    
-    const handleDownloadWav = async () => {
-        const blob = await getAudioWav();
-        if (!blob) return alert("No audio loaded");
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${projectName.replace(/\s+/g, '_')}_Master.wav`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
+    const [activeMenu, setActiveMenu] = useState<string | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleExportZip = async () => {
-        const blob = await getAudioWav();
-        if (!blob) return alert("No audio loaded");
-        
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (!(e.target as HTMLElement).closest('.pro-menu-container')) {
+                setActiveMenu(null);
+            }
+        };
+        window.addEventListener('mousedown', handleClickOutside);
+        return () => window.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleExportAudio = async () => {
+        setIsExporting(true);
         try {
-            const zip = new JSZip();
-            const safeName = projectName.replace(/[^a-z0-9]/gi, '_');
-            const root = zip.folder(safeName);
-            if (!root) return;
-
-            // Add Audio
-            root.file(`${safeName}.wav`, blob);
-
-            // Add JSON
-            const jsonString = await onSavePreset(projectName);
-            root.file(`${safeName}.json`, jsonString);
-
-            // Generate
-            const content = await zip.generateAsync({ type: "blob" });
-            const url = URL.createObjectURL(content);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${safeName}_Project.zip`;
-            a.click();
-            URL.revokeObjectURL(url);
-        } catch(e) {
-            console.error(e);
-            alert("Export failed");
+            const wavBlob = await getAudioWav();
+            if (wavBlob) {
+                const url = URL.createObjectURL(wavBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${projectName.replace(/\s+/g, '_')}_master.wav`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        } catch (err) {
+            console.error('Failed to export audio WAV:', err);
+        } finally {
+            setIsExporting(false);
+            setActiveMenu(null);
         }
     };
 
     return (
-        <div className="fixed top-0 left-0 w-full h-10 bg-[#0f1319] border-b border-white/10 z-50 flex items-center justify-between px-3 select-none backdrop-blur-md">
-            
+        <header className="fixed top-0 left-0 right-0 h-10 bg-neutral-950/95 border-b border-neutral-800/80 backdrop-blur-md z-40 flex items-center justify-between px-4 text-xs select-none pro-menu-container">
+            {/* Hidden file input for import */}
+            <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={onImportPreset} 
+                accept=".json" 
+                className="hidden" 
+            />
+
+            {/* Left Menus */}
             <div className="flex items-center gap-1">
-                {/* Logo Area */}
-                <div className="mr-3 flex items-center gap-2 pr-3 border-r border-white/5">
-                    <div className="w-5 h-5 bg-gradient-to-br from-hyper-cyan to-blue-600 rounded flex items-center justify-center text-[10px] font-black text-deep-space">
-                        BS
-                    </div>
-                    <div className="flex flex-col leading-none">
-                        <span className="text-xs font-bold text-white tracking-wide">BEAT SLICER</span>
-                        <span className="text-[7px] text-white/30 font-mono tracking-tighter">v0.9.0-beta</span>
-                    </div>
+                <div className="flex items-center gap-2 mr-3 font-black text-sm tracking-wider text-cyan-400">
+                    <span className="text-base">🎛️</span>
+                    <span>BEAT SLICER</span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">PRO</span>
                 </div>
 
                 {/* File Menu */}
-                <MenuDropdown label="FILE">
-                    <MenuItem label="New Project" onClick={() => { if(confirm('Clear all settings?')) window.location.reload(); }} />
-                    <MenuDivider />
-                    <MenuItem label="Load Audio" onClick={onOpenLibrary} shortcut="Cmd+O" />
-                    <MenuItem label="Save to Database..." onClick={onSaveToCloud} disabled={!user} shortcut="Cmd+S" />
-                    <MenuDivider />
-                    <MenuItem label="Export WAV" onClick={handleDownloadWav} />
-                    <MenuItem label="Export Project ZIP" onClick={handleExportZip} />
-                </MenuDropdown>
+                <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
+                        className={`px-2.5 py-1 rounded font-medium transition-colors ${activeMenu === 'file' ? 'bg-neutral-800 text-white' : 'text-neutral-300 hover:bg-neutral-800/60'}`}
+                    >
+                        File
+                    </button>
+                    {activeMenu === 'file' && (
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                                type="button"
+                                onClick={() => { onOpenLibrary(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Folder className="w-4 h-4 text-cyan-400" />
+                                <span>Open Cloud Library</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onSaveToCloud(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Save className="w-4 h-4 text-emerald-400" />
+                                <span>Save to Cloud</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onSavePreset(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Download className="w-4 h-4 text-blue-400" />
+                                <span>Export Preset JSON</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { fileInputRef.current?.click(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Upload className="w-4 h-4 text-purple-400" />
+                                <span>Import Preset JSON</span>
+                            </button>
+                            <div className="border-t border-neutral-800 my-1" />
+                            <button
+                                type="button"
+                                onClick={handleExportAudio}
+                                disabled={isExporting}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <FileAudio className="w-4 h-4 text-amber-400" />
+                                <span>{isExporting ? 'Rendering WAV...' : 'Export Audio (WAV)'}</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
-                {/* Edit Menu */}
-                <MenuDropdown label="EDIT">
-                    <MenuItem label="Randomize Pattern" onClick={onRandomize} />
-                    <MenuItem label="Clear Pattern" onClick={onClearPattern} />
-                    <MenuDivider />
-                    <MenuItem label="Auto-Slice Buffer" onClick={onAutoSlice} />
-                </MenuDropdown>
-
-                {/* Generate Menu */}
-                <MenuDropdown label="GENERATE">
-                    <MenuItem label="House Beat" onClick={() => onGenerateBeat('house')} />
-                    <MenuItem label="Breakbeat" onClick={() => onGenerateBeat('break')} />
-                    <MenuItem label="Glitch Chaos" onClick={() => onGenerateBeat('chaos')} />
-                </MenuDropdown>
+                {/* Edit & Generator Menu */}
+                <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === 'edit' ? null : 'edit')}
+                        className={`px-2.5 py-1 rounded font-medium transition-colors ${activeMenu === 'edit' ? 'bg-neutral-800 text-white' : 'text-neutral-300 hover:bg-neutral-800/60'}`}
+                    >
+                        Edit
+                    </button>
+                    {activeMenu === 'edit' && (
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                                type="button"
+                                onClick={() => { onAutoSlice(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Scissors className="w-4 h-4 text-cyan-400" />
+                                <span>Auto-Slice Transients</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onRandomize(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Sparkles className="w-4 h-4 text-amber-400" />
+                                <span>Randomize Pattern</span>
+                            </button>
+                            <div className="border-t border-neutral-800 my-1" />
+                            <button
+                                type="button"
+                                onClick={() => { onGenerateBeat('house'); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Sparkles className="w-4 h-4 text-emerald-400" />
+                                <span>Generate House Beat</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onGenerateBeat('break'); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Sparkles className="w-4 h-4 text-purple-400" />
+                                <span>Generate Breakbeat</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onGenerateBeat('chaos'); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Sparkles className="w-4 h-4 text-rose-400" />
+                                <span>Generate Chaos Pattern</span>
+                            </button>
+                            <div className="border-t border-neutral-800 my-1" />
+                            <button
+                                type="button"
+                                onClick={() => { onClearPattern(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-rose-400"
+                            >
+                                <RotateCcw className="w-4 h-4" />
+                                <span>Clear Sequencer Steps</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 {/* View Menu */}
-                <MenuDropdown label="VIEW">
-                    <MenuItem label="System Monitor" onClick={onShowMonitor} />
-                    <MenuItem label="Switch to Simple Mode" onClick={onToggleMode} />
-                </MenuDropdown>
+                <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
+                        className={`px-2.5 py-1 rounded font-medium transition-colors ${activeMenu === 'view' ? 'bg-neutral-800 text-white' : 'text-neutral-300 hover:bg-neutral-800/60'}`}
+                    >
+                        View
+                    </button>
+                    {activeMenu === 'view' && (
+                        <div className="absolute top-full left-0 mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                                type="button"
+                                onClick={() => { onToggleMode(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Sliders className="w-4 h-4 text-cyan-400" />
+                                <span>Switch to Simple Mode</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { onShowMonitor(); setActiveMenu(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                            >
+                                <Activity className="w-4 h-4 text-emerald-400" />
+                                <span>System Monitor</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 {/* Help Menu */}
-                <MenuDropdown label="HELP">
-                    <MenuItem label="Quickstart Video" onClick={onOpenVideo} />
-                    <MenuItem label="Credits" onClick={onOpenContact} />
-                    <MenuItem 
-                        label="Report Issue / Feedback" 
-                        onClick={onReportIssue}
-                    />
-                </MenuDropdown>
+                <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === 'help' ? null : 'help')}
+                        className={`px-2.5 py-1 rounded font-medium transition-colors ${activeMenu === 'help' ? 'bg-neutral-800 text-white' : 'text-neutral-300 hover:bg-neutral-800/60'}`}
+                    >
+                        Help
+                    </button>
+                    {activeMenu === 'help' && (
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                            {onOpenVideo && (
+                                <button
+                                    type="button"
+                                    onClick={() => { onOpenVideo(); setActiveMenu(null); }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                                >
+                                    <Video className="w-4 h-4 text-cyan-400" />
+                                    <span>Video Tutorial</span>
+                                </button>
+                            )}
+                            {onReportIssue && (
+                                <button
+                                    type="button"
+                                    onClick={() => { onReportIssue(); setActiveMenu(null); }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                                >
+                                    <MessageSquare className="w-4 h-4 text-amber-400" />
+                                    <span>Send Feedback</span>
+                                </button>
+                            )}
+                            {onOpenContact && (
+                                <button
+                                    type="button"
+                                    onClick={() => { onOpenContact(); setActiveMenu(null); }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
+                                >
+                                    <Mail className="w-4 h-4 text-purple-400" />
+                                    <span>Contact & Support</span>
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {/* Project Name */}
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            {/* Center Project Name */}
+            <div className="flex items-center gap-2">
                 <input 
                     type="text" 
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    className="bg-transparent text-center text-xs font-bold text-white/50 focus:text-white focus:bg-white/5 rounded px-2 py-1 outline-none w-48 hover:text-white/80 transition-colors"
+                    className="bg-neutral-900 border border-neutral-800 rounded-md px-2 py-0.5 text-center text-xs font-semibold text-neutral-200 focus:outline-none focus:border-cyan-500 hover:border-neutral-700 transition-colors w-40 max-w-xs"
+                    placeholder="Project Name"
                 />
+                {sampleName && (
+                    <span className="text-[11px] text-neutral-500 font-mono hidden md:inline">
+                        ({sampleName})
+                    </span>
+                )}
             </div>
 
-            {/* Right Side: Auth / Info */}
-            <div className="flex items-center gap-3">
-                 <div className="text-xs text-white/70 font-mono text-right mr-2 leading-tight border-r border-white/5 pr-3">
-                     <span className="font-bold text-white/80">Creator: Sandro Mancino</span><br/>
-                     <button onClick={onOpenContact} className="text-hyper-cyan hover:underline cursor-pointer bg-transparent border-none p-0">sandromancino.sm@gmail.com</button>
-                 </div>
-                 <div className="hidden sm:flex items-center gap-2 text-[10px] text-star-dust/50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                    <span className="max-w-[100px] truncate">{sampleName}</span>
-                 </div>
-                 <div className="h-4 w-px bg-white/5 mx-1"></div>
-                 <Auth user={user} />
+            {/* Right Status Actions */}
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={onOpenLibrary}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-800/60 rounded-md font-semibold transition-all shadow-sm"
+                >
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>Cloud Library</span>
+                </button>
+                <button
+                    type="button"
+                    onClick={onShowMonitor}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 rounded-md transition-colors"
+                >
+                    <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden sm:inline">Monitor</span>
+                </button>
+                <button
+                    type="button"
+                    onClick={onToggleMode}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-neutral-850 hover:bg-neutral-800 text-neutral-300 rounded-md border border-neutral-750 transition-colors"
+                >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Simple Mode</span>
+                </button>
             </div>
-        </div>
+        </header>
     );
 };
 

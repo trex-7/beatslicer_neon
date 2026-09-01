@@ -1,156 +1,327 @@
-# Beat Slicer
+# 🎛️ Beat Slicer
 
-**Beat Slicer** is an advanced browser-based granular synthesizer, sample slicer, and real-time effects processor. Built with React, TypeScript, Web Audio API, and AudioWorklet technology, it delivers sample-accurate slicing, probabilistic glitch generation, and low-latency performance.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg?style=flat&logo=typescript)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg?style=flat&logo=react)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-6.x-646CFF.svg?style=flat&logo=vite)](https://vitejs.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38bdf8.svg?style=flat&logo=tailwindcss)](https://tailwindcss.com/)
+[![Web Audio API](https://img.shields.io/badge/Web%20Audio-AudioWorklet-orange.svg?style=flat)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API)
+[![Neon Postgres](https://img.shields.io/badge/Database-Neon%20PostgreSQL-00E599.svg?style=flat)](https://neon.tech/)
+[![Render](https://img.shields.io/badge/Backend-Render-46E3B7.svg?style=flat&logo=render)](https://render.com/)
+[![Netlify](https://img.shields.io/badge/Frontend-Netlify-00C7B7.svg?style=flat&logo=netlify)](https://www.netlify.com/)
 
----
-
-## 🏗️ Architecture & Stack
-
-- **Frontend**: React 19 + TypeScript, Tailwind CSS, Lucide Icons, Vite
-- **Audio Engine**: Web Audio API with custom `AudioWorklet` processor for sample-accurate scheduling, transient detection, time-stretching, and modular FX chaining
-- **Database & Storage**:
-  - **Database**: PostgreSQL / Neon PostgreSQL (managed via Drizzle ORM / SQL schema)
-  - **Object Storage**: S3-compatible storage (AWS S3, Cloudflare R2, Wasabi, MinIO) with fallback to local disk storage
-  - **Authentication**: Neon Auth / OAuth JWT authentication with token validation
-- **Backend**: Express API server (`server.ts`) with Vite middleware
-- **Deployment**:
-  - **Backend API**: Render (Node.js web service)
-  - **Frontend Client**: Netlify / Cloud Run (Single-Page App with `netlify.toml` redirects)
+**Beat Slicer** is an advanced browser-based granular synthesizer, sample slicer, and real-time stochastic effects processor. Built with React, TypeScript, Tone.js, and the Web Audio API (with custom AudioWorklets), it delivers sample-accurate slicing, probabilistic glitch generation, tempo-synced FX, and low-latency performance on desktop and mobile browsers.
 
 ---
 
-## 🚀 Getting Started
+## 📑 Table of Contents
 
-### Prerequisites
-- Node.js 18+ (or Bun)
-- npm / yarn / pnpm
+- [✨ Features](#-features)
+- [🏗️ Architecture & Tech Stack](#️-architecture--tech-stack)
+- [🚀 Quick Start (Local Development)](#-quick-start-local-development)
+- [🎮 User Interface & Workflows](#-user-interface--workflows)
+- [🎚️ Modular FX Rack & Glitch Engine](#️-modular-fx-rack--glitch-engine)
+- [🎹 Web MIDI & Hardware Integration](#-web-midi--hardware-integration)
+- [☁️ Cloud Library & Cascading File Storage](#️-cloud-library--cascading-file-storage)
+- [🗄️ Database & Environment Configuration](#️-database--environment-configuration)
+- [🚢 Deployment (Render + Netlify)](#-deployment-render--netlify)
+- [⌨️ Keyboard Shortcuts](#️-keyboard-shortcuts)
+- [📂 Project Directory Structure](#-project-directory-structure)
+- [📚 Documentation Index](#-documentation-index)
+- [📄 License](#-license)
 
-### Quick Start (Development)
-```bash
-# 1. Install dependencies
-npm install
+---
 
-# 2. Configure environment variables (optional for offline/local mode)
-cp .env.example .env
+## ✨ Features
 
-# 3. Start development server (binds to http://localhost:3000)
-npm run dev
+- **Sample-Accurate Transient Detection & Slicing**: Automatically detects percussive transients across audio buffers; drag start/end markers with zoom and sub-sample precision.
+- **Granular Synthesis Engine**: Real-time micro-grain synthesis with adjustable grain size, overlap, detune, spray, and micro-envelopes.
+- **16-Step Pattern Sequencer**: Velocity control, per-step ratchet/roll triggers (1x, 2x, 3x, 4x), swing timing, and direction modes (*Forward, Backward, Pendulum, Random*).
+- **Probabilistic Stochastic Glitch Processor**: Non-deterministic octave jumps, reverse buffer playback, spontaneous ratchets, and formant shifts.
+- **Modular Multi-FX Rack**: Fully re-orderable DSP chain featuring multimode Biquad Filter (with LFO & envelope depth), Tempo-Synced Stereo Delay, Convolution Reverb, Distortion, Bitcrusher, Compressor, and Vinyl warmth.
+- **Web MIDI API Integration**: Hardware drum pad mapping (`C1`–`D#2`), velocity sensitivity, and 24-PPQ MIDI Clock output synchronization with latency compensation (+/- ms).
+- **Cloud Library & Complete Storage Lifecycle**: Save presets, sample packs, and multi-sample construction kits to **Neon PostgreSQL** and **S3-compatible Object Storage** (Neon Storage / Cloudflare R2 / AWS S3) with automatic cascading cleanup on deletion.
+- **WAV & Project ZIP Export**: Export studio-grade 32-bit float WAV master recordings or packaged `.zip` project bundles containing all audio files and state definitions.
+
+---
+
+## 🏗️ Architecture & Tech Stack
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Client (Netlify / SPA)                   │
+│   React 19 + TypeScript + Tailwind CSS + Lucide Icons       │
+│   Tone.js + Web Audio API + AudioWorklet + Web MIDI         │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTP / REST / JWT
+┌──────────────────────────────▼──────────────────────────────┐
+│                    Backend (Render API)                     │
+│   Node.js + Express + Multer + Drizzle ORM + esbuild        │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │                              │
+┌──────────────▼──────────────┐┌──────────────▼───────────────┐
+│     Neon PostgreSQL DB      ││  S3-Compatible Object Store  │
+│  (Users, Presets, Kits,     ││  (Neon Storage, AWS S3, R2,  │
+│   Samples, Feedback)        ││   Local Disk Storage)        │
+└─────────────────────────────┘└──────────────────────────────┘
 ```
 
-### Production Build & Launch
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS, Lucide React |
+| **Audio Engine** | Web Audio API, Tone.js, AudioWorklet, Web MIDI API |
+| **Backend API** | Express.js, TypeScript, Multer, Drizzle ORM, esbuild |
+| **Database** | Neon PostgreSQL (Serverless Postgres) |
+| **Auth** | Neon Auth / OAuth JWT Bearer validation |
+| **Storage** | Neon S3-Compatible Object Storage, AWS S3, Cloudflare R2 |
+| **Hosting** | Netlify (Frontend SPA) + Render (Backend API Web Service) |
+
+---
+
+## 🚀 Quick Start (Local Development)
+
+### 1. Prerequisites
+- **Node.js**: v18.0.0 or higher (or [Bun](https://bun.sh))
+- **npm** / **yarn** / **pnpm** / **bun**
+
+### 2. Installation
 ```bash
-# Build frontend and compile backend bundle
+# Clone the repository
+git clone https://github.com/your-username/beat-slicer.git
+cd beat-slicer
+
+# Install dependencies
+npm install
+```
+
+### 3. Setup Environment Variables
+Copy the example environment file:
+```bash
+cp .env.example .env
+```
+*(The application runs out of the box in offline/local mode with built-in presets even without database credentials).*
+
+### 4. Launch Development Server
+```bash
+npm run dev
+```
+Open your browser and navigate to **`http://localhost:3000`**.
+
+### 5. Production Build
+```bash
+# Builds client bundle and compiles server.ts into dist/server.cjs
 npm run build
 
-# Start production server
+# Run production server
 npm start
 ```
 
 ---
 
-## 🎮 Interface Modes
+## 🎮 User Interface & Workflows
 
-### 1. Simple Mode (Play)
-Designed for performance, rapid beat production, and live jamming:
-- **Macro Performance Sliders**: Instant macro control over complex sound parameters (*Texture, Space, Echo, Grit, Glitch*).
-- **Algorithmic Pattern Generator**: Procedural pattern generator with selectable genres (*House, Breakbeat, Chaos, Trap, Ambient*).
-- **Visual Display**: Clean, high-contrast waveform visualizer and focused 16-step sequencer interface.
+### 1. Simple Mode (Live Jamming & Macros)
+- **Macro Performance Sliders**: Instant macroscopic shaping over complex parameters (*Texture, Space, Echo, Grit, Glitch*).
+- **Algorithmic Genre Generator**: One-click pattern generator for *House, Breakbeat, Chaos, Trap, and Ambient* styles.
+- **Streamlined Workflow**: Direct access to transport, tempo, volume, and playback without deep parameter editing.
 
-### 2. Pro Mode (Edit & Sound Design)
-A full digital audio workstation workflow for in-depth sample manipulation:
-- **Interactive Waveform Editor**:
-  - Transient detection with automatic slicing
-  - Drag to adjust slice start/end markers
-  - Zoom in/out, pan, slice preview, and double-click to mute
-  - Fine-grained slice controls: pitch shift, gain, reverse, attack/decay envelopes
-- **16-Step Sequencer**:
-  - Step activation, velocity control, ratchet (note repeats / roll), and slice assignment per step
-  - Swing/groove timing adjustment
-- **Modular FX Rack**:
-  - Re-orderable effect processing chain (Filter, Reverb, Delay, Distortion, Bitcrusher, Compressor)
-  - Granular synth parameters: grain size, grain density, jitter, and spray
-- **Probabilistic Glitch Engine**:
-  - Real-time stochastic modifiers: random ratchets, octave jumps, micro-repeats, reverse chance, and formant shifts
-- **MIDI Integration (Web MIDI API)**:
-  - Hardware controller input mapping (C1–D#2 triggering slices 1–16)
-  - MIDI Clock output sync with latency compensation shift (+/- ms)
+### 2. Pro Mode (Digital Audio Workstation & Sound Design)
+- **Interactive Waveform Slicer**:
+  - Automatic and manual transient slicing.
+  - Individual slice controls: Gain, Pitch Shift (+/- 24 semitones), Reverse, Attack, Decay, and Mute.
+  - Zoom, pan, scrub, and slice preview auditioning.
+- **16-Step Grid Sequencer**:
+  - Per-step slice trigger selection and velocity control.
+  - Multi-ratchet triggers (1x, 2x, 3x, 4x roll multipliers).
+  - Global swing/groove adjustment.
+- **System Monitor & Diagnostics**:
+  - Live AudioContext state, sample rate, voice allocation count, memory usage, and MIDI telemetry.
 
 ---
 
-## ☁️ Cloud Library, Presets & Assets
+## 🎚️ Modular FX Rack & Glitch Engine
 
-- **Presets**: Stores sound design parameters, FX chains, 16-step sequencer patterns, and slice definitions.
+Beat Slicer features a studio-grade modular effects processor:
+
+- **Multimode Filter**: Lowpass, Highpass, Bandpass, Notch, Peaking, and Shelf with dedicated LFO rate, LFO depth, and envelope modulation.
+- **Tempo-Synced Stereo Delay**: Ping-pong and standard stereo delay with note subdivisions (`1m`, `2n`, `4n`, `8n`, `16n`, triplets) and high/low cut filters.
+- **Convolution & Algorithmic Reverb**: Custom impulse response loader, adjustable decay time, room size, and high-frequency dampening.
+- **Distortion & Saturator**: Overdrive waveshaping with wet/dry blend.
+- **Bitcrusher**: Variable bit-depth reduction (1 to 16 bits) and sample rate decimation for vintage lofi grit.
+- **Dynamic Compressor**: Threshold, ratio, attack, and release with visual gain reduction metering.
+- **Vinyl Noise Simulator**: Subtle crackle, dust, and warm analog flutter.
+- **Stochastic Glitch Generator**: Chaos factor, reverse probability, random octave jumps, ratchet bursts, and formant shifts.
+
+---
+
+## 🎹 Web MIDI & Hardware Integration
+
+Connect hardware MIDI controllers or drum pads directly via Chrome, Edge, or Opera (Web MIDI API supported):
+
+### Drum Pad Trigger Mapping
+| Pad / Key | Note | Frequency | Assigned Trigger |
+| :--- | :--- | :--- | :--- |
+| **Pad 1** | `C1` (36) | 65.41 Hz | Slice 1 (Kick) |
+| **Pad 2** | `C#1` (37) | 69.30 Hz | Slice 2 |
+| **Pad 3** | `D1` (38) | 73.42 Hz | Slice 3 (Snare) |
+| **Pad 4** | `D#1` (39) | 77.78 Hz | Slice 4 |
+| ... | ... | ... | ... |
+| **Pad 16** | `D#2` (51) | 155.56 Hz | Slice 16 |
+
+### MIDI Clock Output
+- Sends standard 24 PPQ MIDI Clock (`0xF8`) sync messages to external synthesizers and drum machines.
+- Supports MIDI Start (`0xFA`), Stop (`0xFC`), and Continue (`0xFB`).
+- Latency compensation slider for microsecond hardware delay alignment.
+
+---
+
+## ☁️ Cloud Library & Cascading File Storage
+
+Beat Slicer provides seamless cloud persistence with zero orphaned storage clutter:
+
+- **Presets**: Sound design parameters, sequencer patterns, and slice definitions.
 - **Samples**: Audio files uploaded with automatic transient analysis and waveforms.
-- **Kits**: Multi-sample collections packaged into ready-to-play instruments.
-- **Project Export/Import**:
-  - **WAV Render**: Export master audio buffer output.
-  - **ZIP Project**: Bundles audio files with structured JSON project state for seamless backup and sharing.
-- **Community Library**: Discover and fork public community presets, drum kits, and loops.
+- **Construction Kits**: Multi-sample instrument packages with visual artwork.
+- **Cascading Deletion**: Deleting a preset or kit automatically detects, unlinks, and **permanently removes all associated sample records and object storage files** (S3 / Neon Storage / disk) in a single atomic operation.
 
 ---
 
 ## 🗄️ Database & Environment Configuration
 
-### Environment Variables (`.env`)
-Configure the following in `.env` for full cloud connectivity:
+### Environment Variables Reference (`.env`)
 
 ```env
-# PostgreSQL Database (Neon / Cloud SQL)
+# ==========================================
+# Database (Neon PostgreSQL / Cloud SQL)
+# ==========================================
 SQL_HOST=ep-example-pooler.us-east-2.aws.neon.tech
 SQL_DB_NAME=neondb
 SQL_USER=neondb_owner
-SQL_PASSWORD=your_password
+SQL_PASSWORD=your_db_password
 SQL_ADMIN_USER=neondb_owner
-SQL_ADMIN_PASSWORD=your_password
+SQL_ADMIN_PASSWORD=your_db_password
 
-# Authentication (Neon Auth)
+# ==========================================
+# Authentication (Neon Auth / OAuth)
+# ==========================================
 NEON_AUTH_URL=https://<your-neon-auth-domain>/auth
 NEON_AUTH_JWKS_URL=https://<your-neon-auth-domain>/auth/.well-known/jwks.json
 VITE_NEON_AUTH_URL=https://<your-neon-auth-domain>/auth
 
-# S3-Compatible Storage (AWS S3, Cloudflare R2, MinIO)
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-S3_BUCKET_NAME=beat-slicer-assets
-S3_ENDPOINT=
-S3_PUBLIC_URL=
-S3_FORCE_PATH_STYLE=false
+# ==========================================
+# Object Storage (Neon S3, AWS S3, Cloudflare R2)
+# ==========================================
+AWS_ACCESS_KEY_ID=your_access_key_id
+AWS_SECRET_ACCESS_KEY=your_secret_access_key
+AWS_REGION=us-east-2
+NEON_STORAGE_BUCKET=beat-slicer
+NEON_STORAGE_ENDPOINT=https://<storage-endpoint>.neon.tech
+NEON_STORAGE_PUBLIC_URL=
+NEON_STORAGE_FORCE_PATH_STYLE=true
+
+# ==========================================
+# Administration & AI Service (Optional)
+# ==========================================
+ADMIN_EMAIL=your_admin_email@example.com
+GEMINI_API_KEY=AIzaSy...
 ```
 
-### PostgreSQL Schema
-The database schema (`schema.sql`) provisions tables for:
-- `users`: User profiles and authentication UIDs
-- `samples`: Audio assets and metadata
-- `kits` & `kit_samples`: Drum kits and multi-sample bundle associations
-- `presets`: Full synthesizer, sequencer, and slice configurations
-- `feedback`: User suggestions, error reports, and feedback
+---
+
+## 🚢 Deployment (Render + Netlify)
+
+For complete step-by-step instructions, see the **[Deployment Guide](docs/DEPLOYMENT.md)**.
+
+### Quick Deployment Summary:
+
+1. **Database Setup**:
+   - Provision a PostgreSQL database on [Neon](https://neon.tech).
+   - Execute `schema.sql` in the Neon SQL Editor.
+
+2. **Backend API on Render**:
+   - Create a new **Web Service** on [Render](https://render.com) connected to your repository.
+   - Build Command: `npm install && npm run build`
+   - Start Command: `npm start`
+   - Add environment variables from `.env.example`.
+
+3. **Frontend SPA on Netlify**:
+   - Connect your repository to [Netlify](https://netlify.com).
+   - Build Command: `npm run build`
+   - Publish Directory: `dist`
+   - Set `VITE_NEON_AUTH_URL` under Netlify environment variables.
 
 ---
 
-## 🚀 Deployment Guide
+## ⌨️ Keyboard Shortcuts
 
-### Backend on Render
-1. Create a **Web Service** on [Render](https://render.com).
-2. Connect your Git repository.
-3. Configure the service settings:
-   - **Environment**: `Node`
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npm start`
-4. Under **Environment Variables**, add the variables from `.env.example`.
-
-### Frontend on Netlify
-1. Create a new site from Git on [Netlify](https://www.netlify.com).
-2. Configure build settings (or let `netlify.toml` configure automatically):
-   - **Build command**: `npm run build`
-   - **Publish directory**: `dist`
-3. Add any required client-side environment variables (`VITE_NEON_AUTH_URL`, etc.).
+| Shortcut | Action |
+| :--- | :--- |
+| `Space` | Toggle Global Play / Pause Transport |
+| `1` – `8` | Audition / Trigger Slices 1 through 8 |
+| `Click + Drag` | Adjust Slice Start / End Markers |
+| `Double Click Marker` | Reset Slice Boundary |
+| `Shift + Click` | Mute / Unmute Slice |
+| `Escape` | Close Open Modals and Dialogs |
 
 ---
 
-## 🛠️ Diagnostics & System Monitor
+## 📂 Project Directory Structure
 
-- Access the built-in **System Monitor** dialog to inspect:
-  - Audio Context sample rate, state, buffer load, and AudioWorklet health
-  - Backend API status and database connectivity latency
-  - MIDI device connection status and active clock transmitters
+```
+beat-slicer/
+├── components/                 # React UI Components
+│   ├── ControlPanel.tsx        # Macro & DSP parameter controls
+│   ├── EffectSection.tsx       # Re-orderable modular FX rack
+│   ├── Header.tsx              # Navigation, mode toggle & monitor
+│   ├── LibraryManager.tsx      # Cloud presets, samples & kits manager
+│   ├── SaveDialog.tsx          # Preset / Kit creation dialog
+│   ├── Sequencer.tsx           # 16-step grid sequencer with ratchets
+│   ├── SliceWaveformEditor.tsx # Interactive canvas waveform slicer
+│   ├── SystemMonitor.tsx       # AudioContext & API telemetry monitor
+│   ├── Transport.tsx           # Play, stop, BPM & loop controls
+│   └── WaveformDisplay.tsx     # Real-time oscilloscope visualizer
+├── docs/                       # Technical Documentation
+│   ├── API.md                  # REST API Endpoints & schemas
+│   ├── AUDIO_ENGINE.md         # DSP, Web Audio, AudioWorklet & MIDI
+│   └── DEPLOYMENT.md           # Render, Netlify & Neon setup guide
+├── hooks/
+│   └── useAudioEngine.ts       # Primary AudioContext & Tone.js hook
+├── public/                     # Static assets & sample libraries
+├── src/
+│   ├── db/                     # Drizzle ORM schemas & database queries
+│   │   ├── index.ts            # Neon Postgres client initialization
+│   │   ├── queries.ts          # CRUD queries with cascading deletes
+│   │   ├── schema.ts           # Drizzle table schemas
+│   │   └── users.ts            # User profile management
+│   ├── lib/                    # Storage, AI & Supabase migration helpers
+│   │   ├── ai-pattern-service.ts
+│   │   ├── s3.ts               # S3 & Neon object storage client
+│   │   └── supabase-migrator.ts
+│   └── middleware/
+│       └── auth.ts             # Neon Auth JWT verification middleware
+├── utils/                      # Audio math & preset utilities
+│   ├── audioAnalysis.ts        # Spectral analysis & centroid calculation
+│   ├── bpmDetector.ts          # Auto BPM tempo detection
+│   ├── db.ts                   # Client-side API fetch client
+│   ├── factoryPresets.ts       # Built-in factory presets & kits
+│   └── transientDetection.ts   # Onset detection algorithm
+├── App.tsx                     # Main React application component
+├── netlify.toml                # Netlify build & SPA routing configuration
+├── schema.sql                  # PostgreSQL table definitions
+├── server.ts                   # Express API server with Vite middleware
+├── types.ts                    # TypeScript interface definitions
+└── vite.config.ts              # Vite bundler configuration
+```
+
+---
+
+## 📚 Documentation Index
+
+- 📖 **[Deployment Guide](docs/DEPLOYMENT.md)** — Production setup for Render, Netlify, Neon PostgreSQL, and S3 Storage.
+- 🔌 **[REST API Reference](docs/API.md)** — Complete endpoint specifications, authentication headers, and request payloads.
+- 🎛️ **[Audio Engine & DSP Guide](docs/AUDIO_ENGINE.md)** — In-depth guide to the Web Audio architecture, transient detection, granular synthesis, and MIDI clock mechanics.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License**. Feel free to use, modify, and distribute for personal and commercial audio production.

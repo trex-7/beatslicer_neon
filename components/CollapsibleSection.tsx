@@ -1,43 +1,55 @@
-
 import React, { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface CollapsibleSectionProps {
     title: string;
-    children: React.ReactNode;
+    icon?: React.ReactNode;
     defaultOpen?: boolean;
+    headerExtra?: React.ReactNode;
+    children: React.ReactNode;
     className?: string;
-    icon?: string;
+    id?: string;
 }
 
-const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, children, defaultOpen = true, className = "", icon }) => {
+export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+    title,
+    icon,
+    defaultOpen = true,
+    headerExtra,
+    children,
+    className = '',
+    id
+}) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
-        <div className={`bg-[#12161d] rounded-xl border border-white/5 overflow-hidden shadow-lg transition-all duration-300 ${className}`}>
-            <button 
+        <div id={id} className={`bg-neutral-900/90 border border-neutral-800 rounded-xl overflow-hidden shadow-lg ${className}`}>
+            <div 
+                className="flex items-center justify-between px-4 py-3 bg-neutral-850/80 cursor-pointer select-none hover:bg-neutral-800/80 transition-colors border-b border-neutral-800/60"
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 transition-colors group text-left"
             >
-                <div className="flex items-center gap-3">
-                    <span className={`text-xs transition-transform duration-200 ${isOpen ? 'rotate-90 text-hyper-cyan' : 'text-white/30'}`}>
-                        ▶
-                    </span>
-                    <span className="text-xs font-bold text-white uppercase tracking-widest group-hover:text-hyper-cyan transition-colors flex items-center gap-2">
-                        {icon && <span className="opacity-70">{icon}</span>}
-                        {title}
-                    </span>
+                <div className="flex items-center gap-2.5">
+                    <button 
+                        type="button" 
+                        aria-label={`Toggle ${title}`} 
+                        className="text-neutral-400 hover:text-white transition-colors p-0.5"
+                    >
+                        {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                    {icon && <span className="text-cyan-400">{icon}</span>}
+                    <h3 className="text-sm font-semibold text-neutral-200 tracking-wide">{title}</h3>
                 </div>
-                <div className="h-px bg-white/5 flex-1 mx-4 opacity-50"></div>
-                <span className="text-[10px] text-white/20 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                    {isOpen ? 'COLLAPSE' : 'EXPAND'}
-                </span>
-            </button>
-            
-            <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="p-4 border-t border-white/5">
+                {headerExtra && (
+                    <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2">
+                        {headerExtra}
+                    </div>
+                )}
+            </div>
+            {isOpen && (
+                <div className="p-4">
                     {children}
                 </div>
-            </div>
+            )}
         </div>
     );
 };

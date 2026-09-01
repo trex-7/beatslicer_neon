@@ -233,12 +233,12 @@ const App: React.FC = () => {
                     setProjectName={setProjectName}
                     onOpenLibrary={() => setIsLibraryOpen(true)}
                     onImportPreset={triggerImportPreset}
-                    onSavePreset={exportPreset}
+                    onSavePreset={() => exportPreset(projectName)}
                     onSaveToCloud={() => setIsSaveDialogOpen(true)}
                     getAudioWav={getAudioWav}
                     onExportWav={() => { /* Handled in ProMenuBar via getAudioWav */ }}
                     onRandomize={randomizePattern}
-                    onClearPattern={() => sequencer.forEach((_, i) => updateSequencerStep(i, { active: false }))}
+                    onClearPattern={() => sequencer.steps.forEach((_, i) => updateSequencerStep(i, { active: false }))}
                     onAutoSlice={autoSlice}
                     onGenerateBeat={(style) => generateAiBeat(style === 'house' ? 0.2 : style === 'break' ? 0.5 : 0.9)}
                     onToggleMode={() => setIsProMode(false)}

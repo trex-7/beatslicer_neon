@@ -7,7 +7,6 @@
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +22,7 @@
     "firebase-admin": "^14.3.0",
     "jose": "^6.2.10",
     "jszip": "3.10.1",
+    "lucide-react": "^0.475.0",
     "multer": "^2.2.0",
     "pg": "^8.23.0",
     "react": "^19.1.1",
@@ -33,6 +33,8 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.1.1",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",

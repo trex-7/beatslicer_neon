@@ -5,6 +5,7 @@ import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import { requireAuth, optionalAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser } from './src/db/users.ts';
+import { initDatabase } from './src/db/index.ts';
 import {
   isS3Configured,
   uploadBufferToS3,
@@ -880,9 +881,11 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Beat Slicer Server running on http://0.0.0.0:${PORT}`);
 
-    // Asynchronously perform background seed and Neon storage sync without blocking startup
+    // Asynchronously perform background database init, seed and Neon storage sync without blocking startup
     (async () => {
       try {
+        await initDatabase();
+
         if (isS3Configured()) {
           console.log('[Storage] Neon storage is configured. Running background sync...');
           syncLocalAudioToBucket()

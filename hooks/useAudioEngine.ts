@@ -5,6 +5,7 @@ import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
+import { getGuestStatus } from '../src/lib/guest-session';
 
 /// <reference types="vite/client" />
 
@@ -1512,6 +1513,25 @@ export const useAudioEngine = () => {
       const effectiveBars = bars || (stepCount ? stepCount / 16 : 1);
       const effectiveSteps = stepCount || Math.round(effectiveBars * 16);
 
+      // Check Guest Mode 5-minute spending limit
+      const storedUser = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
+      const guestStatus = getGuestStatus(storedUser, apiKey);
+
+      if (guestStatus.isAiLimitReached) {
+          console.log('[Guest Mode] 5-minute AI spend control active. Generating algorithmic groove pattern.');
+          const compVal = typeof complexity === 'number' ? complexity : 0.45;
+          const targetTempo = bpm ? Number(bpm) : undefined;
+          generateAiBeat(compVal, targetTempo, effectiveSteps, effectiveBars);
+          return {
+              success: true,
+              pattern: sequencerRef.current.steps,
+              suggestedBpm: targetTempo || paramsRef.current.bpm,
+              modelUsed: 'Algorithmic Groove Engine (Spend Control - Guest 5m Limit)',
+              bars: effectiveBars,
+              stepCount: effectiveSteps,
+          };
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000); // 20-second network timeout
 
@@ -1590,11 +1610,21 @@ export const useAudioEngine = () => {
 
       } catch (error: any) {
           clearTimeout(timeoutId);
-          console.error('AI Pattern Generation failed:', error);
-          if (error.name === 'AbortError') {
-              throw new Error('AI request timed out after 35 seconds. Please check your network or try again.');
-          }
-          throw error;
+          console.warn('AI Pattern Generation notice, falling back to algorithmic groove:', error);
+          
+          // Seamless fallback to algorithmic generation so audio workflow is uninterrupted
+          const compVal = typeof complexity === 'number' ? complexity : 0.45;
+          const targetTempo = bpm ? Number(bpm) : undefined;
+          generateAiBeat(compVal, targetTempo, effectiveSteps, effectiveBars);
+
+          return {
+              success: true,
+              pattern: sequencerRef.current.steps,
+              suggestedBpm: targetTempo || paramsRef.current.bpm,
+              modelUsed: 'Algorithmic Groove Engine (Auto-Fallback)',
+              bars: effectiveBars,
+              stepCount: effectiveSteps,
+          };
       }
   }, [audioBuffer, params.bpm, updateParams]);
 

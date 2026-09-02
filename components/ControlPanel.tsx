@@ -1,11 +1,12 @@
 
-import React, { useState, memo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, memo, useCallback, useRef } from 'react';
 import type { AllParams, Slice, NoteSubdivision, SliceType, EffectParams } from '../types';
 import Slider from './Slider';
 import EffectSection from './EffectSection';
 import Tooltip from './Tooltip';
 import InfoIcon from './InfoIcon';
 import SliceWaveformEditor from './SliceWaveformEditor';
+import { getGuestStatus, GuestStatus } from '../src/lib/guest-session';
 
 interface ControlPanelProps {
      params: AllParams;
@@ -262,6 +263,10 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      const [aiDescription, setAiDescription] = useState('Energetic trap beat with syncopated 808 kicks, sharp snare on 5 and 13, and rapid hi-hat rolls');
      const [aiBpm, setAiBpm] = useState('');
      const [aiApiKey, setAiApiKey] = useState('');
+     const [guestStatus, setGuestStatus] = useState<GuestStatus>(() => {
+         const user = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
+         return getGuestStatus(user, '');
+     });
      const [isGenerating, setIsGenerating] = useState(false);
      const [generationStepText, setGenerationStepText] = useState('');
      const [aiFeedback, setAiFeedback] = useState<{
@@ -271,6 +276,17 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
          allowFallback?: boolean;
      } | null>(null);
      const irInputRef = useRef<HTMLInputElement>(null);
+
+     // Update guest status countdown every second
+     useEffect(() => {
+         const checkGuest = () => {
+             const user = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
+             setGuestStatus(getGuestStatus(user, aiApiKey));
+         };
+         checkGuest();
+         const timer = setInterval(checkGuest, 1000);
+         return () => clearInterval(timer);
+     }, [aiApiKey]);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
 
@@ -463,6 +479,27 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
                         {generationMode === 'ai' ? (
                             <div className="space-y-4">
+                                {/* Guest Spend Control Status Bar */}
+                                {guestStatus.isGuest && (
+                                    !guestStatus.isAiLimitReached ? (
+                                        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-[11px] text-hyper-cyan font-mono">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-hyper-cyan animate-pulse"></span>
+                                                <span>Guest Access: <strong>5-Min AI Trial</strong> ({guestStatus.formattedRemaining} remaining)</span>
+                                            </div>
+                                            <span className="text-[10px] text-star-dust/70 hidden sm:inline">Switches to Algorithmic Engine at 0:00 to protect spend</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 font-mono">
+                                            <div className="flex items-center gap-2">
+                                                <span>🛡️</span>
+                                                <span>Guest Spend Limit Active (5m) — <strong>Algorithmic Groove Engine Active</strong></span>
+                                            </div>
+                                            <span className="text-[10px] text-star-dust/80">Sign in for unlimited AI</span>
+                                        </div>
+                                    )
+                                )}
+
                                 {/* Genre Presets Bar */}
                                 <div>
                                     <label className="text-[10px] font-bold text-star-dust/70 uppercase tracking-wider mb-1.5 block">Quick Genre Presets</label>
@@ -595,8 +632,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         </>
                                     ) : (
                                         <>
-                                            <span>✨</span>
-                                            <span>GENERATE AI BEAT PATTERN</span>
+                                            <span>{guestStatus.isAiLimitReached ? '🎲' : '✨'}</span>
+                                            <span>{guestStatus.isAiLimitReached ? 'GENERATE GROOVE (ALGORITHMIC ENGINE)' : 'GENERATE AI BEAT PATTERN'}</span>
                                         </>
                                     )}
                                 </button>
@@ -969,6 +1006,27 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
             {generationMode === 'ai' ? (
                 <div className="space-y-5">
+                    {/* Guest Spend Control Status Bar */}
+                    {guestStatus.isGuest && (
+                        !guestStatus.isAiLimitReached ? (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-xs text-hyper-cyan font-mono shadow-[0_0_15px_rgba(0,246,255,0.1)]">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-hyper-cyan animate-pulse shadow-[0_0_8px_#00f6ff]"></span>
+                                    <span>Guest Access: <strong>5-Minute AI Generation Window</strong> ({guestStatus.formattedRemaining} remaining)</span>
+                                </div>
+                                <span className="text-[11px] text-star-dust/80">Zero-cost algorithmic groove fallback automatically engages at 0:00</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 font-mono shadow-[0_0_15px_rgba(245,158,11,0.1)]">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">🛡️</span>
+                                    <span>Guest Spend Limit Active — <strong>Algorithmic Groove Engine Active</strong> (Instant & Free)</span>
+                                </div>
+                                <span className="text-[11px] text-star-dust/80">Sign in with Neon Auth or enter custom API key for unlimited AI</span>
+                            </div>
+                        )
+                    )}
+
                     {/* Genre Quick Presets */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
@@ -1171,8 +1229,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-base">✨</span>
-                                            <span>GENERATE AI BEAT PATTERN</span>
+                                            <span className="text-base">{guestStatus.isAiLimitReached ? '🎲' : '✨'}</span>
+                                            <span>{guestStatus.isAiLimitReached ? 'GENERATE GROOVE (ALGORITHMIC ENGINE)' : 'GENERATE AI BEAT PATTERN'}</span>
                                         </>
                                     )}
                                 </button>

@@ -16,7 +16,6 @@ import ContactDialog from './components/ContactDialog';
 import Transport from './components/Transport';
 import Tooltip from './components/Tooltip';
 import VideoTutorialDialog from './components/VideoTutorialDialog';
-import DemoPromptDialog from './components/DemoPromptDialog';
 
 declare const Tone: any;
 
@@ -82,7 +81,6 @@ const App: React.FC = () => {
     const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
     const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
     const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
-    const [isPromptOpen, setIsPromptOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
 
@@ -112,18 +110,6 @@ const App: React.FC = () => {
             window.removeEventListener('neon_auth_change', syncUser);
             window.removeEventListener('storage', syncUser);
         };
-    }, []);
-
-    // Startup: Check Quickstart Video Preference with Delay
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            const hasSeen = localStorage.getItem('beat_slicer_quickstart_seen_v3');
-            if (hasSeen !== 'true') {
-                setIsPromptOpen(true);
-            }
-        }, 1500);
-
-        return () => clearTimeout(timer);
     }, []);
 
     // Global Keyboard Shortcuts
@@ -202,12 +188,6 @@ const App: React.FC = () => {
             <VideoTutorialDialog
                 isOpen={isVideoDialogOpen}
                 onClose={() => setIsVideoDialogOpen(false)}
-            />
-
-            <DemoPromptDialog
-                isOpen={isPromptOpen}
-                onWatchDemo={() => { setIsPromptOpen(false); setIsVideoDialogOpen(true); }}
-                onSkip={() => { setIsPromptOpen(false); localStorage.setItem('beat_slicer_quickstart_seen_v3', 'true'); }}
             />
 
             {/* Global Library Manager Modal */}

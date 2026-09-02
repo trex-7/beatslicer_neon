@@ -6,7 +6,6 @@ import EffectSection from './EffectSection';
 import Tooltip from './Tooltip';
 import InfoIcon from './InfoIcon';
 import SliceWaveformEditor from './SliceWaveformEditor';
-import { getGuestStatus, GuestStatus } from '../src/lib/guest-session';
 
 interface ControlPanelProps {
      params: AllParams;
@@ -262,10 +261,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      const [aiStyle, setAiStyle] = useState('trap');
      const [aiDescription, setAiDescription] = useState('Energetic trap beat with syncopated 808 kicks, sharp snare on 5 and 13, and rapid hi-hat rolls');
      const [aiBpm, setAiBpm] = useState('');
-     const [aiApiKey, setAiApiKey] = useState('');
-     const [guestStatus, setGuestStatus] = useState<GuestStatus>(() => {
-         const user = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
-         return getGuestStatus(user, '');
+     const [aiApiKey, setAiApiKey] = useState(() => {
+         return typeof window !== 'undefined' ? (localStorage.getItem('user_ai_api_key') || '') : '';
      });
      const [isGenerating, setIsGenerating] = useState(false);
      const [generationStepText, setGenerationStepText] = useState('');
@@ -277,15 +274,15 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
      } | null>(null);
      const irInputRef = useRef<HTMLInputElement>(null);
 
-     // Update guest status countdown every second
+     // Sync API key to local storage
      useEffect(() => {
-         const checkGuest = () => {
-             const user = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
-             setGuestStatus(getGuestStatus(user, aiApiKey));
-         };
-         checkGuest();
-         const timer = setInterval(checkGuest, 1000);
-         return () => clearInterval(timer);
+         if (typeof window !== 'undefined') {
+             if (aiApiKey) {
+                 localStorage.setItem('user_ai_api_key', aiApiKey);
+             } else {
+                 localStorage.removeItem('user_ai_api_key');
+             }
+         }
      }, [aiApiKey]);
 
     const currentSlice = selectedSliceIndex !== null ? slices[selectedSliceIndex] : null;
@@ -479,25 +476,23 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
                         {generationMode === 'ai' ? (
                             <div className="space-y-4">
-                                {/* Guest Spend Control Status Bar */}
-                                {guestStatus.isGuest && (
-                                    !guestStatus.isAiLimitReached ? (
-                                        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-[11px] text-hyper-cyan font-mono">
-                                            <div className="flex items-center gap-2">
-                                                <span className="w-2 h-2 rounded-full bg-hyper-cyan animate-pulse"></span>
-                                                <span>Guest Access: <strong>5-Min AI Trial</strong> ({guestStatus.formattedRemaining} remaining)</span>
-                                            </div>
-                                            <span className="text-[10px] text-star-dust/70 hidden sm:inline">Switches to Algorithmic Engine at 0:00 to protect spend</span>
+                                {/* Key Status & Fallback Indicator */}
+                                {aiApiKey.trim() ? (
+                                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-[11px] text-hyper-cyan font-mono">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-hyper-cyan animate-pulse"></span>
+                                            <span>User API Key Active: <strong>{aiModel}</strong></span>
                                         </div>
-                                    ) : (
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 font-mono">
-                                            <div className="flex items-center gap-2">
-                                                <span>🛡️</span>
-                                                <span>Guest Spend Limit Active (5m) — <strong>Algorithmic Groove Engine Active</strong></span>
-                                            </div>
-                                            <span className="text-[10px] text-star-dust/80">Sign in for unlimited AI</span>
+                                        <button onClick={() => setAiApiKey('')} className="text-[10px] text-star-dust/60 hover:text-white underline">Clear Key</button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-[11px] text-purple-300 font-mono">
+                                        <div className="flex items-center gap-2">
+                                            <span>⚡</span>
+                                            <span>No API key entered — <strong>Algorithmic Groove Engine Active</strong> (Instant & Free)</span>
                                         </div>
-                                    )
+                                        <span className="text-[10px] text-star-dust/70">Enter API key below for AI LLM generation</span>
+                                    </div>
                                 )}
 
                                 {/* Genre Presets Bar */}
@@ -549,7 +544,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                                 onChange={(e) => setAiModel(e.target.value)}
                                                 className="w-full h-8 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-hyper-cyan outline-none px-2 font-medium"
                                             >
-                                                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Default / Fast)</option>
+                                                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Fast)</option>
                                                 <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
                                                 <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Advanced)</option>
                                                 <option value="openai-gpt4o">OpenAI GPT-4o</option>
@@ -587,6 +582,22 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                     </div>
                                 </div>
 
+                                {/* API Key Input */}
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-[10px] font-bold text-star-dust/70 uppercase">
+                                            API Key <span className="text-[9px] font-normal text-star-dust/50">(Optional — leave blank for free algorithmic groove generation)</span>
+                                        </label>
+                                    </div>
+                                    <input
+                                        type="password"
+                                        value={aiApiKey}
+                                        onChange={(e) => setAiApiKey(e.target.value)}
+                                        placeholder={`Enter your ${aiModel.startsWith('gemini') ? 'Gemini' : aiModel.startsWith('openai') ? 'OpenAI' : aiModel.startsWith('claude') ? 'Claude' : 'DeepSeek'} API key (optional)`}
+                                        className="w-full h-8 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-plasma-pink outline-none px-2.5 font-mono"
+                                    />
+                                </div>
+
                                 {/* Generate Button */}
                                 <button
                                     onClick={async () => {
@@ -597,8 +608,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         setIsGenerating(true);
                                         setAiFeedback({
                                             type: 'info',
-                                            message: '🤖 AI Model Composing Rhythm...',
-                                            details: `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) groove...`
+                                            message: aiApiKey.trim() ? '🤖 AI Model Composing Rhythm...' : '⚡ Algorithmic Engine Composing Rhythm...',
+                                            details: aiApiKey.trim() ? `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) groove with your key...` : `Generating ${aiBars}-bar (${aiStepCount} steps) pattern via instant algorithmic engine...`
                                         });
                                         try {
                                             const result = await generateAiPattern(aiModel, 'text', aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle, aiBars);
@@ -608,15 +619,15 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                             }
                                             setAiFeedback({
                                                 type: 'success',
-                                                message: '✨ AI Pattern Applied to Sequencer!',
-                                                details: `Generated ${result?.bars || aiBars}-bar (${result?.stepCount || aiStepCount} steps) pattern with ${result?.modelUsed || aiModel}${bpmText}`
+                                                message: '✨ Pattern Applied to Sequencer!',
+                                                details: `Generated ${result?.bars || aiBars}-bar (${result?.stepCount || aiStepCount} steps) pattern with ${result?.modelUsed || (aiApiKey.trim() ? aiModel : 'Algorithmic Engine')}${bpmText}`
                                             });
                                             setTimeout(() => setAiFeedback(prev => prev?.type === 'success' ? null : prev), 5000);
                                         } catch (err: any) {
                                             setAiFeedback({
                                                 type: 'error',
-                                                message: 'AI Generation Failed',
-                                                details: err?.message || 'Check network connection or API settings'
+                                                message: 'Pattern Generation Notice',
+                                                details: err?.message || 'Generated groove with algorithmic fallback engine.'
                                             });
                                         } finally {
                                             setIsGenerating(false);
@@ -628,12 +639,12 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                     {isGenerating ? (
                                         <>
                                             <span className="inline-block animate-spin">⏳</span>
-                                            <span>COMPOSING WITH AI...</span>
+                                            <span>COMPOSING PATTERN...</span>
                                         </>
                                     ) : (
                                         <>
-                                            <span>{guestStatus.isAiLimitReached ? '🎲' : '✨'}</span>
-                                            <span>{guestStatus.isAiLimitReached ? 'GENERATE GROOVE (ALGORITHMIC ENGINE)' : 'GENERATE AI BEAT PATTERN'}</span>
+                                            <span>{aiApiKey.trim() ? '✨' : '⚡'}</span>
+                                            <span>{aiApiKey.trim() ? `GENERATE AI BEAT PATTERN (${aiModel.toUpperCase()})` : 'GENERATE GROOVE (ALGORITHMIC ENGINE)'}</span>
                                         </>
                                     )}
                                 </button>
@@ -1006,25 +1017,23 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
 
             {generationMode === 'ai' ? (
                 <div className="space-y-5">
-                    {/* Guest Spend Control Status Bar */}
-                    {guestStatus.isGuest && (
-                        !guestStatus.isAiLimitReached ? (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-xs text-hyper-cyan font-mono shadow-[0_0_15px_rgba(0,246,255,0.1)]">
-                                <div className="flex items-center gap-2">
-                                    <span className="w-2.5 h-2.5 rounded-full bg-hyper-cyan animate-pulse shadow-[0_0_8px_#00f6ff]"></span>
-                                    <span>Guest Access: <strong>5-Minute AI Generation Window</strong> ({guestStatus.formattedRemaining} remaining)</span>
-                                </div>
-                                <span className="text-[11px] text-star-dust/80">Zero-cost algorithmic groove fallback automatically engages at 0:00</span>
+                    {/* Key Status & Fallback Indicator */}
+                    {aiApiKey.trim() ? (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-hyper-cyan/10 border border-hyper-cyan/30 text-xs text-hyper-cyan font-mono shadow-[0_0_15px_rgba(0,246,255,0.1)]">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-hyper-cyan animate-pulse shadow-[0_0_8px_#00f6ff]"></span>
+                                <span>Custom API Key Active: <strong>{aiModel}</strong> (Direct Client-Authorized Generation)</span>
                             </div>
-                        ) : (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 font-mono shadow-[0_0_15px_rgba(245,158,11,0.1)]">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🛡️</span>
-                                    <span>Guest Spend Limit Active — <strong>Algorithmic Groove Engine Active</strong> (Instant & Free)</span>
-                                </div>
-                                <span className="text-[11px] text-star-dust/80">Sign in with Neon Auth or enter custom API key for unlimited AI</span>
+                            <button onClick={() => setAiApiKey('')} className="text-[11px] text-star-dust/70 hover:text-white underline self-end sm:self-auto">Clear Key</button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs text-purple-300 font-mono shadow-[0_0_15px_rgba(168,85,247,0.1)]">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">⚡</span>
+                                <span>No API Key Entered — <strong>Algorithmic Groove Engine Active</strong> (Instant, Free, & Fully Offline)</span>
                             </div>
-                        )
+                            <span className="text-[11px] text-star-dust/70">Enter your Gemini, OpenAI, Claude, or DeepSeek key below for LLM composition</span>
+                        </div>
                     )}
 
                     {/* Genre Quick Presets */}
@@ -1043,7 +1052,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                     className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center truncate ${
                                         aiStyle === preset.id
                                             ? 'bg-plasma-pink/20 text-plasma-pink border-plasma-pink shadow-[0_0_15px_rgba(255,0,170,0.3)] scale-[1.02]'
-                                            : 'bg-black/30 text-star-dust/70 border-white/10 hover:border-white/20 hover:text-white'
+                                             : 'bg-black/30 text-star-dust/70 border-white/10 hover:border-white/20 hover:text-white'
                                     }`}
                                 >
                                     {preset.label}
@@ -1091,7 +1100,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         onChange={(e) => setAiModel(e.target.value)}
                                         className="w-full h-9 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-hyper-cyan outline-none px-2.5 font-medium"
                                     >
-                                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Default / Fast)</option>
+                                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Fast)</option>
                                         <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
                                         <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Advanced)</option>
                                         <option value="openai-gpt4o">OpenAI GPT-4o</option>
@@ -1147,16 +1156,18 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                 </div>
                             </div>
 
-                            {/* Optional Custom API Key accordion or field */}
+                            {/* User API Key field */}
                             <div>
-                                <label className="text-[10px] font-bold text-star-dust/60 uppercase mb-1 block">
-                                    Custom API Key <span className="text-[9px] font-normal text-star-dust/40">(Optional — Server Gemini key is preconfigured)</span>
-                                </label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-[10px] font-bold text-star-dust/70 uppercase">
+                                        Your API Key <span className="text-[9px] font-normal text-star-dust/50">(Optional — leave blank for free algorithmic groove engine)</span>
+                                    </label>
+                                </div>
                                 <input
                                     type="password"
                                     value={aiApiKey}
                                     onChange={(e) => setAiApiKey(e.target.value)}
-                                    placeholder={aiModel.startsWith('gemini') ? 'Using platform key (or enter custom key)' : 'Enter API key for selected model'}
+                                    placeholder={`Enter your ${aiModel.startsWith('gemini') ? 'Gemini' : aiModel.startsWith('openai') ? 'OpenAI' : aiModel.startsWith('claude') ? 'Claude' : 'DeepSeek'} API key`}
                                     className="w-full h-8 bg-black/40 text-xs text-white rounded-lg border border-white/10 focus:border-plasma-pink outline-none px-2.5 font-mono"
                                 />
                             </div>
@@ -1180,25 +1191,27 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                         }
 
                                         setIsGenerating(true);
-                                        setGenerationStepText('Connecting to AI Model...');
+                                        setGenerationStepText(aiApiKey.trim() ? 'Connecting to AI Model...' : 'Generating Groove Pattern...');
                                         setAiFeedback({
                                             type: 'info',
-                                            message: '🤖 AI Model Composing...',
-                                            details: `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) pattern...`
+                                            message: aiApiKey.trim() ? '🤖 AI Model Composing...' : '⚡ Algorithmic Groove Engine Composing...',
+                                            details: aiApiKey.trim() ? `Prompting ${aiModel} for ${aiBars}-bar (${aiStepCount} steps) pattern...` : `Generating ${aiBars}-bar (${aiStepCount} steps) pattern instantly...`
                                         });
 
                                         try {
-                                            setGenerationStepText('Composing rhythms & ratchets...');
+                                            if (aiApiKey.trim()) {
+                                                setGenerationStepText('Composing rhythms & ratchets...');
+                                            }
                                             const result = await generateAiPattern(aiModel, aiInputType, aiStepCount, aiDescription, aiComplexity, aiApiKey, aiBpm, aiStyle, aiBars);
                                             const bpmText = result?.suggestedBpm ? ` @ ${result.suggestedBpm} BPM` : '';
-                                            const modelLabel = result?.modelUsed || aiModel;
+                                            const modelLabel = result?.modelUsed || (aiApiKey.trim() ? aiModel : 'Algorithmic Groove Engine');
                                             if (result?.suggestedBpm) {
                                                 setAiBpm(String(result.suggestedBpm));
                                             }
                                             
                                             setAiFeedback({
                                                 type: 'success',
-                                                message: '✨ AI Pattern Generated & Applied to Sequencer!',
+                                                message: '✨ Pattern Generated & Applied to Sequencer!',
                                                 details: `Loaded ${result?.bars || aiBars}-bar (${result?.stepCount || aiStepCount} steps) groove using ${modelLabel}${bpmText}`
                                             });
                                             setTimeout(() => {
@@ -1208,8 +1221,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                             console.error('AI Generation Error:', e);
                                             setAiFeedback({
                                                 type: 'error',
-                                                message: 'AI Generation Failed — Fallback Available',
-                                                details: e?.message || 'The AI service timed out or was unreachable.',
+                                                message: 'Pattern Generation Notice',
+                                                details: e?.message || 'Generated groove with algorithmic fallback engine.',
                                                 allowFallback: true
                                             });
                                         } finally {
@@ -1225,12 +1238,12 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
                                     {isGenerating ? (
                                         <>
                                             <span className="inline-block animate-spin text-lg">⏳</span>
-                                            <span>{generationStepText || 'AI MODEL IS COMPOSING PATTERN...'}</span>
+                                            <span>{generationStepText || 'COMPOSING PATTERN...'}</span>
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-base">{guestStatus.isAiLimitReached ? '🎲' : '✨'}</span>
-                                            <span>{guestStatus.isAiLimitReached ? 'GENERATE GROOVE (ALGORITHMIC ENGINE)' : 'GENERATE AI BEAT PATTERN'}</span>
+                                            <span className="text-base">{aiApiKey.trim() ? '✨' : '⚡'}</span>
+                                            <span>{aiApiKey.trim() ? `GENERATE AI BEAT PATTERN (${aiModel.toUpperCase()})` : 'GENERATE GROOVE (ALGORITHMIC ENGINE)'}</span>
                                         </>
                                     )}
                                 </button>

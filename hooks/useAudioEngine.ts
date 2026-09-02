@@ -5,7 +5,6 @@ import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
-import { getGuestStatus } from '../src/lib/guest-session';
 
 /// <reference types="vite/client" />
 
@@ -1513,12 +1512,11 @@ export const useAudioEngine = () => {
       const effectiveBars = bars || (stepCount ? stepCount / 16 : 1);
       const effectiveSteps = stepCount || Math.round(effectiveBars * 16);
 
-      // Check Guest Mode 5-minute spending limit
-      const storedUser = typeof window !== 'undefined' ? localStorage.getItem('neon_auth_user') : null;
-      const guestStatus = getGuestStatus(storedUser, apiKey);
+      const userApiKey = apiKey?.trim() || '';
 
-      if (guestStatus.isAiLimitReached) {
-          console.log('[Guest Mode] 5-minute AI spend control active. Generating algorithmic groove pattern.');
+      // If no API key is entered in the AI window, immediately generate using the Algorithmic Music-Theory Pattern Engine
+      if (!userApiKey) {
+          console.log('[Pattern Engine] No user API key entered. Generating groove with built-in Algorithmic Engine.');
           const compVal = typeof complexity === 'number' ? complexity : 0.45;
           const targetTempo = bpm ? Number(bpm) : undefined;
           generateAiBeat(compVal, targetTempo, effectiveSteps, effectiveBars);
@@ -1526,7 +1524,7 @@ export const useAudioEngine = () => {
               success: true,
               pattern: sequencerRef.current.steps,
               suggestedBpm: targetTempo || paramsRef.current.bpm,
-              modelUsed: 'Algorithmic Groove Engine (Spend Control - Guest 5m Limit)',
+              modelUsed: 'Algorithmic Groove Engine (Free / No Key Provided)',
               bars: effectiveBars,
               stepCount: effectiveSteps,
           };

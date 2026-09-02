@@ -110,30 +110,27 @@ export async function generatePatternWithAI(
     prompt += `Suggest an ideal tempo (BPM) between 70 and 175 appropriate for this style.\n`;
   }
 
-  // 1. Google Gemini Generation using @google/genai SDK
+  const userApiKey = cleanEnv(apiKey);
+
+  // If no API key was entered by the user, immediately and cleanly fallback to the Algorithmic Music-Theory Pattern Engine
+  if (!userApiKey) {
+    console.log('[AI Pattern] No user API key entered in AI window. Using Algorithmic Music-Theory Pattern Engine (Free / No Key).');
+    return generateAlgorithmicGroove({
+      stepCount,
+      bars: resolvedBars,
+      slicesCount,
+      sliceCategories,
+      style,
+      description,
+      complexity,
+      bpm,
+    });
+  }
+
+  // 1. Google Gemini Generation using @google/genai SDK (with user's entered Gemini API key)
   if (model.startsWith('gemini') || model === 'default' || !model) {
-    let effectiveGeminiKey =
-      cleanEnv(apiKey) ||
-      cleanEnv(process.env.GEMINI_API_KEY) ||
-      cleanEnv(process.env.VITE_GEMINI_API_KEY);
-
-    // If key is missing, seamlessly generate a professional genre-accurate algorithmic groove
-    if (!effectiveGeminiKey) {
-      console.log('[AI Pattern] No Gemini API key provided. Using Algorithmic Music-Theory Pattern Engine.');
-      return generateAlgorithmicGroove({
-        stepCount,
-        bars: resolvedBars,
-        slicesCount,
-        sliceCategories,
-        style,
-        description,
-        complexity,
-        bpm,
-      });
-    }
-
     const ai = new GoogleGenAI({
-      apiKey: effectiveGeminiKey,
+      apiKey: userApiKey,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -269,15 +266,6 @@ Return exactly ${stepCount} steps in the pattern array representing ${resolvedBa
 
   // 2. OpenAI Generation (GPT-4o, GPT-4o-mini, o3-mini)
   if (model.startsWith('openai') || model.startsWith('gpt')) {
-    const effectiveOpenAIKey =
-      cleanEnv(apiKey) ||
-      cleanEnv(process.env.OPENAI_API_KEY) ||
-      cleanEnv(process.env.VITE_OPENAI_API_KEY);
-
-    if (!effectiveOpenAIKey) {
-      throw new Error('OpenAI API key is required. Please provide it in the API Key field.');
-    }
-
     let openAiModel = 'gpt-4o-mini';
     if (model === 'openai-gpt4' || model === 'openai-gpt4o' || model === 'gpt-4o') {
       openAiModel = 'gpt-4o';
@@ -285,171 +273,195 @@ Return exactly ${stepCount} steps in the pattern array representing ${resolvedBa
       openAiModel = 'o3-mini';
     }
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${effectiveOpenAIKey}`,
-      },
-      body: JSON.stringify({
-        model: openAiModel,
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert drum programmer. Return ONLY a valid JSON object with {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number (0 to ${Math.max(0, slicesCount - 1)}), "ratchet": number (1-4)}]} containing exactly ${stepCount} steps.`,
-          },
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userApiKey}`,
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert drum programmer. Return ONLY a valid JSON object with {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number (0 to ${Math.max(0, slicesCount - 1)}), "ratchet": number (1-4)}]} containing exactly ${stepCount} steps.`,
+            },
+            { role: 'user', content: prompt },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenAI API call failed (${res.status}): ${errText}`);
-    }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`OpenAI API call failed (${res.status}): ${errText}`);
+      }
 
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    const parsed = JSON.parse(content);
-    const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || '{}';
+      const parsed = JSON.parse(content);
+      const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
 
-    const sanitizedPattern: PatternStep[] = [];
-    for (let i = 0; i < stepCount; i++) {
-      const step = rawPattern[i];
-      sanitizedPattern.push({
-        active: Boolean(step?.active),
-        sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
-        ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+      const sanitizedPattern: PatternStep[] = [];
+      for (let i = 0; i < stepCount; i++) {
+        const step = rawPattern[i];
+        sanitizedPattern.push({
+          active: Boolean(step?.active),
+          sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
+          ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+        });
+      }
+
+      return {
+        pattern: sanitizedPattern,
+        suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
+        modelUsed: openAiModel,
+        bars: resolvedBars,
+        stepCount,
+      };
+    } catch (openAiErr: any) {
+      console.warn('[OpenAI SDK] Failed, falling back to algorithmic engine:', openAiErr.message);
+      return generateAlgorithmicGroove({
+        stepCount,
+        bars: resolvedBars,
+        slicesCount,
+        sliceCategories,
+        style,
+        description,
+        complexity,
+        bpm,
       });
     }
-
-    return {
-      pattern: sanitizedPattern,
-      suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
-      modelUsed: openAiModel,
-      bars: resolvedBars,
-      stepCount,
-    };
   }
 
   // 3. DeepSeek Generation (deepseek-chat, deepseek-reasoner)
   if (model.startsWith('deepseek')) {
-    const effectiveDeepSeekKey =
-      cleanEnv(apiKey) ||
-      cleanEnv(process.env.DEEPSEEK_API_KEY) ||
-      cleanEnv(process.env.VITE_DEEPSEEK_API_KEY);
-
-    if (!effectiveDeepSeekKey) {
-      throw new Error('DeepSeek API key is required. Please provide it in the API Key field.');
-    }
-
     const deepseekModel = model === 'deepseek-reasoner' ? 'deepseek-reasoner' : 'deepseek-chat';
 
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${effectiveDeepSeekKey}`,
-      },
-      body: JSON.stringify({
-        model: deepseekModel,
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert drum programmer. Return ONLY a valid JSON object formatted as: {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number, "ratchet": number}]} with exactly ${stepCount} items. Slice indices must be 0 to ${Math.max(0, slicesCount - 1)}.`,
-          },
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+    try {
+      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userApiKey}`,
+        },
+        body: JSON.stringify({
+          model: deepseekModel,
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert drum programmer. Return ONLY a valid JSON object formatted as: {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number, "ratchet": number}]} with exactly ${stepCount} items. Slice indices must be 0 to ${Math.max(0, slicesCount - 1)}.`,
+            },
+            { role: 'user', content: prompt },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`DeepSeek API call failed (${res.status}): ${errText}`);
-    }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`DeepSeek API call failed (${res.status}): ${errText}`);
+      }
 
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    const parsed = JSON.parse(content);
-    const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || '{}';
+      const parsed = JSON.parse(content);
+      const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
 
-    const sanitizedPattern: PatternStep[] = [];
-    for (let i = 0; i < stepCount; i++) {
-      const step = rawPattern[i];
-      sanitizedPattern.push({
-        active: Boolean(step?.active),
-        sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
-        ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+      const sanitizedPattern: PatternStep[] = [];
+      for (let i = 0; i < stepCount; i++) {
+        const step = rawPattern[i];
+        sanitizedPattern.push({
+          active: Boolean(step?.active),
+          sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
+          ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+        });
+      }
+
+      return {
+        pattern: sanitizedPattern,
+        suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
+        modelUsed: deepseekModel,
+        bars: resolvedBars,
+        stepCount,
+      };
+    } catch (deepseekErr: any) {
+      console.warn('[DeepSeek SDK] Failed, falling back to algorithmic engine:', deepseekErr.message);
+      return generateAlgorithmicGroove({
+        stepCount,
+        bars: resolvedBars,
+        slicesCount,
+        sliceCategories,
+        style,
+        description,
+        complexity,
+        bpm,
       });
     }
-
-    return {
-      pattern: sanitizedPattern,
-      suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
-      modelUsed: deepseekModel,
-      bars: resolvedBars,
-      stepCount,
-    };
   }
 
   // 4. Anthropic Claude Generation (claude-3-5-sonnet, claude-3-5-haiku)
   if (model.startsWith('claude')) {
-    const effectiveClaudeKey =
-      cleanEnv(apiKey) ||
-      cleanEnv(process.env.ANTHROPIC_API_KEY) ||
-      cleanEnv(process.env.CLAUDE_API_KEY);
-
-    if (!effectiveClaudeKey) {
-      throw new Error('Claude API key is required. Please provide it in the API Key field.');
-    }
-
     const claudeModel = model === 'claude-3-5-haiku' ? 'claude-3-5-haiku-20241022' : 'claude-3-5-sonnet-20241022';
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': effectiveClaudeKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: claudeModel,
-        max_tokens: 1000,
-        system: `You are an expert drum programmer. Output ONLY raw valid JSON (no markdown formatting, no commentary) matching: {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number (0-${Math.max(0, slicesCount - 1)}), "ratchet": number (1-4)}]} containing ${stepCount} steps.`,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': userApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: claudeModel,
+          max_tokens: 1000,
+          system: `You are an expert drum programmer. Output ONLY raw valid JSON (no markdown formatting, no commentary) matching: {"suggestedBpm": number, "pattern": [{"active": boolean, "sliceIndex": number (0-${Math.max(0, slicesCount - 1)}), "ratchet": number (1-4)}]} containing ${stepCount} steps.`,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Claude API call failed (${res.status}): ${errText}`);
-    }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Claude API call failed (${res.status}): ${errText}`);
+      }
 
-    const data = await res.json();
-    const content = data.content?.[0]?.text || '{}';
-    const match = content.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(match ? match[0] : content);
-    const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
+      const data = await res.json();
+      const content = data.content?.[0]?.text || '{}';
+      const match = content.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(match ? match[0] : content);
+      const rawPattern = Array.isArray(parsed.pattern) ? parsed.pattern : [];
 
-    const sanitizedPattern: PatternStep[] = [];
-    for (let i = 0; i < stepCount; i++) {
-      const step = rawPattern[i];
-      sanitizedPattern.push({
-        active: Boolean(step?.active),
-        sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
-        ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+      const sanitizedPattern: PatternStep[] = [];
+      for (let i = 0; i < stepCount; i++) {
+        const step = rawPattern[i];
+        sanitizedPattern.push({
+          active: Boolean(step?.active),
+          sliceIndex: Math.max(0, Math.min(slicesCount - 1, Number(step?.sliceIndex) || 0)),
+          ratchet: Math.max(1, Math.min(4, Math.round(Number(step?.ratchet) || 1))),
+        });
+      }
+
+      return {
+        pattern: sanitizedPattern,
+        suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
+        modelUsed: claudeModel,
+        bars: resolvedBars,
+        stepCount,
+      };
+    } catch (claudeErr: any) {
+      console.warn('[Claude SDK] Failed, falling back to algorithmic engine:', claudeErr.message);
+      return generateAlgorithmicGroove({
+        stepCount,
+        bars: resolvedBars,
+        slicesCount,
+        sliceCategories,
+        style,
+        description,
+        complexity,
+        bpm,
       });
     }
-
-    return {
-      pattern: sanitizedPattern,
-      suggestedBpm: resolveBpm(parsed.suggestedBpm, bpm, style, description),
-      modelUsed: claudeModel,
-      bars: resolvedBars,
-      stepCount,
-    };
   }
 
   if (model === 'algorithmic' || model === 'groove-engine') {

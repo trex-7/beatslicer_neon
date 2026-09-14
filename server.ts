@@ -5,7 +5,7 @@ import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import { requireAuth, optionalAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser } from './src/db/users.ts';
-import { initDatabase } from './src/db/index.ts';
+import { createPool, initDatabase } from './src/db/index.ts';
 import {
   isS3Configured,
   uploadBufferToS3,
@@ -16,6 +16,7 @@ import {
   generatePresignedUploadUrl,
   getS3Config,
   syncLocalAudioToBucket,
+  getObjectBufferFromS3,
 } from './src/lib/s3.ts';
 import { migrateSupabaseToNeonStorage } from './src/lib/supabase-migrator.ts';
 import { generatePatternWithAI } from './src/lib/ai-pattern-service.ts';
@@ -78,8 +79,17 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Static serving for uploaded files
+  // Static serving for uploaded files and audio assets (development & production)
+  const audioDir = path.join(process.cwd(), 'public', 'Audio');
+  const distAudioDir = path.join(process.cwd(), 'dist', 'Audio');
+  const publicDir = path.join(process.cwd(), 'public');
+
+  app.use('/Audio', express.static(audioDir));
+  if (fs.existsSync(distAudioDir)) {
+    app.use('/Audio', express.static(distAudioDir));
+  }
   app.use('/uploads', express.static(uploadsDir));
+  app.use('/public', express.static(publicDir));
   app.use('/api/storage', express.static(uploadsDir));
 
   // Health check
@@ -282,6 +292,49 @@ async function startServer() {
     `);
   });
 
+  // Database Status & Diagnostics
+  app.get('/api/db-status', async (_req, res) => {
+    try {
+      const pool = createPool();
+      const client = await pool.connect();
+      try {
+        const tableRes = await client.query(`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public'
+          ORDER BY table_name;
+        `);
+        const tables = tableRes.rows.map(r => r.table_name);
+        
+        const counts: Record<string, number> = {};
+        for (const t of tables) {
+          try {
+            const countRes = await client.query(`SELECT count(*)::int as count FROM "${t}"`);
+            counts[t] = countRes.rows[0]?.count ?? 0;
+          } catch {
+            counts[t] = -1;
+          }
+        }
+
+        res.json({
+          status: 'connected',
+          host: 'ep-damp-sunset-axegat0e-pooler.c-4.us-east-2.aws.neon.tech',
+          database: 'neondb',
+          tables,
+          counts,
+          timestamp: new Date().toISOString()
+        });
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      res.status(500).json({
+        status: 'error',
+        error: err?.message || String(err)
+      });
+    }
+  });
+
   // User Profile Sync
   app.post('/api/users/sync', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
@@ -412,10 +465,13 @@ async function startServer() {
     const s3Ready = isS3Configured();
     const config = getS3Config();
     res.json({
+      configured: s3Ready,
       s3Enabled: s3Ready,
       bucket: config.bucket || null,
       region: config.region || null,
+      endpoint: config.endpoint || null,
       customEndpoint: Boolean(config.endpoint),
+      publicBaseUrl: config.publicBaseUrl || null,
       storageType: s3Ready ? 's3' : 'local_disk',
     });
   });
@@ -474,6 +530,57 @@ async function startServer() {
     } catch (error: any) {
       console.error('Presigned URL error:', error);
       res.status(500).json({ error: error.message || 'Failed to generate presigned URL' });
+    }
+  });
+
+  // Storage Stream / File Proxy Endpoint (Ensures storage files stream reliably with full CORS across all deploy environments)
+  app.get(['/api/storage/stream', '/api/storage/file/*all', '/api/storage/raw/*all'], async (req: Request, res: Response) => {
+    try {
+      const targetParam = req.params[0] || (req.query.key as string) || (req.query.url as string);
+      if (!targetParam) {
+        return res.status(400).json({ error: 'Storage file key or url parameter is required' });
+      }
+
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+      }
+
+      // 1. Fetch from S3 storage if configured
+      if (isS3Configured()) {
+        const s3Obj = await getObjectBufferFromS3(targetParam);
+        if (s3Obj) {
+          res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(s3Obj.buffer);
+        }
+      }
+
+      // 2. Fallback to local disk paths
+      const cleanFileName = path.basename(targetParam.split('?')[0]);
+      const candidateDiskPaths = [
+        path.join(process.cwd(), 'public', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'public', 'uploads', cleanFileName),
+        path.join(process.cwd(), 'dist', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'dist', 'uploads', cleanFileName),
+      ];
+
+      for (const diskPath of candidateDiskPaths) {
+        if (fs.existsSync(diskPath)) {
+          const ext = path.extname(diskPath).toLowerCase();
+          const mime = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
+          res.setHeader('Content-Type', mime);
+          return res.sendFile(diskPath);
+        }
+      }
+
+      res.status(404).json({ error: 'Storage file not found' });
+    } catch (err: any) {
+      console.error('Storage stream error:', err);
+      res.status(500).json({ error: err.message || 'Failed to stream storage file' });
     }
   });
 
@@ -713,19 +820,6 @@ async function startServer() {
       console.error('Get feedback error:', error);
       res.status(500).json({ error: error.message || 'Failed to get feedback', data: [] });
     }
-  });
-
-  // Storage status endpoint
-  app.get('/api/storage/status', async (_req: Request, res: Response) => {
-    const config = getS3Config();
-    const isConfigured = isS3Configured();
-    res.json({
-      configured: isConfigured,
-      bucket: config.bucket || null,
-      region: config.region || null,
-      endpoint: config.endpoint || null,
-      publicBaseUrl: config.publicBaseUrl || null,
-    });
   });
 
   // Manually trigger bucket synchronization (uploads all audio in /public/Audio and /public/uploads to Neon bucket)

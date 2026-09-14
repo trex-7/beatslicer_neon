@@ -347,6 +347,36 @@ export async function generatePresignedDownloadUrl(
 }
 
 /**
+ * Retrieves an object's buffer directly from S3 using GetObjectCommand.
+ */
+export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (!isS3Configured()) return null;
+  try {
+    const key = extractS3KeyFromUrl(keyOrUrl);
+    if (!key) return null;
+
+    const s3 = getS3Client();
+    const config = getS3Config();
+    const command = new GetObjectCommand({
+      Bucket: config.bucket!,
+      Key: key,
+    });
+
+    const response = await s3.send(command);
+    if (!response.Body) return null;
+
+    const byteArray = await response.Body.transformToByteArray();
+    return {
+      buffer: Buffer.from(byteArray),
+      contentType: response.ContentType || 'audio/wav',
+    };
+  } catch (error) {
+    console.error(`[S3 Buffer] Failed to retrieve object "${keyOrUrl}":`, error);
+    return null;
+  }
+}
+
+/**
  * Synchronizes all factory and local audio files into the Neon S3 storage bucket.
  */
 export async function syncLocalAudioToBucket(): Promise<{

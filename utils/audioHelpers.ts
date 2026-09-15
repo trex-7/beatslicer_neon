@@ -229,9 +229,7 @@ export function resolveAudioUrl(url: string | null | undefined): string {
         return trimmed;
     }
 
-    // Neon S3 / AWS S3 private storage bucket URLs
-    // e.g. https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech/beat-slicer/samples/...
-    // or https://*.s3.*.amazonaws.com/...
+    // Neon S3 / AWS S3 storage bucket URLs
     if (
         (trimmed.includes('.storage.') && trimmed.includes('.neon.tech')) ||
         (trimmed.includes('.s3.') && trimmed.includes('.amazonaws.com')) ||
@@ -242,7 +240,10 @@ export function resolveAudioUrl(url: string | null | undefined): string {
             let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
             // Strip bucket name from prefix if present
             const parts = pathname.split('/');
-            if (parts.length > 1 && (parts[0] === 'beat-slicer' || parts[0].includes('bucket'))) {
+            const sampleFolders = ['samples', 'factory', 'uploads', 'audio'];
+            if (parts.length > 1 && sampleFolders.includes(parts[1].toLowerCase())) {
+                pathname = parts.slice(1).join('/');
+            } else if (parts.length > 1 && parts[0].toLowerCase().includes('bucket')) {
                 pathname = parts.slice(1).join('/');
             }
             return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;

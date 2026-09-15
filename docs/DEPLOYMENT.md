@@ -107,6 +107,13 @@ The following variables must be **omitted** from Netlify environment variables a
 - `REGION`
 - `STORAGE_BUCKET_NAME`
 
+If these variables were added to Netlify, Netlify's Secret Scanner can be instructed to ignore them via `SECRETS_SCAN_OMIT_KEYS` in `netlify.toml`:
+```toml
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "ENDPOINT_URL_S3,REGION,STORAGE_BUCKET_NAME"
+  SECRETS_SCAN_OMIT_PATHS = "utils/audioHelpers.ts,src/db/queries.ts,src/lib/s3.ts"
+```
+
 ### Step 4: API Proxy / Redirects
 When Netlify is deployed separately from the Render backend, configure `netlify.toml` to proxy `/api/*` requests to your Render Web Service URL:
 

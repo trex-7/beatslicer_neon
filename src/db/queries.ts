@@ -101,7 +101,10 @@ export async function fetchFullLibrary(userId?: string) {
           const parsed = new URL(trimmed);
           let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
           const parts = pathname.split('/');
-          if (parts.length > 1 && (parts[0] === 'beat-slicer' || parts[0].includes('bucket'))) {
+          const sampleFolders = ['samples', 'factory', 'uploads', 'audio'];
+          if (parts.length > 1 && sampleFolders.includes(parts[1].toLowerCase())) {
+            pathname = parts.slice(1).join('/');
+          } else if (parts.length > 1 && parts[0].toLowerCase().includes('bucket')) {
             pathname = parts.slice(1).join('/');
           }
           return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;

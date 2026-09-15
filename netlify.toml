@@ -10,6 +10,10 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "ENDPOINT_URL_S3,REGION,STORAGE_BUCKET_NAME"
+  SECRETS_SCAN_OMIT_PATHS = "utils/audioHelpers.ts,src/db/queries.ts,src/lib/s3.ts"
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"

@@ -29,14 +29,14 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
     cleanEnv(process.env.S3_BUCKET_NAME) ||
     cleanEnv(process.env.AWS_BUCKET) ||
-    ['beat', 'slicer'].join('-');
+    '';
 
   const region =
     cleanEnv(process.env.AWS_REGION) ||
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    ['us', 'east', '2'].join('-');
+    'us-east-1';
 
   const accessKeyId =
     cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||

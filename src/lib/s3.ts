@@ -29,14 +29,14 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
     cleanEnv(process.env.S3_BUCKET_NAME) ||
     cleanEnv(process.env.AWS_BUCKET) ||
-    ['beat', 'slicer'].join('-');
+    'beat-slicer';
 
   const region =
     cleanEnv(process.env.AWS_REGION) ||
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    ['us', 'east', '2'].join('-');
+    'us-east-2';
 
   const accessKeyId =
     cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
@@ -63,8 +63,7 @@ export function getS3Config() {
 
   const publicBaseUrl =
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||
-    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL) ||
-    'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech/beat-slicer';
+    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL);
 
   const forcePathStyle = true;
 

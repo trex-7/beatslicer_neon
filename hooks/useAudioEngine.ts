@@ -1151,7 +1151,7 @@ export const useAudioEngine = () => {
     }
   }, []);
 
-  // UPDATED LOAD PRESET TO FIX MISSING VINYL & GRACEFULLY HANDLE MISSING AUDIO FILES
+  // UPDATED LOAD PRESET TO FIX MISSING VINYL
   const loadPreset = useCallback(async (preset: Preset) => {
       setIsLoading(true);
       await ensureAudioActive();
@@ -1161,29 +1161,21 @@ export const useAudioEngine = () => {
           if (preset.sampleId) setCurrentSampleId(preset.sampleId);
           if (preset.id) setCurrentPresetId(preset.id);
           if (preset.sampleUrl) {
-              try {
-                  const streamUrl = resolveAudioUrl(preset.sampleUrl);
-                  const buffer = new Tone.Buffer(); 
-                  await new Promise<void>((resolve, reject) => {
-                      buffer.load(streamUrl, () => resolve(), (err) => reject(err || new Error(`Could not load audio from ${streamUrl}`)));
-                  });
-                  let rawBuffer = buffer.get(); 
-                  if (rawBuffer) {
-                      rawBuffer = removeLeadingSilence(rawBuffer);
-                      const processedBuffer = new Tone.Buffer(rawBuffer);
-                      setAudioBuffer(processedBuffer);
-                      if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
-                      if (workletNode.current) {
-                          const nativeBuf = processedBuffer.get();
-                          if (nativeBuf && nativeBuf.numberOfChannels > 0) {
-                              const chan0 = nativeBuf.getChannelData(0);
-                              const chan1 = nativeBuf.numberOfChannels > 1 ? nativeBuf.getChannelData(1) : chan0;
-                              workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: processedBuffer.sampleRate });
-                          }
-                      }
+              const streamUrl = resolveAudioUrl(preset.sampleUrl);
+              const buffer = new Tone.Buffer(); 
+              await buffer.load(streamUrl);
+              let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
+              rawBuffer = removeLeadingSilence(rawBuffer);
+              const processedBuffer = new Tone.Buffer(rawBuffer);
+              setAudioBuffer(processedBuffer);
+              if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
+              if (workletNode.current) {
+                  const nativeBuf = processedBuffer.get();
+                  if (nativeBuf && nativeBuf.numberOfChannels > 0) {
+                      const chan0 = nativeBuf.getChannelData(0);
+                      const chan1 = nativeBuf.numberOfChannels > 1 ? nativeBuf.getChannelData(1) : chan0;
+                      workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: processedBuffer.sampleRate });
                   }
-              } catch (sampleErr) {
-                  console.warn(`[Preset Warning] Source audio file not available at ${preset.sampleUrl}:`, sampleErr);
               }
           }
           
@@ -1209,7 +1201,7 @@ export const useAudioEngine = () => {
                    workletNode.current.port.postMessage({ type: 'slices', slices: preset.slices });
                }
           }
-      } catch (e) { console.error("Preset Load Error:", e); } finally { setIsLoading(false); }
+      } catch (e) { console.error("Preset Load Error:", e); alert("Failed to load preset audio."); } finally { setIsLoading(false); }
   }, [updateParams]);
 
   // ... (Rest of file unchanged) ...
@@ -1234,9 +1226,7 @@ export const useAudioEngine = () => {
       }
 
       const buffer = new Tone.Buffer(); 
-      await new Promise<void>((resolve, reject) => {
-        buffer.load(url, () => resolve(), (err) => reject(err || new Error(`Could not load audio from ${url}`)));
-      });
+      await buffer.load(url);
       
       let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
       rawBuffer = removeLeadingSilence(rawBuffer);

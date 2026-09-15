@@ -17,7 +17,6 @@ import {
   syncLocalAudioToBucket,
   getObjectBufferFromS3,
 } from './src/lib/s3.ts';
-import { migrateSupabaseToNeonStorage } from './src/lib/supabase-migrator.ts';
 import { generatePatternWithAI } from './src/lib/ai-pattern-service.ts';
 import {
   fetchFullLibrary,
@@ -627,15 +626,47 @@ export function createApp() {
         return res.status(200).end();
       }
 
-      // Strictly fetch from S3 storage
-      const s3Obj = await getObjectBufferFromS3(targetParam);
-      if (s3Obj) {
-        res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.send(s3Obj.buffer);
+      // 1. Fetch from S3 storage if configured
+      if (isS3Configured()) {
+        const s3Obj = await getObjectBufferFromS3(targetParam);
+        if (s3Obj) {
+          res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(s3Obj.buffer);
+        }
       }
 
-      return res.status(404).json({ error: `Storage file not found in S3 bucket: ${targetParam}` });
+      // 2. Fallback to local disk paths
+      const cleanFileName = path.basename(targetParam.split('?')[0]);
+      const relativeSubpath = targetParam.split('?')[0];
+
+      const candidateDiskPaths = [
+        path.join(process.cwd(), 'public', relativeSubpath),
+        path.join(process.cwd(), 'public', 'samples', relativeSubpath),
+        path.join(process.cwd(), 'public', 'uploads', relativeSubpath),
+        path.join(process.cwd(), 'public', 'Audio', relativeSubpath),
+        path.join(process.cwd(), 'public', 'samples', cleanFileName),
+        path.join(process.cwd(), 'public', 'uploads', cleanFileName),
+        path.join(process.cwd(), 'public', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'dist', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'samples', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'uploads', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'Audio', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'samples', cleanFileName),
+        path.join(process.cwd(), 'dist', 'uploads', cleanFileName),
+        path.join(process.cwd(), 'dist', 'Audio', cleanFileName),
+      ];
+
+      for (const diskPath of candidateDiskPaths) {
+        if (fs.existsSync(diskPath) && !fs.statSync(diskPath).isDirectory()) {
+          const ext = path.extname(diskPath).toLowerCase();
+          const mime = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
+          res.setHeader('Content-Type', mime);
+          return res.sendFile(diskPath);
+        }
+      }
+
+      res.status(404).json({ error: `Storage file not found: ${targetParam}` });
     } catch (err: any) {
       console.error('Storage stream error:', err);
       res.status(500).json({ error: err.message || 'Failed to stream storage file' });
@@ -909,57 +940,6 @@ export function createApp() {
     } catch (err: any) {
       console.error('Storage sync error:', err);
       res.status(500).json({ error: err.message || 'Failed to sync storage' });
-    }
-  });
-
-  // Migrate files directly from Supabase Storage to Neon S3 Object Storage bucket
-  app.post('/api/storage/migrate-from-supabase', async (req: Request, res: Response) => {
-    try {
-      const {
-        supabaseUrl,
-        supabaseServiceKey,
-        sourceBucket,
-        destinationPrefix,
-        updateDatabaseUrls,
-      } = req.body || {};
-
-      console.log('[Storage Migration] Initiating Supabase to Neon migration...');
-      const result = await migrateSupabaseToNeonStorage({
-        supabaseUrl,
-        supabaseServiceKey,
-        sourceBucket,
-        destinationPrefix,
-        updateDatabaseUrls: updateDatabaseUrls !== false,
-      });
-
-      // Ensure any newly migrated files are reflected in the samples table
-      for (const item of result.results) {
-        if (item.status === 'migrated' && item.neonUrl) {
-          try {
-            const sampleName = item.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
-            await createSample({
-              title: sampleName,
-              url: item.neonUrl,
-              isFactory: false,
-              isPublic: true,
-            });
-          } catch (dbErr) {
-            // ignore duplicate insert error
-          }
-        }
-      }
-
-      res.json({
-        success: true,
-        message: `Successfully migrated ${result.migratedCount} files from Supabase to Neon Object Storage bucket "${result.bucket}".`,
-        result,
-      });
-    } catch (err: any) {
-      console.error('Supabase storage migration error:', err);
-      res.status(500).json({
-        success: false,
-        error: err.message || 'Supabase migration failed',
-      });
     }
   });
 

@@ -1,10 +1,9 @@
 # Deployment Guide: Beat Slicer
 
 This guide provides instructions for deploying **Beat Slicer** to production:
-- **Backend**: Hosted on [Render](https://render.com) (Node.js web service running Express + Drizzle ORM + esbuild).
-- **Frontend**: Hosted on [Netlify](https://netlify.com) (Single Page Application with Vite build).
+- **Backend & Frontend**: Node.js Server (Express + Drizzle ORM + esbuild) or Netlify Functions with Vite single-page application.
 - **Database & Auth**: [Neon PostgreSQL](https://neon.tech) serverless database with Neon Auth.
-- **Object Storage**: S3-Compatible Object Storage (Neon Storage, AWS S3, Cloudflare R2, or Wasabi) with fallback to local disk storage.
+- **Object Storage**: Neon S3 Object Storage (`beat-slicer` bucket in `us-east-2`) with fallback to local disk storage.
 
 ---
 
@@ -23,123 +22,69 @@ This guide provides instructions for deploying **Beat Slicer** to production:
 
 ---
 
-## 2. Object Storage Setup (Neon S3 / AWS S3 / Cloudflare R2)
+## 2. Object Storage Setup (Neon S3 Storage)
 
-Beat Slicer natively supports any S3-compatible object storage provider for sample audio assets, kit files, and impulse responses.
+Beat Slicer natively supports Neon S3 Object Storage for sample audio assets, kit files, and impulse responses.
 
-### S3 / Neon Storage Configuration
-Ensure you have the following credentials from your bucket provider:
-- `ACCESS_KEY_ID`: Your access key identifier.
-- `SECRET_ACCESS_KEY`: Your secret key.
-- `REGION`: Storage region (e.g., `<region>`).
-- `STORAGE_BUCKET_NAME` or `S3_BUCKET_NAME`: Target bucket name.
-- `ENDPOINT_URL_S3` or `S3_ENDPOINT`: Custom endpoint URL (e.g., `https://<account-id>.r2.cloudflarestorage.com` or Neon storage endpoint).
-- `NEON_STORAGE_FORCE_PATH_STYLE`: Set to `true` if using MinIO or custom path-style endpoints.
+### Neon S3 Storage Parameters
+- **Endpoint**: `https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech`
+- **Bucket Name**: `beat-slicer`
+- **Region**: `us-east-2`
+
+### Environment Variables
+Configure the following in your runtime environment:
+- `ENDPOINT_URL_S3`: `https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech`
+- `STORAGE_BUCKET_NAME`: `beat-slicer`
+- `REGION`: `us-east-2`
+- `ACCESS_KEY_ID`: Your storage access key identifier
+- `SECRET_ACCESS_KEY`: Your storage secret key
 
 ---
 
-## 3. Backend Deployment on Render
+## 3. Server & Hosting Deployment
 
-### Step 1: Create a Render Web Service
-1. Sign in to [Render Dashboard](https://dashboard.render.com).
-2. Click **New + > Web Service**.
-3. Connect your GitHub repository.
+### Option A: Standard Node.js Container / Web Service
+1. Connect your repository to your Node.js hosting service.
+2. Build Command:
+   ```bash
+   npm install && npm run build
+   ```
+3. Start Command:
+   ```bash
+   npm start
+   ```
+4. Set environment variables (`DATABASE_URL`, `ENDPOINT_URL_S3`, `STORAGE_BUCKET_NAME`, `REGION`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `GEMINI_API_KEY`, etc.).
 
-### Step 2: Configure Service Settings
-- **Name**: `slicer-app-api`
-- **Region**: Choose the region closest to your Neon database (e.g., `Ohio (US East)`).
-- **Branch**: `main`
-- **Runtime**: `Node`
-- **Build Command**:
-  ```bash
-  npm install && npm run build
-  ```
-- **Start Command**:
-  ```bash
-  npm start
-  ```
+### Option B: Netlify Deployment
+1. Log into [Netlify](https://app.netlify.com) and link your repository.
+2. Build Command: `npm run build`
+3. Publish Directory: `dist`
+4. Configure Netlify Functions (or Netlify environment variables) in `netlify.toml` for `/api/*` rewrites to `/.netlify/functions/api/:splat`.
 
-### Step 3: Configure Environment Variables on Render
-Add the following key-value pairs under **Environment** tab:
+---
 
-| Variable | Description | Example |
+## 4. Environment Variables Summary
+
+| Variable | Description | Default / Example |
 | :--- | :--- | :--- |
 | `NODE_ENV` | Runtime environment | `production` |
-| `PORT` | Listening port (Render automatically sets port 3000/10000) | `3000` |
-| `SQL_HOST` | Neon PostgreSQL host | `ep-xxxx.<region>.aws.neon.tech` |
-| `SQL_DB_NAME` | Neon Database Name | `neondb` |
-| `SQL_USER` | Neon Database User | `neondb_owner` |
-| `SQL_PASSWORD` | Neon Database Password | `your_db_password` |
+| `PORT` | Listening port | `3000` |
+| `DATABASE_URL` / `POSTGRES_URL` | Neon PostgreSQL Connection String | `postgresql://neondb_owner:...@ep-xxx.neon.tech/neondb` |
 | `NEON_AUTH_URL` | Neon Auth endpoint | `https://<neon-auth-url>/auth` |
-| `NEON_AUTH_JWKS_URL` | Neon Auth JWKS URL for JWT validation | `https://<neon-auth-url>/auth/.well-known/jwks.json` |
+| `ENDPOINT_URL_S3` | Neon S3 Endpoint | `https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech` |
+| `STORAGE_BUCKET_NAME` | Neon S3 Bucket | `beat-slicer` |
+| `REGION` | Storage region | `us-east-2` |
 | `ACCESS_KEY_ID` | Storage access key | `AKIA...` |
 | `SECRET_ACCESS_KEY` | Storage secret access key | `secret_...` |
-| `REGION` | Storage region | `<region>` |
-| `STORAGE_BUCKET_NAME` | S3 bucket name | `<bucket-name>` |
-| `ENDPOINT_URL_S3` | Custom S3 endpoint (if applicable) | `https://...` |
-| `ADMIN_EMAIL` | Admin account email for library management & moderation | `admin@example.com` |
-| `GEMINI_API_KEY` | (Optional) Google Gemini API Key for AI rhythm generation | `AIza...` |
-
----
-
-## 4. Frontend Deployment on Netlify
-
-### Step 1: Connect Repository
-1. Log into [Netlify](https://app.netlify.com).
-2. Click **Add new site > Import an existing project** and link your repository.
-
-### Step 2: Build & Directory Settings
-The project contains `netlify.toml` which configures build commands and client-side SPA routing rewrites:
-- **Base directory**: `/` (project root)
-- **Build command**: `npm run build`
-- **Publish directory**: `dist`
-
-### Step 3: Client Environment Variables on Netlify
-Add the following client-accessible environment variables in **Site configuration > Environment variables**:
-
-| Variable | Description |
-| :--- | :--- |
-| `VITE_NEON_AUTH_URL` | Neon Authentication endpoint URL for user login and signup flows |
-
-#### Netlify Omit List (Excluded Backend & Storage Variables)
-The following variables must be **omitted** from Netlify environment variables and client builds (they are backend-only and should only reside on Render):
-- `ENDPOINT_URL_S3`
-- `REGION`
-- `STORAGE_BUCKET_NAME`
-
-If these variables were added to Netlify, Netlify's Secret Scanner can be instructed to ignore them via `SECRETS_SCAN_OMIT_KEYS` in `netlify.toml`:
-```toml
-[build.environment]
-  SECRETS_SCAN_OMIT_KEYS = "ENDPOINT_URL_S3,REGION,STORAGE_BUCKET_NAME"
-  SECRETS_SCAN_OMIT_PATHS = "utils/audioHelpers.ts,src/db/queries.ts,src/lib/s3.ts"
-```
-
-### Step 4: API Proxy / Redirects
-When Netlify is deployed separately from the Render backend, configure `netlify.toml` to proxy `/api/*` requests to your Render Web Service URL:
-
-```toml
-[build]
-  command = "npm run build"
-  publish = "dist"
-
-[[redirects]]
-  from = "/api/*"
-  to = "https://slicer-app-api.onrender.com/api/:splat"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-```
+| `ADMIN_EMAIL` | Admin email for moderation | `admin@example.com` |
+| `GEMINI_API_KEY` | (Optional) Google Gemini API Key | `AIza...` |
 
 ---
 
 ## 5. Verification & Health Checks
 
-Once both services are running:
-1. **API Health**: Visit `https://<your-render-url>/api/health` — should return `{"status":"ok"}`.
+Once running:
+1. **API Health**: Visit `/api/health` — should return `{"status":"ok"}`.
 2. **Neon DB Verification**: Open the app, click the **Monitor** button in the header, and check database latency and AudioWorklet health.
-3. **Audio Upload & Storage**: Upload a sample file in Pro Mode and verify that waveforms are rendered and stored in your bucket.
+3. **Audio Upload & Storage**: Upload a sample file in Pro Mode and verify that waveforms are rendered and stored in the `beat-slicer` bucket.
 4. **Preset & Kit Deletion**: Verify that deleting user presets or kits properly cascades to delete associated audio samples and cleans up remote storage assets.

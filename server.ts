@@ -17,6 +17,7 @@ import {
   syncLocalAudioToBucket,
   getObjectBufferFromS3,
 } from './src/lib/s3.ts';
+import { migrateSupabaseToNeonStorage } from './src/lib/supabase-migrator.ts';
 import { generatePatternWithAI } from './src/lib/ai-pattern-service.ts';
 import {
   fetchFullLibrary,
@@ -940,6 +941,57 @@ export function createApp() {
     } catch (err: any) {
       console.error('Storage sync error:', err);
       res.status(500).json({ error: err.message || 'Failed to sync storage' });
+    }
+  });
+
+  // Migrate files directly from Supabase Storage to Neon S3 Object Storage bucket
+  app.post('/api/storage/migrate-from-supabase', async (req: Request, res: Response) => {
+    try {
+      const {
+        supabaseUrl,
+        supabaseServiceKey,
+        sourceBucket,
+        destinationPrefix,
+        updateDatabaseUrls,
+      } = req.body || {};
+
+      console.log('[Storage Migration] Initiating Supabase to Neon migration...');
+      const result = await migrateSupabaseToNeonStorage({
+        supabaseUrl,
+        supabaseServiceKey,
+        sourceBucket,
+        destinationPrefix,
+        updateDatabaseUrls: updateDatabaseUrls !== false,
+      });
+
+      // Ensure any newly migrated files are reflected in the samples table
+      for (const item of result.results) {
+        if (item.status === 'migrated' && item.neonUrl) {
+          try {
+            const sampleName = item.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+            await createSample({
+              title: sampleName,
+              url: item.neonUrl,
+              isFactory: false,
+              isPublic: true,
+            });
+          } catch (dbErr) {
+            // ignore duplicate insert error
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully migrated ${result.migratedCount} files from Supabase to Neon Object Storage bucket "${result.bucket}".`,
+        result,
+      });
+    } catch (err: any) {
+      console.error('Supabase storage migration error:', err);
+      res.status(500).json({
+        success: false,
+        error: err.message || 'Supabase migration failed',
+      });
     }
   });
 

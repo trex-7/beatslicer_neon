@@ -144,6 +144,13 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [isResettingDb, setIsResettingDb] = useState(false);
     const [storageActionMsg, setStorageActionMsg] = useState<{ text: string; success: boolean } | null>(null);
 
+    // Supabase to Neon Migration State
+    const [supabaseUrlInput, setSupabaseUrlInput] = useState("");
+    const [supabaseKeyInput, setSupabaseKeyInput] = useState("");
+    const [supabaseBucketInput, setSupabaseBucketInput] = useState("samples");
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [migrationResult, setMigrationResult] = useState<any>(null);
+
     const isAdmin = Boolean(
         !user || // Default workspace admin permissions
         (user.email && ADMIN_EMAILS.some((a) => a.toLowerCase().trim() === String(user.email).toLowerCase().trim()))
@@ -644,6 +651,36 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             setStorageActionMsg({ text: `Error: ${err.message || 'Reset failed'}`, success: false });
         } finally {
             setIsResettingDb(false);
+        }
+    };
+
+    const handleRunSupabaseMigration = async () => {
+        setIsMigrating(true);
+        setMigrationResult(null);
+        try {
+            const res = await fetch('/api/storage/migrate-from-supabase', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    supabaseUrl: supabaseUrlInput.trim() || undefined,
+                    supabaseServiceKey: supabaseKeyInput.trim() || undefined,
+                    sourceBucket: supabaseBucketInput.trim() || undefined,
+                    destinationPrefix: 'samples/',
+                    updateDatabaseUrls: true,
+                }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Migration request failed');
+
+            setMigrationResult(data);
+            await loadLibraryData();
+            alert(data.message || 'Migration completed successfully!');
+        } catch (err: any) {
+            setMigrationResult({ success: false, error: err.message });
+            alert('Migration failed: ' + err.message);
+        } finally {
+            setIsMigrating(false);
         }
     };
 
@@ -1741,6 +1778,47 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                             ))
                                     )}
                                 </div>
+                            </div>
+
+                            {/* Supabase Migration */}
+                            <div className="bg-[#121722] p-5 rounded-xl border border-white/10 space-y-4">
+                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                    <Package className="w-4 h-4 text-cyan-400" />
+                                    <span>Supabase Storage to Neon S3 Migration Tool</span>
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Supabase URL (optional)"
+                                        value={supabaseUrlInput}
+                                        onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                    <input
+                                        type="password"
+                                        autoComplete="off"
+                                        placeholder="Service Role / Anon Key"
+                                        value={supabaseKeyInput}
+                                        onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Bucket (default: samples)"
+                                        value={supabaseBucketInput}
+                                        onChange={(e) => setSupabaseBucketInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleRunSupabaseMigration}
+                                    disabled={isMigrating}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-2"
+                                >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    <span>{isMigrating ? 'Migrating files...' : 'Start Migration to Neon'}</span>
+                                </button>
                             </div>
                         </div>
                     )}

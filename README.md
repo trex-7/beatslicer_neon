@@ -6,6 +6,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38bdf8.svg?style=flat&logo=tailwindcss)](https://tailwindcss.com/)
 [![Web Audio API](https://img.shields.io/badge/Web%20Audio-AudioWorklet-orange.svg?style=flat)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API)
 [![Neon Postgres](https://img.shields.io/badge/Database-Neon%20PostgreSQL-00E599.svg?style=flat)](https://neon.tech/)
+[![Render](https://img.shields.io/badge/Backend-Render-46E3B7.svg?style=flat&logo=render)](https://render.com/)
 [![Netlify](https://img.shields.io/badge/Frontend-Netlify-00C7B7.svg?style=flat&logo=netlify)](https://www.netlify.com/)
 
 **Beat Slicer** is an advanced browser-based granular synthesizer, sample slicer, and real-time stochastic effects processor. Built with React, TypeScript, Tone.js, and the Web Audio API (with custom AudioWorklets), it delivers sample-accurate slicing, probabilistic glitch generation, tempo-synced FX, and low-latency performance on desktop and mobile browsers.
@@ -22,7 +23,7 @@
 - [🎹 Web MIDI & Hardware Integration](#-web-midi--hardware-integration)
 - [☁️ Cloud Library & Cascading File Storage](#️-cloud-library--cascading-file-storage)
 - [🗄️ Database & Environment Configuration](#️-database--environment-configuration)
-- [🚢 Deployment (Netlify & Node.js Server)](#-deployment-netlify--nodejs-server)
+- [🚢 Deployment (Render + Netlify)](#-deployment-render--netlify)
 - [⌨️ Keyboard Shortcuts](#️-keyboard-shortcuts)
 - [📂 Project Directory Structure](#-project-directory-structure)
 - [📚 Documentation Index](#-documentation-index)
@@ -53,14 +54,14 @@
 └──────────────────────────────┬──────────────────────────────┘
                                │ HTTP / REST / JWT
 ┌──────────────────────────────▼──────────────────────────────┐
-│                  Backend (Express API Server)               │
+│                    Backend (Render API)                     │
 │   Node.js + Express + Multer + Drizzle ORM + esbuild        │
 └──────────────┬──────────────────────────────┬───────────────┘
                │                              │
 ┌──────────────▼──────────────┐┌──────────────▼───────────────┐
-│     Neon PostgreSQL DB      ││     Neon S3 Object Store     │
-│  (Users, Presets, Kits,     ││  (beat-slicer bucket in      │
-│   Samples, Feedback)        ││   us-east-2 region)          │
+│     Neon PostgreSQL DB      ││  S3-Compatible Object Store  │
+│  (Users, Presets, Kits,     ││  (Neon Storage, AWS S3, R2,  │
+│   Samples, Feedback)        ││   Local Disk Storage)        │
 └─────────────────────────────┘└──────────────────────────────┘
 ```
 
@@ -71,8 +72,8 @@
 | **Backend API** | Express.js, TypeScript, Multer, Drizzle ORM, esbuild |
 | **Database** | Neon PostgreSQL (Serverless Postgres) |
 | **Auth** | Neon Auth / OAuth JWT Bearer validation |
-| **Storage** | Neon S3 Object Storage (`beat-slicer` bucket in `us-east-2`) |
-| **Hosting** | Netlify (Frontend SPA) / Node.js Express Backend |
+| **Storage** | Neon S3-Compatible Object Storage, AWS S3, Cloudflare R2 |
+| **Hosting** | Netlify (Frontend SPA) + Render (Backend API Web Service) |
 
 ---
 
@@ -207,13 +208,13 @@ NEON_AUTH_JWKS_URL=https://<your-neon-auth-domain>/auth/.well-known/jwks.json
 VITE_NEON_AUTH_URL=https://<your-neon-auth-domain>/auth
 
 # ==========================================
-# Object Storage (Neon S3 Storage)
+# Object Storage (Neon S3, AWS S3, Cloudflare R2)
 # ==========================================
 ACCESS_KEY_ID=your_access_key_id
 SECRET_ACCESS_KEY=your_secret_access_key
-REGION=us-east-2
-STORAGE_BUCKET_NAME=beat-slicer
-ENDPOINT_URL_S3=https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech
+REGION=<region>
+STORAGE_BUCKET_NAME=<bucket-name>
+ENDPOINT_URL_S3=https://<storage-endpoint>.neon.tech
 NEON_STORAGE_PUBLIC_URL=
 NEON_STORAGE_FORCE_PATH_STYLE=true
 
@@ -226,7 +227,7 @@ GEMINI_API_KEY=AIzaSy...
 
 ---
 
-## 🚢 Deployment (Netlify & Node.js Server)
+## 🚢 Deployment (Render + Netlify)
 
 For complete step-by-step instructions, see the **[Deployment Guide](docs/DEPLOYMENT.md)**.
 
@@ -236,8 +237,11 @@ For complete step-by-step instructions, see the **[Deployment Guide](docs/DEPLOY
    - Provision a PostgreSQL database on [Neon](https://neon.tech).
    - Execute `schema.sql` in the Neon SQL Editor.
 
-2. **Backend API**:
-   - Deploy Node.js server with environment variables from `.env.example`.
+2. **Backend API on Render**:
+   - Create a new **Web Service** on [Render](https://render.com) connected to your repository.
+   - Build Command: `npm install && npm run build`
+   - Start Command: `npm start`
+   - Add environment variables from `.env.example`.
 
 3. **Frontend SPA on Netlify**:
    - Connect your repository to [Netlify](https://netlify.com).
@@ -288,9 +292,10 @@ slicer-app/
 │   │   ├── queries.ts          # CRUD queries with cascading deletes
 │   │   ├── schema.ts           # Drizzle table schemas
 │   │   └── users.ts            # User profile management
-│   ├── lib/                    # Storage & AI helpers
+│   ├── lib/                    # Storage, AI & Supabase migration helpers
 │   │   ├── ai-pattern-service.ts
-│   │   └── s3.ts               # S3 & Neon object storage client
+│   │   ├── s3.ts               # S3 & Neon object storage client
+│   │   └── supabase-migrator.ts
 │   └── middleware/
 │       └── auth.ts             # Neon Auth JWT verification middleware
 ├── utils/                      # Audio math & preset utilities
@@ -311,7 +316,7 @@ slicer-app/
 
 ## 📚 Documentation Index
 
-- 📖 **[Deployment Guide](docs/DEPLOYMENT.md)** — Production setup for Netlify, Node.js server, Neon PostgreSQL, and Neon S3 Storage.
+- 📖 **[Deployment Guide](docs/DEPLOYMENT.md)** — Production setup for Render, Netlify, Neon PostgreSQL, and S3 Storage.
 - 🔌 **[REST API Reference](docs/API.md)** — Complete endpoint specifications, authentication headers, and request payloads.
 - 🎛️ **[Audio Engine & DSP Guide](docs/AUDIO_ENGINE.md)** — In-depth guide to the Web Audio architecture, transient detection, granular synthesis, and MIDI clock mechanics.
 

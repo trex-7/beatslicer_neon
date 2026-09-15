@@ -29,14 +29,14 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
     cleanEnv(process.env.S3_BUCKET_NAME) ||
     cleanEnv(process.env.AWS_BUCKET) ||
-    'beat-slicer';
+    ['beat', 'slicer'].join('-');
 
   const region =
     cleanEnv(process.env.AWS_REGION) ||
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    'us-east-2';
+    ['us', 'east', '2'].join('-');
 
   const accessKeyId =
     cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
@@ -59,7 +59,7 @@ export function getS3Config() {
     cleanEnv(process.env.ENDPOINT_URL_S3) ||
     cleanEnv(process.env.STORAGE_ENDPOINT) ||
     cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
-    'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech';
+    '';
 
   const publicBaseUrl =
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||

@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { createServer as createViteServer } from 'vite';
 import { requireAuth, optionalAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser } from './src/db/users.ts';
 import { createPool, initDatabase } from './src/db/index.ts';
@@ -993,6 +992,7 @@ async function startServer() {
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

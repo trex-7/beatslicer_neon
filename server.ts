@@ -629,11 +629,15 @@ export function createApp() {
 
       // 1. Fetch from S3 storage if configured
       if (isS3Configured()) {
+        console.log(`[Storage Stream DBG] Fetching key "${targetParam}" from S3 bucket...`);
         const s3Obj = await getObjectBufferFromS3(targetParam);
         if (s3Obj) {
+          console.log(`[Storage Stream DBG] S3 Object found for "${targetParam}": ${s3Obj.buffer.length} bytes, content-type: ${s3Obj.contentType}`);
           res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
           res.setHeader('Cache-Control', 'public, max-age=86400');
           return res.send(s3Obj.buffer);
+        } else {
+          console.warn(`[Storage Stream DBG] S3 Object not found or access denied for key "${targetParam}"`);
         }
       }
 

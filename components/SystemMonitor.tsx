@@ -250,24 +250,30 @@ const SystemMonitor: React.FC<SystemMonitorProps> = ({ isOpen, onClose, stats })
                             </div>
 
                             {/* Quick Diagnostic Actions */}
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                                 <button
                                     onClick={() => stats.audioDebug?.playTestTone && stats.audioDebug.playTestTone()}
-                                    className="flex-1 bg-hyper-cyan/10 hover:bg-hyper-cyan/20 text-hyper-cyan border border-hyper-cyan/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                    className="bg-hyper-cyan/10 hover:bg-hyper-cyan/20 text-hyper-cyan border border-hyper-cyan/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
                                 >
                                     🔊 Play 440Hz Test Tone
                                 </button>
                                 <button
                                     onClick={() => stats.audioDebug?.forceResumeAudio && stats.audioDebug.forceResumeAudio()}
-                                    className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                    className="bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
                                 >
                                     ⚡ Resume AudioContext
                                 </button>
                                 <button
                                     onClick={() => stats.audioDebug?.reloadSyntheticSample && stats.audioDebug.reloadSyntheticSample()}
-                                    className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                    className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
                                 >
                                     🥁 Load Synthetic Loop
+                                </button>
+                                <button
+                                    onClick={() => stats.audioDebug?.checkS3Storage && stats.audioDebug.checkS3Storage()}
+                                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                >
+                                    ☁️ Check S3 Bucket Status
                                 </button>
                             </div>
 

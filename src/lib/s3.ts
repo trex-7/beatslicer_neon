@@ -414,8 +414,10 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
           contentType: response.ContentType || defaultType,
         };
       }
-    } catch (_error) {
-      // Continue to next candidate key
+    } catch (error: any) {
+      if (error?.name !== 'NoSuchKey' && error?.$metadata?.httpStatusCode !== 404) {
+        console.warn(`[S3 Storage DBG] Candidate key "${candidateKey}" error: ${error?.name || error?.code || error?.message || error} (Status: ${error?.$metadata?.httpStatusCode || 'N/A'})`);
+      }
     }
   }
 

@@ -1207,7 +1207,73 @@ export const useAudioEngine = () => {
     }
   }, [logDbg]);
 
-  // UPDATED LOAD PRESET TO FIX MISSING VINYL
+  const fetchAndDecodeAudioUrl = useCallback(async (url: string, filename: string): Promise<AudioBuffer> => {
+      logDbg('S3_FETCH', `Requesting audio stream for "${filename}" -> ${url}`, 'info');
+      
+      const response = await fetch(url);
+      const contentType = response.headers.get('content-type') || 'unknown';
+      logDbg('S3_RESPONSE', `HTTP ${response.status} ${response.statusText} (Content-Type: ${contentType})`, response.ok ? 'info' : 'error');
+
+      if (!response.ok) {
+          let errDetail = '';
+          try {
+              const text = await response.text();
+              errDetail = text.slice(0, 300);
+          } catch (_) {}
+          const errMsg = `S3 Stream Failed (HTTP ${response.status} ${response.statusText}): ${errDetail || 'File not found or access denied'}`;
+          logDbg('S3_ERROR', errMsg, 'error');
+          throw new Error(errMsg);
+      }
+
+      if (contentType.includes('application/json') || contentType.includes('text/html')) {
+          let text = '';
+          try { text = await response.text(); } catch (_) {}
+          const errMsg = `Storage server returned non-audio response (${contentType}): ${text.slice(0, 200)}`;
+          logDbg('S3_ERROR', errMsg, 'error');
+          throw new Error(errMsg);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      logDbg('S3_DOWNLOAD', `Downloaded ${arrayBuffer.byteLength} bytes of audio data`, 'success');
+
+      const ctx = audioContextRef.current || Tone.context.rawContext || new (window.AudioContext || (window as any).webkitAudioContext)();
+      try {
+          const decoded = await ctx.decodeAudioData(arrayBuffer);
+          logDbg('DECODE', `Decoded AudioBuffer (${decoded.duration.toFixed(2)}s, ${decoded.sampleRate}Hz, ${decoded.numberOfChannels} ch)`, 'success');
+          return decoded;
+      } catch (decodeErr: any) {
+          const errMsg = `AudioContext decode failed for "${filename}" (${arrayBuffer.byteLength} bytes). Error: ${decodeErr?.message || decodeErr}`;
+          logDbg('DECODE_ERROR', errMsg, 'error');
+          throw new Error(errMsg);
+      }
+  }, [logDbg]);
+
+  const checkS3Storage = useCallback(async () => {
+      logDbg('S3_CHECK', 'Querying /api/storage/status...', 'info');
+      try {
+          const res = await fetch('/api/storage/status');
+          const data = await res.json();
+          logDbg('S3_CHECK', `Storage Configured: ${data.configured ? 'YES (Active)' : 'NO (Disk Fallback)'}, Bucket: "${data.bucket || 'N/A'}", Region: "${data.region || 'N/A'}"`, data.configured ? 'success' : 'warn');
+          
+          if (data.configured) {
+              logDbg('S3_CHECK', 'Querying /api/storage/objects...', 'info');
+              const objRes = await fetch('/api/storage/objects?limit=50');
+              const objData = await objRes.json();
+              if (objData.success && Array.isArray(objData.objects)) {
+                  logDbg('S3_CHECK', `Found ${objData.count || objData.objects.length} objects stored in bucket "${data.bucket}"`, 'success');
+                  objData.objects.slice(0, 5).forEach((o: any) => {
+                      logDbg('S3_OBJECT', `Key: "${o.key}" (${(o.size / 1024).toFixed(1)} KB)`, 'info');
+                  });
+              } else {
+                  logDbg('S3_CHECK', `Failed to list S3 objects: ${objData.error || 'Unknown error'}`, 'error');
+              }
+          }
+      } catch (err: any) {
+          logDbg('S3_CHECK', `Storage status check error: ${err?.message || err}`, 'error');
+      }
+  }, [logDbg]);
+
+  // UPDATED LOAD PRESET TO FIX MISSING VINYL & ADD DBG S3 FETCHING
   const loadPreset = useCallback(async (preset: Preset) => {
       setIsLoading(true);
       await ensureAudioActive();
@@ -1219,12 +1285,17 @@ export const useAudioEngine = () => {
           if (preset.id) setCurrentPresetId(preset.id);
           if (preset.sampleUrl) {
               const streamUrl = resolveAudioUrl(preset.sampleUrl);
-              logDbg('PRESET', `Fetching sample stream: ${streamUrl}`, 'info');
-              const buffer = new Tone.Buffer(); 
-              await buffer.load(streamUrl);
-              let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
-              rawBuffer = removeLeadingSilence(rawBuffer);
-              const processedBuffer = new Tone.Buffer(rawBuffer);
+              let rawNativeBuffer: AudioBuffer;
+              try {
+                  rawNativeBuffer = await fetchAndDecodeAudioUrl(streamUrl, preset.sampleName || preset.id);
+              } catch (fetchErr: any) {
+                  logDbg('PRESET_FETCH_FAIL', `Could not stream sample URL "${preset.sampleUrl}". Falling back to synthetic sample. Error: ${fetchErr?.message}`, 'warn');
+                  const nativeCtx = audioContextRef.current || Tone.context.rawContext;
+                  rawNativeBuffer = generateSyntheticDrumLoop(nativeCtx, paramsRef.current.bpm || 120);
+              }
+
+              const cleanedNative = removeLeadingSilence(rawNativeBuffer);
+              const processedBuffer = new Tone.Buffer(cleanedNative);
               setAudioBuffer(processedBuffer);
               if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
               if (workletNode.current) {
@@ -1243,10 +1314,8 @@ export const useAudioEngine = () => {
               const sanitizedParams = { ...preset.params };
               
               if (sanitizedParams.order) {
-                  // Filter out vinyl
                   sanitizedParams.order = sanitizedParams.order.filter(id => id !== 'vinyl');
               } else {
-                  // Use default (which now excludes vinyl)
                   sanitizedParams.order = initialParams.order;
               }
 
@@ -1260,19 +1329,18 @@ export const useAudioEngine = () => {
                    workletNode.current.port.postMessage({ type: 'slices', slices: preset.slices });
                }
           }
-          logDbg('PRESET', `Preset loaded successfully`, 'success');
+          logDbg('PRESET', `Preset "${preset.name || preset.id}" loaded successfully`, 'success');
       } catch (e: any) { logDbg('ERROR', `Preset load error: ${e?.message || e}`, 'error'); console.error("Preset Load Error:", e); alert("Failed to load preset audio."); } finally { setIsLoading(false); }
-  }, [updateParams, ensureAudioActive, logDbg]);
+  }, [updateParams, ensureAudioActive, logDbg, fetchAndDecodeAudioUrl]);
 
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string, cloudId?: string) => {
     setIsLoading(true);
     await ensureAudioActive();
     if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
     try {
-      const rawUrl = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
-      const url = resolveAudioUrl(rawUrl);
+      let rawNativeBuffer: AudioBuffer;
       let filename = nameOverride || (audioFile instanceof File ? audioFile.name : (typeof audioFile === 'string' ? audioFile.split('/').pop()?.split('?')[0] || 'Default' : 'Default'));
-      logDbg('LOAD', `Loading sample file "${filename}"...`, 'info');
+      logDbg('LOAD', `Loading sample "${filename}"...`, 'info');
       setSampleName(filename); setCurrentSampleId(cloudId || null); setCurrentPresetId(null); 
       
       if (audioFile instanceof File) {
@@ -1283,22 +1351,30 @@ export const useAudioEngine = () => {
               setIsLoading(false);
               return;
           }
+          const arrayBuf = await audioFile.arrayBuffer();
+          const ctx = audioContextRef.current || Tone.context.rawContext || new (window.AudioContext || (window as any).webkitAudioContext)();
+          rawNativeBuffer = await ctx.decodeAudioData(arrayBuf);
+          logDbg('DECODE', `Loaded local File "${filename}" (${rawNativeBuffer.duration.toFixed(2)}s, ${rawNativeBuffer.sampleRate}Hz)`, 'success');
+      } else {
+          const url = resolveAudioUrl(audioFile);
+          try {
+              rawNativeBuffer = await fetchAndDecodeAudioUrl(url, filename);
+          } catch (fetchErr: any) {
+              logDbg('LOAD_FAIL', `Could not fetch remote audio URL "${url}". Falling back to synthetic beat. Error: ${fetchErr?.message}`, 'warn');
+              const nativeCtx = audioContextRef.current || Tone.context.rawContext;
+              rawNativeBuffer = generateSyntheticDrumLoop(nativeCtx, paramsRef.current.bpm || 120);
+          }
       }
-
-      const buffer = new Tone.Buffer(); 
-      await buffer.load(url);
       
-      let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
-      rawBuffer = removeLeadingSilence(rawBuffer);
-      const processedBuffer = new Tone.Buffer(rawBuffer);
-      logDbg('DECODE', `Sample loaded: ${processedBuffer.duration.toFixed(2)}s, ${processedBuffer.sampleRate}Hz, ${processedBuffer.numberOfChannels} ch`, 'success');
+      const cleanedNative = removeLeadingSilence(rawNativeBuffer);
+      const processedBuffer = new Tone.Buffer(cleanedNative);
       
       let currentSlices = slices; let currentSequencer = sequencer;
       
       if (!preserveSettings) {
           let detectedBpm = 0;
           if (filename.match(/(\d{2,3})\s*bpm/i)) detectedBpm = parseInt(filename.match(/(\d{2,3})\s*bpm/i)![1]);
-          if (!detectedBpm) detectedBpm = await detectBPM(rawBuffer);
+          if (!detectedBpm) detectedBpm = await detectBPM(cleanedNative);
           const newSlices = generateTransientSlices(processedBuffer, detectedBpm || 120, 0, processedBuffer.duration);
           setSlices(newSlices); currentSlices = newSlices; setSelectedSliceIndex(0);
           setSequencer(prev => {
@@ -1333,7 +1409,7 @@ export const useAudioEngine = () => {
     } finally { 
         setIsLoading(false); 
     }
-  }, [isPlaying, updateParams, slices, sequencer, ensureAudioActive, logDbg]);
+  }, [isPlaying, updateParams, slices, sequencer, ensureAudioActive, logDbg, fetchAndDecodeAudioUrl]);
 
   const loadConstructionKit = useCallback(async (files: File[] | KitSample[], kitName: string) => {
       setIsLoading(true); if (previewPlayer.current) previewPlayer.current.stop();
@@ -1814,6 +1890,7 @@ export const useAudioEngine = () => {
         playTestTone,
         reloadSyntheticSample,
         forceResumeAudio,
+        checkS3Storage,
     },
     metronomeConfig,
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, generateAiPattern, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,

@@ -1,33 +1,34 @@
 plugins = []
 headers = []
-redirects = []
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/uploads/*"
+  to = "/.netlify/functions/api/uploads/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/Audio/*"
+  to = "/.netlify/functions/api/Audio/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/samples/*"
+  to = "/.netlify/functions/api/samples/:splat"
+  status = 200
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-
-[functions]
-
-[functions."*"]
-
-[build]
-
-publish = "dist"
-publishOrigin = "ui"
-commandOrigin = "ui"
-command = "npm run build"
-
-[build.environment]
-
-[build.processing]
-
-[build.processing.css]
-
-[build.processing.html]
-
-[build.processing.images]
-
-[build.processing.js]
-
-[build.services]

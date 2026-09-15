@@ -572,6 +572,20 @@ export function createApp() {
     }
   });
 
+  // Manual trigger to sync local audio assets into connected Neon S3 Bucket
+  app.post('/api/storage/sync', optionalAuth, async (_req: Request, res: Response) => {
+    try {
+      if (!isS3Configured()) {
+        return res.status(400).json({ error: 'Neon S3 storage is not configured' });
+      }
+      const syncResult = await syncLocalAudioToBucket();
+      res.json({ success: true, ...syncResult });
+    } catch (error: any) {
+      console.error('Storage sync error:', error);
+      res.status(500).json({ error: error.message || 'Failed to sync storage' });
+    }
+  });
+
   // Storage Stream / File Proxy Endpoint (Ensures storage files stream reliably with full CORS across all deploy environments)
   app.get(/^\/(api\/)?(storage|uploads|Audio|samples)($|\/.*)/, async (req: Request, res: Response) => {
     try {
@@ -1048,11 +1062,8 @@ async function startServer() {
       try {
         await initDatabase();
 
-        if (isS3Configured() && process.env.AUTO_SYNC_STORAGE === 'true') {
-          console.log('[Storage] Neon storage is configured with AUTO_SYNC_STORAGE. Running background sync...');
-          syncLocalAudioToBucket()
-            .then((res) => console.log(`[Storage] Synced ${res.synced.length} files to bucket.`))
-            .catch((e) => console.warn('[Storage] Sync notice:', e.message));
+        if (isS3Configured()) {
+          console.log(`[Storage] Connected to Neon S3 Storage bucket "${getS3Config().bucket}".`);
         }
 
         const existingSamples = await fetchFullLibrary();

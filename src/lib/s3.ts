@@ -14,7 +14,11 @@ let s3ClientInstance: S3Client | null = null;
 
 function cleanEnv(val?: string): string {
   if (!val) return '';
-  return val.trim().replace(/^["']|["']$/g, '').trim();
+  let str = val.trim();
+  while ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+    str = str.slice(1, -1).trim();
+  }
+  return str;
 }
 
 export function getS3Config() {
@@ -22,15 +26,20 @@ export function getS3Config() {
     cleanEnv(process.env.STORAGE_BUCKET_NAME) ||
     cleanEnv(process.env.STORAGE_BUCKET) ||
     cleanEnv(process.env.NEON_STORAGE_BUCKET) ||
-    '';
+    cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
+    cleanEnv(process.env.S3_BUCKET_NAME) ||
+    cleanEnv(process.env.AWS_BUCKET) ||
+    'beat-slicer';
 
   const region =
+    cleanEnv(process.env.AWS_REGION) ||
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    '';
+    'us-east-2';
 
   const accessKeyId =
+    cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
     cleanEnv(process.env.ACCESS_KEY_ID) ||
     cleanEnv(process.env.STORAGE_ACCESS_KEY_ID) ||
     cleanEnv(process.env.STORAGE_ACCESS_KEY) ||
@@ -38,6 +47,7 @@ export function getS3Config() {
     '';
 
   const secretAccessKey =
+    cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.STORAGE_SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.STORAGE_SECRET_KEY) ||
@@ -45,6 +55,7 @@ export function getS3Config() {
     '';
 
   const endpoint =
+    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
     cleanEnv(process.env.ENDPOINT_URL_S3) ||
     cleanEnv(process.env.STORAGE_ENDPOINT) ||
     cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
@@ -54,10 +65,7 @@ export function getS3Config() {
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||
     cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL);
 
-  const forcePathStyle =
-    cleanEnv(process.env.STORAGE_FORCE_PATH_STYLE) === 'true' ||
-    cleanEnv(process.env.NEON_STORAGE_FORCE_PATH_STYLE) === 'true' ||
-    true;
+  const forcePathStyle = true;
 
   return {
     bucket,

@@ -1150,12 +1150,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
                                          {/* Direct Key/URL Purge Tool */}
                                         <div className="bg-black/30 p-3 rounded-lg border border-red-500/20 space-y-2">
-                                            <div className="text-xs font-bold text-red-400 flex items-center justify-between">
-                                                <span className="flex items-center gap-1.5">
-                                                    <span>🗑</span> Direct Storage & Database Clean Tools:
-                                                </span>
+                                            <div className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                                                <span>🗑</span> Direct Storage Purge by Key / URL:
                                             </div>
-                                            <div className="flex flex-col sm:flex-row gap-2">
+                                            <div className="flex gap-2">
                                                 <input
                                                     type="text"
                                                     placeholder="samples/123_kick.wav OR full URL..."
@@ -1171,17 +1169,9 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                                         }
                                                     }}
                                                     disabled={!manualDeleteTarget.trim() || isDeletingStorage}
-                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50 shrink-0"
+                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50"
                                                 >
-                                                    {isDeletingStorage ? 'Purging...' : 'Purge S3 File'}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleResetDatabase(false)}
-                                                    disabled={isResettingDb}
-                                                    className="px-4 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50 shrink-0"
-                                                    title="Purge all community/user database entries to match cleared storage"
-                                                >
-                                                    {isResettingDb ? 'Purging DB...' : '🧹 Start Clean (Wipe DB Records)'}
+                                                    {isDeletingStorage ? 'Purging...' : 'Purge Object'}
                                                 </button>
                                             </div>
                                         </div>

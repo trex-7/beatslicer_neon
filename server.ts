@@ -318,7 +318,7 @@ async function startServer() {
 
         res.json({
           status: 'connected',
-          host: 'ep-damp-sunset-axegat0e-pooler.c-4.us-east-2.aws.neon.tech',
+          host: process.env.SQL_HOST || 'neon.tech',
           database: 'neondb',
           tables,
           counts,

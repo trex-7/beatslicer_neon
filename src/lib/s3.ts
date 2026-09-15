@@ -19,39 +19,44 @@ function cleanEnv(val?: string): string {
 
 export function getS3Config() {
   const bucket =
+    cleanEnv(process.env.STORAGE_BUCKET_NAME) ||
+    cleanEnv(process.env.STORAGE_BUCKET) ||
     cleanEnv(process.env.NEON_STORAGE_BUCKET) ||
-    cleanEnv(process.env.S3_BUCKET_NAME) ||
-    cleanEnv(process.env.AWS_S3_BUCKET) ||
-    cleanEnv(process.env.AWS_BUCKET_NAME) ||
     'beat-slicer';
+
   const region =
+    cleanEnv(process.env.REGION) ||
+    cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    cleanEnv(process.env.AWS_REGION) ||
-    cleanEnv(process.env.S3_REGION) ||
     'us-east-2';
+
   const accessKeyId =
+    cleanEnv(process.env.ACCESS_KEY_ID) ||
+    cleanEnv(process.env.STORAGE_ACCESS_KEY_ID) ||
+    cleanEnv(process.env.STORAGE_ACCESS_KEY) ||
     cleanEnv(process.env.NEON_STORAGE_ACCESS_KEY_ID) ||
-    cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
-    cleanEnv(process.env.S3_ACCESS_KEY_ID) ||
-    'nak_live_897e7825c27b46c3b913ebb94723a754';
+    '';
+
   const secretAccessKey =
+    cleanEnv(process.env.SECRET_ACCESS_KEY) ||
+    cleanEnv(process.env.STORAGE_SECRET_ACCESS_KEY) ||
+    cleanEnv(process.env.STORAGE_SECRET_KEY) ||
     cleanEnv(process.env.NEON_STORAGE_SECRET_ACCESS_KEY) ||
-    cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
-    cleanEnv(process.env.S3_SECRET_ACCESS_KEY) ||
-    'nsk_live_dcf0414b01ed8fb651e2f5e15896992ab4304fc43e2ed8fc306e4c2d8251a50d';
+    '';
+
   const endpoint =
-    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
+    cleanEnv(process.env.ENDPOINT_URL_S3) ||
+    cleanEnv(process.env.STORAGE_ENDPOINT) ||
     cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
-    cleanEnv(process.env.S3_ENDPOINT) ||
-    cleanEnv(process.env.AWS_ENDPOINT_URL) ||
     'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech';
+
   const publicBaseUrl =
-    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL) ||
-    cleanEnv(process.env.S3_PUBLIC_URL) ||
-    cleanEnv(process.env.AWS_S3_PUBLIC_URL);
+    cleanEnv(process.env.STORAGE_PUBLIC_URL) ||
+    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL);
+
   const forcePathStyle =
+    cleanEnv(process.env.STORAGE_FORCE_PATH_STYLE) === 'true' ||
     cleanEnv(process.env.NEON_STORAGE_FORCE_PATH_STYLE) === 'true' ||
-    cleanEnv(process.env.S3_FORCE_PATH_STYLE) === 'true' ||
     true;
 
   return {

@@ -8,15 +8,13 @@ declare global {
 }
 
 // Function to create or retrieve the connection pool.
-const DEFAULT_NEON_URL = 'postgresql://neondb_owner:npg_NcLUPu1Dq4Xo@ep-damp-sunset-axegat0e-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
-
 export const createPool = () => {
   if (!global._postgresPool) {
     const connectionString =
       process.env.DATABASE_URL ||
       process.env.POSTGRES_URL ||
       process.env.NEON_DATABASE_URL ||
-      DEFAULT_NEON_URL;
+      '';
 
     if (connectionString) {
       const isNeonOrCloud = connectionString.includes('neon.tech') || connectionString.includes('sslmode=') || connectionString.includes('aws');

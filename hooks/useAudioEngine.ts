@@ -613,6 +613,13 @@ export const useAudioEngine = () => {
       console.log(`[DBG] [${tag}] ${msg}`);
   }, []);
 
+  useEffect(() => {
+      (window as any).logDbg = logDbg;
+      return () => {
+          try { delete (window as any).logDbg; } catch (_) {}
+      };
+  }, [logDbg]);
+
   const midiLogRef = useRef<string[]>([]);
   const midiClockCountRef = useRef<number>(0);
   const midiClockDeltasRef = useRef<number[]>([]); 

@@ -442,9 +442,12 @@ export const uploadSampleToCloud = async (
         authHeaders['Authorization'] = `Bearer ${token}`;
     }
 
+    const log = (window as any).logDbg || ((tag: string, msg: string, type: string) => console.log(`[${tag}] [${type}] ${msg}`));
+
     // 1. Try Direct Presigned S3 Upload (High Performance, No Serverless Body Limit)
     try {
         const mimeType = file.type || 'audio/wav';
+        log('UPLOAD', `Requesting presigned upload URL for "${fileName}" (${mimeType})...`, 'info');
         const presignedRes = await fetch('/api/storage/presigned-url', {
             method: 'POST',
             headers: authHeaders,
@@ -457,6 +460,7 @@ export const uploadSampleToCloud = async (
         if (presignedRes.ok) {
             const presignedData = await presignedRes.json();
             if (presignedData?.uploadUrl && presignedData?.publicUrl) {
+                log('UPLOAD', `Uploading binary data directly to S3 bucket Key: "${presignedData.key || 'unknown'}"...`, 'info');
                 // Upload directly to S3 via PUT
                 const uploadRes = await fetch(presignedData.uploadUrl, {
                     method: 'PUT',
@@ -467,6 +471,7 @@ export const uploadSampleToCloud = async (
                 });
 
                 if (uploadRes.ok) {
+                    log('UPLOAD', `Direct S3 PUT successful! Registering sample record in Neon DB...`, 'success');
                     // Register sample in database
                     const regRes = await fetch('/api/samples', {
                         method: 'POST',
@@ -481,20 +486,32 @@ export const uploadSampleToCloud = async (
 
                     if (regRes.ok) {
                         const sampleData = await regRes.json();
+                        log('UPLOAD', `Sample registered in database successfully! ID: ${sampleData.id}`, 'success');
                         return {
                             publicUrl: sampleData.url || presignedData.publicUrl,
                             id: sampleData.id,
                         };
+                    } else {
+                        log('UPLOAD_ERROR', `Failed to register S3 sample in database (HTTP ${regRes.status})`, 'error');
                     }
+                } else {
+                    log('UPLOAD_ERROR', `Direct S3 PUT upload failed (HTTP ${uploadRes.status})`, 'error');
                 }
+            } else {
+                log('UPLOAD_WARN', `Server response did not include S3 uploadUrl / publicUrl`, 'warn');
             }
+        } else {
+            const errorText = await presignedRes.text().catch(() => '');
+            log('UPLOAD_WARN', `Presigned URL generation returned HTTP ${presignedRes.status}. Fallback to multipart. Details: ${errorText.slice(0, 100)}`, 'warn');
         }
-    } catch (presignedErr) {
+    } catch (presignedErr: any) {
+        log('UPLOAD_WARN', `Presigned S3 upload skipped/failed, falling back to standard upload: ${presignedErr?.message || presignedErr}`, 'warn');
         console.warn("[Upload] Presigned upload skipped/failed, falling back to standard upload:", presignedErr);
     }
 
     // 2. Fallback: Standard Multipart Upload (/api/samples/upload)
     try {
+        log('UPLOAD', `Attempting standard multipart server upload as fallback...`, 'info');
         const formData = new FormData();
         formData.append('file', file, fileName);
         formData.append('title', title);
@@ -514,15 +531,19 @@ export const uploadSampleToCloud = async (
 
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || `Upload failed (HTTP ${response.status})`);
+            const errMsg = errData.error || `Upload failed (HTTP ${response.status})`;
+            log('UPLOAD_ERROR', `Multipart upload failed: ${errMsg}`, 'error');
+            throw new Error(errMsg);
         }
 
         const data = await response.json();
+        log('UPLOAD', `Multipart upload successful! Registered ID: ${data.id}, URL: ${data.publicUrl}`, 'success');
         return {
             publicUrl: data.publicUrl,
             id: data.id,
         };
-    } catch (e) {
+    } catch (e: any) {
+        log('UPLOAD_ERROR', `All cloud upload attempts failed: ${e?.message || e}`, 'error');
         console.error("[Upload] Error uploading sample to Storage:", e);
         return null;
     }

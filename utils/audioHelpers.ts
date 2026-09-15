@@ -190,13 +190,11 @@ export async function stitchAudioFiles(
 
         const startSec = currentSampleOffset / sampleRate;
         const durSec = b.duration;
-        const startRatio = totalDurationSec > 0 ? startSec / totalDurationSec : 0;
-        const durRatio = totalDurationSec > 0 ? durSec / totalDurationSec : 1;
 
         slices.push({
             id: idx + 1,
-            offset: startRatio,
-            duration: durRatio,
+            offset: startSec,
+            duration: durSec,
             isActive: true,
             type: idx === 0 ? 'kick' : idx === 1 ? 'snare' : idx === 2 ? 'hihat' : 'perc',
             level: 1.0,

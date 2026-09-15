@@ -35,6 +35,7 @@ const App: React.FC = () => {
         midiInputs,
         midiOutputs,
         midiDebug,
+        audioDebug,
         loadAudioFile,
         loadConstructionKit,
         togglePlay,
@@ -244,7 +245,8 @@ const App: React.FC = () => {
                             clockSent: midiDebug.clockCount,
                             log: midiDebug.log,
                             clockDeltas: midiDebug.clockDeltas
-                        }
+                        },
+                        audioDebug: audioDebug
                     }}
                 />
 

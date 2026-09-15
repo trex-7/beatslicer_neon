@@ -5,6 +5,7 @@ import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
 import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile, resolveAudioUrl } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
+import { generateSyntheticDrumLoop } from '../utils/proceduralAudio';
 
 /// <reference types="vite/client" />
 
@@ -599,6 +600,19 @@ export const useAudioEngine = () => {
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [sliceLoopState, setSliceLoopState] = useState<{index: number | null, isLooping: boolean}>({ index: null, isLooping: false });
   
+  const [dbgLogs, setDbgLogs] = useState<Array<{ id: number; time: string; tag: string; msg: string; type: 'info' | 'warn' | 'error' | 'success' }>>([]);
+  const [workletStatus, setWorkletStatus] = useState<'active' | 'fallback' | 'loading' | 'error'>('loading');
+  const dbgLogsRef = useRef<Array<{ id: number; time: string; tag: string; msg: string; type: 'info' | 'warn' | 'error' | 'success' }>>([]);
+
+  const logDbg = useCallback((tag: string, msg: string, type: 'info' | 'warn' | 'error' | 'success' = 'info') => {
+      const now = new Date();
+      const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
+      const entry = { id: Date.now() + Math.random(), time, tag, msg, type };
+      dbgLogsRef.current = [entry, ...dbgLogsRef.current].slice(0, 100);
+      setDbgLogs([...dbgLogsRef.current]);
+      console.log(`[DBG] [${tag}] ${msg}`);
+  }, []);
+
   const midiLogRef = useRef<string[]>([]);
   const midiClockCountRef = useRef<number>(0);
   const midiClockDeltasRef = useRef<number[]>([]); 
@@ -822,20 +836,27 @@ export const useAudioEngine = () => {
 
     const setupAudio = async () => {
       try {
+          logDbg('INIT', 'Initializing Web Audio API context...', 'info');
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
           const nativeContext = new AudioContextClass();
           Tone.setContext(nativeContext);
           audioContextRef.current = nativeContext;
           const targetContext = nativeContext;
+          logDbg('INIT', `AudioContext state: ${nativeContext.state}, sampleRate: ${nativeContext.sampleRate}Hz`, 'info');
 
-          if (!targetContext.audioWorklet) return;
-
-          const blob = new Blob([GRANULAR_WORKLET_CODE], { type: 'application/javascript' });
-          const workletUrl = URL.createObjectURL(blob);
-          
-          try { 
-              await targetContext.audioWorklet.addModule(workletUrl); 
-          } catch (e: any) {}
+          if (targetContext.audioWorklet) {
+              const blob = new Blob([GRANULAR_WORKLET_CODE], { type: 'application/javascript' });
+              const workletUrl = URL.createObjectURL(blob);
+              
+              try { 
+                  await targetContext.audioWorklet.addModule(workletUrl); 
+                  logDbg('WORKLET', 'AudioWorklet module added successfully', 'info');
+              } catch (e: any) {
+                  logDbg('WORKLET', `Failed to add AudioWorklet module: ${e?.message || e}`, 'warn');
+              }
+          } else {
+              logDbg('WORKLET', 'AudioWorklet API not present on window.AudioContext', 'warn');
+          }
           
           if (!active) { 
               nativeContext.close().catch(() => {}); 
@@ -855,6 +876,9 @@ export const useAudioEngine = () => {
 
           try {
             workletNode.current = new AudioWorkletNode(targetContext, 'granular-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+            setWorkletStatus('active');
+            logDbg('WORKLET', 'Granular AudioWorklet active & connected', 'success');
+
             workletNode.current.port.onmessage = (event) => {
                 if (event.data.type === 'step') {
                      const step = event.data.value;
@@ -875,7 +899,10 @@ export const useAudioEngine = () => {
             effects.current.inputGain = new Tone.Gain(1);
             Tone.connect(effects.current.nativeBridgeGain, effects.current.inputGain);
 
-          } catch(e) { console.error(e); return; }
+          } catch(e: any) { 
+            setWorkletStatus('fallback');
+            logDbg('WORKLET', `AudioWorkletNode setup notice: ${e?.message || e}. Using Tone fallback.`, 'warn');
+          }
 
           previewPlayer.current = new Tone.Player().toDestination();
           
@@ -964,7 +991,6 @@ export const useAudioEngine = () => {
           (effects.current as any).bitCrusherDry = bcDry;
 
           // Vinyl Bypass (Feature Disabled)
-          // We connect input directly to output to maintain the chain even if ordered
           mods.vinyl.input.connect(mods.vinyl.output);
 
           if (!active) return;
@@ -984,8 +1010,36 @@ export const useAudioEngine = () => {
           effects.current.limiter = new Tone.Limiter({ threshold: 0 }).toDestination();
 
           reconnectEffectChain();
+
+          // Auto-load synthetic drum loop sample on startup
+          try {
+              logDbg('SYNTH', 'Generating synthetic drum loop sample...', 'info');
+              const synthNativeBuf = generateSyntheticDrumLoop(nativeContext, paramsRef.current.bpm || 120);
+              const synthToneBuf = new Tone.Buffer(synthNativeBuf);
+              const synthSlices = generateTransientSlices(synthToneBuf, paramsRef.current.bpm || 120, 0, synthToneBuf.duration);
+              
+              setAudioBuffer(synthToneBuf);
+              setSlices(synthSlices);
+              setSelectedSliceIndex(0);
+              setSampleName('Synthetic Electro Beat (Default)');
+              
+              if (previewPlayer.current) previewPlayer.current.buffer = synthToneBuf;
+              
+              if (workletNode.current) {
+                  const chan0 = new Float32Array(synthNativeBuf.getChannelData(0));
+                  const chan1 = synthNativeBuf.numberOfChannels > 1 ? new Float32Array(synthNativeBuf.getChannelData(1)) : chan0;
+                  workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: synthNativeBuf.sampleRate });
+                  workletNode.current.port.postMessage({ type: 'slices', slices: synthSlices });
+              }
+              logDbg('LOAD', `Loaded synthetic drum loop (${synthNativeBuf.duration.toFixed(2)}s, ${synthSlices.length} slices)`, 'success');
+          } catch (synthErr: any) {
+              logDbg('LOAD', `Synthetic drum loop notice: ${synthErr?.message || synthErr}`, 'warn');
+          }
+
           setIsReady(true);
-      } catch (e) { 
+          logDbg('INIT', 'Audio Engine setup completed successfully', 'success');
+      } catch (e: any) { 
+          logDbg('ERROR', `Audio Setup Error: ${e?.message || e}`, 'error');
           console.error("Audio Setup Failed", e);
           setIsReady(true); 
       }
@@ -1142,19 +1196,22 @@ export const useAudioEngine = () => {
     try {
       if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state === 'suspended') {
         await Tone.start();
+        logDbg('AUDIO_CTX', 'Tone.start() resumed Tone audio context', 'info');
       }
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         await audioContextRef.current.resume();
+        logDbg('AUDIO_CTX', `Native AudioContext state resumed: ${audioContextRef.current.state}`, 'info');
       }
-    } catch (e) {
-      console.warn("AudioContext resume:", e);
+    } catch (e: any) {
+      logDbg('AUDIO_CTX', `AudioContext resume warning: ${e?.message || e}`, 'warn');
     }
-  }, []);
+  }, [logDbg]);
 
   // UPDATED LOAD PRESET TO FIX MISSING VINYL
   const loadPreset = useCallback(async (preset: Preset) => {
       setIsLoading(true);
       await ensureAudioActive();
+      logDbg('PRESET', `Loading preset: ${preset.name || preset.id}`, 'info');
       try {
           if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
           if (preset.sampleName) setSampleName(preset.sampleName);
@@ -1162,6 +1219,7 @@ export const useAudioEngine = () => {
           if (preset.id) setCurrentPresetId(preset.id);
           if (preset.sampleUrl) {
               const streamUrl = resolveAudioUrl(preset.sampleUrl);
+              logDbg('PRESET', `Fetching sample stream: ${streamUrl}`, 'info');
               const buffer = new Tone.Buffer(); 
               await buffer.load(streamUrl);
               let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
@@ -1172,9 +1230,10 @@ export const useAudioEngine = () => {
               if (workletNode.current) {
                   const nativeBuf = processedBuffer.get();
                   if (nativeBuf && nativeBuf.numberOfChannels > 0) {
-                      const chan0 = nativeBuf.getChannelData(0);
-                      const chan1 = nativeBuf.numberOfChannels > 1 ? nativeBuf.getChannelData(1) : chan0;
+                      const chan0 = new Float32Array(nativeBuf.getChannelData(0));
+                      const chan1 = nativeBuf.numberOfChannels > 1 ? new Float32Array(nativeBuf.getChannelData(1)) : chan0;
                       workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: processedBuffer.sampleRate });
+                      logDbg('WORKLET', `Posted preset buffer to worklet (${processedBuffer.duration.toFixed(2)}s, ${processedBuffer.sampleRate}Hz)`, 'success');
                   }
               }
           }
@@ -1201,10 +1260,9 @@ export const useAudioEngine = () => {
                    workletNode.current.port.postMessage({ type: 'slices', slices: preset.slices });
                }
           }
-      } catch (e) { console.error("Preset Load Error:", e); alert("Failed to load preset audio."); } finally { setIsLoading(false); }
-  }, [updateParams]);
-
-  // ... (Rest of file unchanged) ...
+          logDbg('PRESET', `Preset loaded successfully`, 'success');
+      } catch (e: any) { logDbg('ERROR', `Preset load error: ${e?.message || e}`, 'error'); console.error("Preset Load Error:", e); alert("Failed to load preset audio."); } finally { setIsLoading(false); }
+  }, [updateParams, ensureAudioActive, logDbg]);
 
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string, cloudId?: string) => {
     setIsLoading(true);
@@ -1214,11 +1272,13 @@ export const useAudioEngine = () => {
       const rawUrl = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
       const url = resolveAudioUrl(rawUrl);
       let filename = nameOverride || (audioFile instanceof File ? audioFile.name : (typeof audioFile === 'string' ? audioFile.split('/').pop()?.split('?')[0] || 'Default' : 'Default'));
+      logDbg('LOAD', `Loading sample file "${filename}"...`, 'info');
       setSampleName(filename); setCurrentSampleId(cloudId || null); setCurrentPresetId(null); 
       
       if (audioFile instanceof File) {
           const err = validateFile(audioFile);
           if (err) {
+              logDbg('LOAD', `Validation failed for "${filename}": ${err}`, 'error');
               alert(err);
               setIsLoading(false);
               return;
@@ -1231,6 +1291,7 @@ export const useAudioEngine = () => {
       let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
       rawBuffer = removeLeadingSilence(rawBuffer);
       const processedBuffer = new Tone.Buffer(rawBuffer);
+      logDbg('DECODE', `Sample loaded: ${processedBuffer.duration.toFixed(2)}s, ${processedBuffer.sampleRate}Hz, ${processedBuffer.numberOfChannels} ch`, 'success');
       
       let currentSlices = slices; let currentSequencer = sequencer;
       
@@ -1245,25 +1306,34 @@ export const useAudioEngine = () => {
             const newState = { ...prev, steps: newSteps, currentStep: -1 }; currentSequencer = newState; return newState;
           });
           updateParams({ ...initialParams, bpm: detectedBpm || 120 });
+          logDbg('SLICE', `Generated ${newSlices.length} slices (Detected BPM: ${detectedBpm || 120})`, 'info');
       }
       setAudioBuffer(processedBuffer);
       if (previewPlayer.current) previewPlayer.current.buffer = processedBuffer;
       if (workletNode.current) {
           const nativeBuf = processedBuffer.get();
           if (nativeBuf && nativeBuf.numberOfChannels > 0) {
-              const chan0 = nativeBuf.getChannelData(0);
-              const chan1 = nativeBuf.numberOfChannels > 1 ? nativeBuf.getChannelData(1) : chan0;
+              const chan0 = new Float32Array(nativeBuf.getChannelData(0));
+              const chan1 = nativeBuf.numberOfChannels > 1 ? new Float32Array(nativeBuf.getChannelData(1)) : chan0;
               workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: processedBuffer.sampleRate });
               workletNode.current.port.postMessage({ type: 'slices', slices: currentSlices });
               workletNode.current.port.postMessage({ type: 'sequencer', steps: currentSequencer.steps, stepCount: currentSequencer.stepCount, bpm: paramsRef.current.bpm, isLooping: currentSequencer.isLooping, mode: currentSequencer.mode });
+              logDbg('WORKLET', `Sample buffer & slices posted to Worklet`, 'success');
           }
+      } else {
+          logDbg('WORKLET', `Worklet node is null; sample stored in preview player for fallback`, 'warn');
       }
       if (isPlaying) {
         if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: true });
         if (Tone.Transport.state !== 'started') Tone.Transport.start();
       }
-    } catch (error: any) { alert("Failed to load audio."); } finally { setIsLoading(false); }
-  }, [isPlaying, updateParams, slices, sequencer]);
+    } catch (error: any) { 
+        logDbg('ERROR', `Failed to load audio "${audioFile}": ${error?.message || error}`, 'error');
+        alert("Failed to load audio."); 
+    } finally { 
+        setIsLoading(false); 
+    }
+  }, [isPlaying, updateParams, slices, sequencer, ensureAudioActive, logDbg]);
 
   const loadConstructionKit = useCallback(async (files: File[] | KitSample[], kitName: string) => {
       setIsLoading(true); if (previewPlayer.current) previewPlayer.current.stop();
@@ -1316,19 +1386,87 @@ export const useAudioEngine = () => {
       } catch (error: any) { alert(`Failed to load kit: ${error.message}.`); } finally { setIsLoading(false); }
   }, [updateParams, sequencer]);
 
+  const forceResumeAudio = useCallback(async () => {
+    try {
+      if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state === 'suspended') {
+        await Tone.start();
+      }
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      logDbg('AUDIO_CTX', `AudioContext state resumed: ${audioContextRef.current?.state}`, 'success');
+    } catch (e: any) {
+      logDbg('AUDIO_CTX', `Force resume error: ${e?.message || e}`, 'error');
+    }
+  }, [logDbg]);
+
+  const playTestTone = useCallback(async () => {
+      await ensureAudioActive();
+      logDbg('TEST_TONE', 'Triggered 0.5s 440Hz test sine tone directly to AudioContext output', 'info');
+      try {
+          const ctx = audioContextRef.current || (Tone.context ? Tone.context.rawContext : null);
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, ctx.currentTime);
+          gain.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.5);
+          logDbg('TEST_TONE', 'Test tone executed successfully', 'success');
+      } catch (e: any) {
+          logDbg('TEST_TONE', `Test tone error: ${e?.message || e}`, 'error');
+      }
+  }, [ensureAudioActive, logDbg]);
+
+  const reloadSyntheticSample = useCallback(async () => {
+      await ensureAudioActive();
+      try {
+          const ctx = audioContextRef.current;
+          if (!ctx) return;
+          logDbg('SYNTH', 'Regenerating synthetic drum loop sample on demand...', 'info');
+          const synthNativeBuf = generateSyntheticDrumLoop(ctx, paramsRef.current.bpm || 120);
+          const synthToneBuf = new Tone.Buffer(synthNativeBuf);
+          const synthSlices = generateTransientSlices(synthToneBuf, paramsRef.current.bpm || 120, 0, synthToneBuf.duration);
+          
+          setAudioBuffer(synthToneBuf);
+          setSlices(synthSlices);
+          setSelectedSliceIndex(0);
+          setSampleName('Synthetic Electro Beat');
+          
+          if (previewPlayer.current) previewPlayer.current.buffer = synthToneBuf;
+          
+          if (workletNode.current) {
+              const chan0 = new Float32Array(synthNativeBuf.getChannelData(0));
+              const chan1 = synthNativeBuf.numberOfChannels > 1 ? new Float32Array(synthNativeBuf.getChannelData(1)) : chan0;
+              workletNode.current.port.postMessage({ type: 'load', bufferL: chan0, bufferR: chan1, sampleRate: synthNativeBuf.sampleRate });
+              workletNode.current.port.postMessage({ type: 'slices', slices: synthSlices });
+          }
+          logDbg('LOAD', `Regenerated synthetic drum loop (${synthNativeBuf.duration.toFixed(2)}s, ${synthSlices.length} slices)`, 'success');
+      } catch (e: any) {
+          logDbg('LOAD', `Failed to reload synthetic sample: ${e?.message || e}`, 'error');
+      }
+  }, [ensureAudioActive, logDbg]);
+
   const togglePlay = useCallback(async () => {
     // Explicitly resume audio context if suspended - critical fix for "no sound"
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         await audioContextRef.current.resume();
+        logDbg('AUDIO_CTX', `Resumed AudioContext in togglePlay: ${audioContextRef.current.state}`, 'info');
     }
     // Also ensure Tone context is started
     if (Tone.context.state === 'suspended') {
         await Tone.start();
+        logDbg('AUDIO_CTX', `Started Tone context in togglePlay`, 'info');
     }
 
     if (!midiAccessRef.current && (navigator as any).requestMIDIAccess) { try { midiAccessRef.current = await (navigator as any).requestMIDIAccess({ sysex: false }); } catch (e) {} }
     
     if (isPlaying) {
+      logDbg('PLAY', 'Stopping transport and playback', 'info');
       if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: false });
       Tone.Transport.stop(); setIsPlaying(false);
       if (midiAccessRef.current && midiConfigRef.current.enabled && midiConfigRef.current.sendTransport) {
@@ -1339,6 +1477,7 @@ export const useAudioEngine = () => {
       }
       if (sequencer.playbackBehavior === 'continue') { setSequencer(prev => ({ ...prev, isPlaying: false })); } else { setSequencer(prev => ({ ...prev, isPlaying: false, currentStep: -1 })); }
     } else {
+      logDbg('PLAY', `Starting transport and playback (${workletStatus} engine mode)`, 'info');
       const shouldReset = sequencer.playbackBehavior === 'reset';
       if (workletNode.current) workletNode.current.port.postMessage({ type: 'play', value: true, reset: shouldReset });
       playStartTimeRef.current = performance.now();
@@ -1353,7 +1492,7 @@ export const useAudioEngine = () => {
       if (shouldReset) Tone.Transport.position = 0;
       Tone.Transport.start(); setIsPlaying(true); setSequencer(prev => ({ ...prev, isPlaying: true }));
     }
-  }, [isPlaying, sequencer.playbackBehavior, logMidi]);
+  }, [isPlaying, sequencer.playbackBehavior, logMidi, logDbg, workletStatus]);
 
   const setTransportBpm = useCallback((bpm: number) => { updateParams({ bpm }); }, [updateParams]);
   const toggleLoop = useCallback(() => {
@@ -1667,6 +1806,15 @@ export const useAudioEngine = () => {
   return {
     isReady, isPlaying, isLoading, audioBuffer, params, sequencer, slices, selectedSliceIndex, sampleName, currentSampleId, currentPresetId, midiConfig, midiInputs, midiOutputs,
     midiDebug: { log: midiLogRef, clockCount: midiClockCountRef, clockDeltas: midiClockDeltasRef },
+    audioDebug: {
+        logs: dbgLogs,
+        workletStatus,
+        contextState: audioContextRef.current?.state || 'suspended',
+        sampleRate: audioContextRef.current?.sampleRate || 0,
+        playTestTone,
+        reloadSyntheticSample,
+        forceResumeAudio,
+    },
     metronomeConfig,
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, generateAiPattern, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,
     loadImpulseResponse

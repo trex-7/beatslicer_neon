@@ -214,21 +214,86 @@ const SystemMonitor: React.FC<SystemMonitorProps> = ({ isOpen, onClose, stats })
                         </div>
                     )}
 
-                    {/* Audio Engine */}
+                    {/* Audio Engine & DBG Diagnostics */}
                     <div>
-                        <h3 className="text-xs font-bold text-star-dust uppercase mb-2">Audio Engine</h3>
-                        <div className="bg-white/5 rounded-lg border border-white/5 overflow-hidden">
-                            <div className="flex justify-between p-3 border-b border-white/5">
-                                <span className="text-sm text-white/70">Context State</span>
-                                <span className={`text-sm font-bold uppercase ${audioState === 'running' ? 'text-green-400' : 'text-yellow-400'}`}>{audioState}</span>
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="text-xs font-bold text-star-dust uppercase">Audio Engine & DBG Diagnostics</h3>
+                            {stats.audioDebug?.workletStatus && (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                                    stats.audioDebug.workletStatus === 'active' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                                    stats.audioDebug.workletStatus === 'fallback' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                }`}>
+                                    Engine: {stats.audioDebug.workletStatus}
+                                </span>
+                            )}
+                        </div>
+                        <div className="bg-white/5 rounded-lg border border-white/5 p-3 space-y-3">
+                            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="bg-black/30 p-2 rounded border border-white/5">
+                                    <div className="text-white/40 text-[10px] uppercase">AudioContext State</div>
+                                    <div className={`font-bold uppercase mt-0.5 ${audioState === 'running' ? 'text-green-400' : 'text-yellow-400'}`}>
+                                        {audioState}
+                                    </div>
+                                </div>
+                                <div className="bg-black/30 p-2 rounded border border-white/5">
+                                    <div className="text-white/40 text-[10px] uppercase">Sample Rate</div>
+                                    <div className="font-bold text-white mt-0.5">
+                                        {typeof Tone !== 'undefined' ? Tone.context.sampleRate : 0} Hz
+                                    </div>
+                                </div>
+                                <div className="bg-black/30 p-2 rounded border border-white/5">
+                                    <div className="text-white/40 text-[10px] uppercase">DSP Worklet</div>
+                                    <div className="font-bold text-hyper-cyan mt-0.5">
+                                        {workletSupport ? 'Supported' : 'Unavailable'}
+                                    </div>
+                                </div>
                             </div>
-                             <div className="flex justify-between p-3 border-b border-white/5">
-                                <span className="text-sm text-white/70">Sample Rate</span>
-                                <span className="text-sm font-bold text-white">{typeof Tone !== 'undefined' ? Tone.context.sampleRate : 0} Hz</span>
+
+                            {/* Quick Diagnostic Actions */}
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => stats.audioDebug?.playTestTone && stats.audioDebug.playTestTone()}
+                                    className="flex-1 bg-hyper-cyan/10 hover:bg-hyper-cyan/20 text-hyper-cyan border border-hyper-cyan/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                >
+                                    🔊 Play 440Hz Test Tone
+                                </button>
+                                <button
+                                    onClick={() => stats.audioDebug?.forceResumeAudio && stats.audioDebug.forceResumeAudio()}
+                                    className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                >
+                                    ⚡ Resume AudioContext
+                                </button>
+                                <button
+                                    onClick={() => stats.audioDebug?.reloadSyntheticSample && stats.audioDebug.reloadSyntheticSample()}
+                                    className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
+                                >
+                                    🥁 Load Synthetic Loop
+                                </button>
                             </div>
-                            <div className="flex justify-between p-3">
-                                <span className="text-sm text-white/70">DSP Architecture</span>
-                                <span className="text-sm font-bold text-hyper-cyan animate-pulse">Custom Worklet (Multi-Threaded)</span>
+
+                            {/* DBG Log Stream */}
+                            <div>
+                                <div className="text-[10px] font-bold text-white/50 uppercase mb-1">Live DBG Event Log</div>
+                                <div className="bg-black/60 p-2 rounded border border-white/10 h-36 overflow-y-auto font-mono text-[11px] space-y-1 scrollbar-thin scrollbar-thumb-white/10">
+                                    {Array.isArray(stats.audioDebug?.logs) && stats.audioDebug.logs.length > 0 ? (
+                                        stats.audioDebug.logs.map((log: any) => (
+                                            <div key={log.id} className="flex gap-2 items-start text-left border-b border-white/5 pb-1">
+                                                <span className="text-white/30 text-[9px] shrink-0 font-sans">{log.time}</span>
+                                                <span className={`px-1 py-0.2 text-[9px] font-bold rounded shrink-0 ${
+                                                    log.type === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                                    log.type === 'warn' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                                                    log.type === 'success' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                                                    'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                                }`}>
+                                                    [{log.tag}]
+                                                </span>
+                                                <span className="text-white/80 break-all">{log.msg}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-white/30 italic text-center py-4">No DBG logs recorded yet...</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -73,7 +73,7 @@ export function createApp() {
     next();
   });
 
-  // Ensure storage directories exist
+  // Ensure storage directories exist if filesystem is writable
   const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
   try {
     if (!fs.existsSync(uploadsDir)) {
@@ -83,20 +83,9 @@ export function createApp() {
     // Read-only filesystem in serverless environments
   }
 
-  // Multer disk storage for audio assets
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      cb(null, uploadsDir);
-    },
-    filename: (_req, file, cb) => {
-      const cleanName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      cb(null, `${uniqueSuffix}_${cleanName}`);
-    },
-  });
-
+  // Use Memory Storage for Multer to safely support Serverless (Netlify/Lambda), Containers, and Disk
   const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   });
 
@@ -556,7 +545,7 @@ export function createApp() {
   });
 
   // Presigned URL for direct S3 upload
-  app.post('/api/storage/presigned-url', requireAuth, async (req: AuthRequest, res: Response) => {
+  app.post('/api/storage/presigned-url', optionalAuth, async (req: AuthRequest, res: Response) => {
     try {
       if (!isS3Configured()) {
         return res.status(400).json({
@@ -571,6 +560,31 @@ export function createApp() {
     } catch (error: any) {
       console.error('Presigned URL error:', error);
       res.status(500).json({ error: error.message || 'Failed to generate presigned URL' });
+    }
+  });
+
+  // Create Sample Record (from direct presigned URL upload or existing URL)
+  app.post('/api/samples', optionalAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user?.uid || 'anon';
+      const { title, url, isPublic, isFactory } = req.body;
+
+      if (!url) {
+        return res.status(400).json({ error: 'Sample URL is required' });
+      }
+
+      const sample = await createSample({
+        userId,
+        title: title || 'Untitled Sample',
+        url,
+        isPublic: isPublic === true || isPublic === 'true' || isFactory === true || isFactory === 'true',
+        isFactory: isFactory === true || isFactory === 'true',
+      });
+
+      res.status(201).json(sample);
+    } catch (error: any) {
+      console.error('Create sample record error:', error);
+      res.status(500).json({ error: error.message || 'Failed to create sample' });
     }
   });
 
@@ -671,47 +685,46 @@ export function createApp() {
 
       let publicUrl = '';
 
+      // Extract buffer and metadata
+      let buffer: Buffer | null = null;
+      let originalName = 'sample.wav';
+      let mimeType = 'audio/wav';
+
+      if (file) {
+        buffer = file.buffer || (file.path && fs.existsSync(file.path) ? fs.readFileSync(file.path) : null);
+        originalName = file.originalname || 'sample.wav';
+        mimeType = file.mimetype || 'audio/wav';
+      } else if (req.body.audioData) {
+        const base64Data = req.body.audioData.replace(/^data:audio\/\w+;base64,/, '');
+        buffer = Buffer.from(base64Data, 'base64');
+        originalName = req.body.title ? `${req.body.title}.wav` : 'sample.wav';
+      }
+
       // 1. If S3 is configured, upload directly to S3
-      if (isS3Configured() && (file || req.body.audioData)) {
+      if (isS3Configured() && buffer) {
         try {
-          let buffer: Buffer;
-          let originalName = 'sample.wav';
-          let mimeType = 'audio/wav';
-
-          if (file) {
-            buffer = fs.readFileSync(file.path);
-            originalName = file.originalname;
-            mimeType = file.mimetype || 'audio/wav';
-            // Cleanup local temp file
-            try {
-              fs.unlinkSync(file.path);
-            } catch (e) {
-              // ignore
-            }
-          } else {
-            const base64Data = req.body.audioData.replace(/^data:audio\/\w+;base64,/, '');
-            buffer = Buffer.from(base64Data, 'base64');
-          }
-
           const cleanName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
           const key = `samples/${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${cleanName}`;
           const s3Result = await uploadBufferToS3(buffer, key, mimeType);
           publicUrl = s3Result.url;
         } catch (s3Err) {
-          console.warn('S3 upload error, falling back to local disk:', s3Err);
+          console.warn('S3 upload error, falling back to local storage:', s3Err);
         }
       }
 
-      // 2. Fallback to local storage or explicit url
+      // 2. Fallback to local storage, data URL, or explicit url
       if (!publicUrl) {
-        if (file) {
-          publicUrl = `/uploads/${file.filename}`;
-        } else if (req.body.audioData) {
-          const filename = `${Date.now()}_audio.wav`;
-          const filepath = path.join(uploadsDir, filename);
-          const base64Data = req.body.audioData.replace(/^data:audio\/\w+;base64,/, '');
-          fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'));
-          publicUrl = `/uploads/${filename}`;
+        if (buffer) {
+          const cleanName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filename = `${Date.now()}_${cleanName}`;
+          try {
+            const filepath = path.join(uploadsDir, filename);
+            fs.writeFileSync(filepath, buffer);
+            publicUrl = `/uploads/${filename}`;
+          } catch (writeErr) {
+            console.warn('Local disk write failed (read-only filesystem), falling back to data URL:', writeErr);
+            publicUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+          }
         } else if (req.body.url) {
           publicUrl = req.body.url;
         } else {

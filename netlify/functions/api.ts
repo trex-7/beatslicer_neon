@@ -3,4 +3,6 @@ import { createApp } from '../../server.ts';
 
 const app = createApp();
 
-export const handler = serverless(app);
+export const handler = serverless(app, {
+  binary: ['*/*'],
+});

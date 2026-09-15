@@ -429,27 +429,86 @@ export const uploadSampleToCloud = async (
     isPublic: boolean = false,
     skipPrefix: boolean = false
 ): Promise<{ publicUrl: string, id: string } | null> => {
-    try {
-        let title = fileName;
-        if (kitName && !skipPrefix) {
-            title = `[Kit: ${kitName}] ${fileName}`;
-        }
+    let title = fileName;
+    if (kitName && !skipPrefix) {
+        title = `[Kit: ${kitName}] ${fileName}`;
+    }
 
+    const token = localStorage.getItem('neon_auth_token') || localStorage.getItem('auth_token') || '';
+    const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+    if (token) {
+        authHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
+    // 1. Try Direct Presigned S3 Upload (High Performance, No Serverless Body Limit)
+    try {
+        const mimeType = file.type || 'audio/wav';
+        const presignedRes = await fetch('/api/storage/presigned-url', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({
+                filename: fileName,
+                contentType: mimeType,
+            }),
+        });
+
+        if (presignedRes.ok) {
+            const presignedData = await presignedRes.json();
+            if (presignedData?.uploadUrl && presignedData?.publicUrl) {
+                // Upload directly to S3 via PUT
+                const uploadRes = await fetch(presignedData.uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': mimeType,
+                    },
+                    body: file,
+                });
+
+                if (uploadRes.ok) {
+                    // Register sample in database
+                    const regRes = await fetch('/api/samples', {
+                        method: 'POST',
+                        headers: authHeaders,
+                        body: JSON.stringify({
+                            title,
+                            url: presignedData.publicUrl,
+                            isPublic: isPublic || isFactory,
+                            isFactory,
+                        }),
+                    });
+
+                    if (regRes.ok) {
+                        const sampleData = await regRes.json();
+                        return {
+                            publicUrl: sampleData.url || presignedData.publicUrl,
+                            id: sampleData.id,
+                        };
+                    }
+                }
+            }
+        }
+    } catch (presignedErr) {
+        console.warn("[Upload] Presigned upload skipped/failed, falling back to standard upload:", presignedErr);
+    }
+
+    // 2. Fallback: Standard Multipart Upload (/api/samples/upload)
+    try {
         const formData = new FormData();
         formData.append('file', file, fileName);
         formData.append('title', title);
         formData.append('isPublic', String(isPublic || isFactory));
         formData.append('isFactory', String(isFactory));
 
-        const token = localStorage.getItem('neon_auth_token') || localStorage.getItem('auth_token') || '';
-        const headers: Record<string, string> = {};
+        const uploadHeaders: Record<string, string> = {};
         if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+            uploadHeaders['Authorization'] = `Bearer ${token}`;
         }
 
         const response = await fetch('/api/samples/upload', {
             method: 'POST',
-            headers,
+            headers: uploadHeaders,
             body: formData,
         });
 
@@ -464,7 +523,7 @@ export const uploadSampleToCloud = async (
             id: data.id,
         };
     } catch (e) {
-        console.error("[Upload] Error uploading sample to Neon Storage:", e);
+        console.error("[Upload] Error uploading sample to Storage:", e);
         return null;
     }
 };

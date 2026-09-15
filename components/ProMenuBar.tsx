@@ -100,7 +100,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
     };
 
     return (
-        <header className="fixed top-0 left-0 right-0 h-10 bg-neutral-950/95 border-b border-neutral-800/80 backdrop-blur-md z-40 flex items-center justify-between px-4 text-xs select-none pro-menu-container">
+        <header className="fixed top-0 left-0 right-0 h-10 bg-neutral-950/95 border-b border-neutral-800/80 backdrop-blur-md z-[100] flex items-center justify-between px-4 text-xs select-none pro-menu-container shadow-lg">
             {/* Hidden file input for import */}
             <input 
                 type="file" 
@@ -128,7 +128,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                         File
                     </button>
                     {activeMenu === 'file' && (
-                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-[110] animate-in fade-in zoom-in-95 duration-150">
                             <button
                                 type="button"
                                 onClick={() => { onOpenLibrary(); setActiveMenu(null); }}
@@ -185,7 +185,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                         Edit
                     </button>
                     {activeMenu === 'edit' && (
-                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-[110] animate-in fade-in zoom-in-95 duration-150">
                             <button
                                 type="button"
                                 onClick={() => { onAutoSlice(); setActiveMenu(null); }}
@@ -250,7 +250,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                         View
                     </button>
                     {activeMenu === 'view' && (
-                        <div className="absolute top-full left-0 mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="absolute top-full left-0 mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-[110] animate-in fade-in zoom-in-95 duration-150">
                             <button
                                 type="button"
                                 onClick={() => { onOpenLibrary(); setActiveMenu(null); }}
@@ -281,7 +281,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                         Help
                     </button>
                     {activeMenu === 'help' && (
-                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="absolute top-full left-0 mt-1 w-52 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-[110] animate-in fade-in zoom-in-95 duration-150">
                             {onOpenVideo && (
                                 <button
                                     type="button"

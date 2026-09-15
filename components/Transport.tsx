@@ -80,7 +80,7 @@ const Transport: React.FC<TransportProps> = ({
     };
 
     return (
-        <div className="w-full bg-[#12161d] rounded-xl border border-white/10 shadow-2xl flex flex-col md:flex-row lg:flex-col items-center p-2 gap-4 select-none relative z-40 transition-all">
+        <div className="w-full bg-[#12161d] rounded-xl border border-white/10 shadow-2xl flex flex-col md:flex-row lg:flex-col items-center p-2 gap-4 select-none relative z-20 transition-all">
             
             {/* Playback Controls */}
             <div className="flex items-center justify-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 w-full md:w-auto lg:w-full">

@@ -1,5 +1,33 @@
-
-import React, { useRef, useEffect, useState, memo } from 'react';
+import React, { useRef, useEffect, useState, memo, useMemo } from 'react';
+import { 
+    Cloud, 
+    Upload, 
+    Play, 
+    Square, 
+    Folder, 
+    FolderOpen, 
+    Package, 
+    Disc, 
+    Sliders, 
+    Sparkles, 
+    Trash2, 
+    Check, 
+    Search, 
+    X, 
+    Plus, 
+    Lock, 
+    Globe, 
+    ShieldCheck, 
+    AlertCircle, 
+    Music, 
+    Layers, 
+    RefreshCw, 
+    HardDrive,
+    Database,
+    ArrowLeft,
+    FileAudio,
+    Tag
+} from 'lucide-react';
 import Tooltip from './Tooltip';
 import Auth from './Auth';
 import { 
@@ -11,7 +39,6 @@ import {
     deleteCloudKit,
     listStorageObjects,
     deleteStorageObject,
-    renameCloudItem,
     fetchAllFeedback,
     createKit,
     linkSamplesToKit,
@@ -45,21 +72,22 @@ const ADMIN_EMAILS = [
     'admin@example.com',
 ].filter(Boolean);
 
-type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';
+type FilterCategory = 'all' | 'samples' | 'kits' | 'presets' | 'factory' | 'my-uploads';
+type UploadMode = 'sample' | 'kit' | 'preset';
 
 const LibraryManager: React.FC<LibraryManagerProps> = memo(({ 
-    isOpen, onClose, onFileLoad, onKitLoad, onDemoLoad, onImport, onLoadPreset, user
+    isOpen, onClose, onFileLoad, onKitLoad, onDemoLoad, onExport, onImport, onLoadPreset, getAudioWav, sampleName, user
 }) => {
-    const audioInputRef = useRef<HTMLInputElement>(null);
-    const kitInputRef = useRef<HTMLInputElement>(null);
-    const presetInputRef = useRef<HTMLInputElement>(null);
-    const adminPresetRef = useRef<HTMLInputElement>(null);
-    const userUploadRef = useRef<HTMLInputElement>(null); 
-    
-    // Split Admin Upload Refs
-    const adminSampleUploadRef = useRef<HTMLInputElement>(null);
-    const adminKitUploadRef = useRef<HTMLInputElement>(null);
+    // Hidden standard file pickers
+    const directLocalAudioRef = useRef<HTMLInputElement>(null);
+    const presetImportInputRef = useRef<HTMLInputElement>(null);
 
+    // Upload & Browser View Mode: 'browse' | 'upload' | 'admin'
+    const [viewMode, setViewMode] = useState<'browse' | 'upload' | 'admin'>('browse');
+    const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
+    const [searchTerm, setSearchTerm] = useState("");
+
+    // Database items state
     const [publicPresets, setPublicPresets] = useState<CloudItem[]>([]);
     const [publicSamples, setPublicSamples] = useState<CloudItem[]>([]);
     const [factoryPresets, setFactoryPresets] = useState<CloudItem[]>([]);
@@ -67,19 +95,44 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [userPresets, setUserPresets] = useState<CloudItem[]>([]);
     const [userSamples, setUserSamples] = useState<CloudItem[]>([]);
     const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
-    
-    // UI State for Folders
-    const [expandedKits, setExpandedKits] = useState<Set<string>>(new Set());
-    const [adminKitName, setAdminKitName] = useState(""); // State for Admin Kit Name
 
+    // Kit UI expanded state
+    const [expandedKits, setExpandedKits] = useState<Set<string>>(new Set());
+
+    // Audio preview state
     const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlRef = useRef<string | null>(null);
     const [previewingId, setPreviewingId] = useState<string | null>(null);
     const [errorId, setErrorId] = useState<string | null>(null);
-    
-    // Upload State
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+
+    // ==========================================
+    // UPLOAD FORM STATES
+    // ==========================================
+    const [uploadMode, setUploadMode] = useState<UploadMode>('sample');
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState("");
+    const [uploadProgressMsg, setUploadProgressMsg] = useState("");
+
+    // 1. Single Sample / Loop upload state
+    const [singleFiles, setSingleFiles] = useState<File[]>([]);
+    const [singleTitle, setSingleTitle] = useState("");
+    const [singleTag, setSingleTag] = useState<'loop' | 'oneshot' | 'stem' | 'fx'>('loop');
+    const [singleIsPublic, setSingleIsPublic] = useState(true);
+    const [singleIsFactory, setSingleIsFactory] = useState(false);
+
+    // 2. Multi-Sample Kit upload state
+    const [kitFiles, setKitFiles] = useState<File[]>([]);
+    const [kitTitle, setKitTitle] = useState("");
+    const [kitDescription, setKitDescription] = useState("");
+    const [kitAutoStitch, setKitAutoStitch] = useState(true);
+    const [kitIsPublic, setKitIsPublic] = useState(true);
+    const [kitIsFactory, setKitIsFactory] = useState(false);
+
+    // 3. Preset save state
+    const [presetTitle, setPresetTitle] = useState(sampleName || "My Slicer Preset");
+    const [presetIsPublic, setPresetIsPublic] = useState(true);
+    const [presetIsFactory, setPresetIsFactory] = useState(false);
 
     // Storage Admin & Purge State
     const [storageObjects, setStorageObjects] = useState<StorageObjectItem[]>([]);
@@ -98,14 +151,24 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [isMigrating, setIsMigrating] = useState(false);
     const [migrationResult, setMigrationResult] = useState<any>(null);
 
-    const [activeTab, setActiveTab] = useState<TabView>('dashboard');
-    const [searchTerm, setSearchTerm] = useState("");
-    const [deletingId, setDeletingId] = useState<string | null>(null);
-    
     const isAdmin = Boolean(
-        !user || // Default to admin power in workspace if not explicitly limited
+        !user || // Default workspace admin permissions
         (user.email && ADMIN_EMAILS.some((a) => a.toLowerCase().trim() === String(user.email).toLowerCase().trim()))
     );
+
+    const loadLibraryData = async () => {
+        try {
+            const data = await fetchLibrary(user?.id);
+            setPublicPresets(data.publicPresets);
+            setPublicSamples(data.publicSamples);
+            setFactoryPresets(data.factoryPresets);
+            setFactorySamples(data.factorySamples);
+            setUserPresets(data.userPresets);
+            setUserSamples(data.userSamples);
+        } catch (err) {
+            console.error('Failed to load library:', err);
+        }
+    };
 
     const loadStorageInfo = async () => {
         setIsLoadingStorage(true);
@@ -125,58 +188,6 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    const handleDeleteStorageObject = async (keyOrUrl: string) => {
-        if (!window.confirm(`⚠️ Permanently delete "${keyOrUrl}" from S3 Object Storage?`)) {
-            return;
-        }
-        setIsDeletingStorage(true);
-        setStorageActionMsg(null);
-        try {
-            const res = await deleteStorageObject(keyOrUrl);
-            if (res.success) {
-                setStorageActionMsg({ text: `Successfully deleted: ${keyOrUrl}`, success: true });
-                await loadStorageInfo();
-                await loadLibraryData();
-            } else {
-                setStorageActionMsg({ text: `Failed to delete: ${res.error || 'Unknown error'}`, success: false });
-            }
-        } catch (err: any) {
-            setStorageActionMsg({ text: `Error: ${err.message || 'Delete failed'}`, success: false });
-        } finally {
-            setIsDeletingStorage(false);
-        }
-    };
-
-    const handleResetDatabase = async (clearFactory: boolean = false) => {
-        if (!window.confirm(clearFactory ? "⚠️ Are you sure you want to PURGE ALL library items (including factory defaults)?" : "⚠️ Are you sure you want to clear all non-factory presets, samples, and kits from the database?")) {
-            return;
-        }
-        setIsResettingDb(true);
-        try {
-            const ok = await resetLibraryDatabase(clearFactory);
-            if (ok) {
-                setStorageActionMsg({ text: 'Database purged successfully. Starting clean!', success: true });
-                await loadLibraryData();
-            } else {
-                setStorageActionMsg({ text: 'Failed to reset database.', success: false });
-            }
-        } catch (err: any) {
-            setStorageActionMsg({ text: `Error: ${err.message || 'Reset failed'}`, success: false });
-        } finally {
-            setIsResettingDb(false);
-        }
-    };
-
-    const loadLibraryData = async () => {
-        const data = await fetchLibrary(user?.id);
-        setPublicPresets(data.publicPresets);
-        setPublicSamples(data.publicSamples);
-        setFactoryPresets(data.factoryPresets);
-        setFactorySamples(data.factorySamples);
-        setUserPresets(data.userPresets);
-        setUserSamples(data.userSamples);
-    };
-
     const loadFeedback = async () => {
         if (isAdmin) {
             const data = await fetchAllFeedback();
@@ -187,19 +198,21 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     useEffect(() => {
         if (isOpen) {
             loadLibraryData();
-            setActiveTab('dashboard');
+            setViewMode('browse');
+            setFilterCategory('all');
             setSearchTerm("");
+            setPresetTitle(sampleName || "My Slicer Preset");
         } else {
             stopPreview();
         }
-    }, [user, isOpen]);
+    }, [user, isOpen, sampleName]);
 
     useEffect(() => {
-        if (isOpen && activeTab === 'admin' && isAdmin) {
+        if (isOpen && viewMode === 'admin' && isAdmin) {
             loadFeedback();
             loadStorageInfo();
         }
-    }, [isOpen, activeTab, isAdmin]);
+    }, [isOpen, viewMode, isAdmin]);
 
     useEffect(() => {
         return () => stopPreview();
@@ -237,7 +250,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
 
                 const audio = new Audio(blobUrl);
                 audioPreviewRef.current = audio;
-                audio.volume = 0.5;
+                audio.volume = 0.65;
                 audio.onended = () => {
                     setPreviewingId(null);
                 };
@@ -256,349 +269,13 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
     };
 
-    const toggleKitExpansion = (kitName: string) => {
+    const toggleKitExpansion = (kitIdOrName: string) => {
         setExpandedKits(prev => {
             const next = new Set(prev);
-            if (next.has(kitName)) next.delete(kitName);
-            else next.add(kitName);
+            if (next.has(kitIdOrName)) next.delete(kitIdOrName);
+            else next.add(kitIdOrName);
             return next;
         });
-    };
-
-    const handleAudioFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (files && files.length > 0) {
-            if (files.length > 1) {
-                onKitLoad(Array.from(files), "Local Selection");
-            } else {
-                onFileLoad(files[0]);
-            }
-        }
-        onClose();
-        event.target.value = ""; 
-    };
-
-    const handleKitFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files: File[] = Array.from(event.target.files || []);
-        if (files.length > 0) {
-            onKitLoad(files, "Imported Kit");
-        }
-        onClose();
-        event.target.value = ""; 
-    };
-
-    const handleUserUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files: File[] = Array.from(e.target.files || []);
-        e.target.value = "";
-        
-        if (files.length === 0 || !user) return;
-
-        for (const file of files) {
-            const err = validateFile(file);
-            if (err) {
-                alert(err);
-                return;
-            }
-        }
-
-        if (files.length > MAX_KIT_FILES) {
-            alert(`Too many files. Max kit size is ${MAX_KIT_FILES} samples.`);
-            return;
-        }
-
-        const totalSize = files.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024);
-        if (totalSize > MAX_KIT_TOTAL_MB) {
-            alert(`Total upload size exceeds ${MAX_KIT_TOTAL_MB}MB.`);
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadStatus("Starting upload...");
-
-        try {
-            if (files.length > 1) {
-                if (window.confirm(`You selected ${files.length} files. Do you want to group them as a Kit?\n\n(This creates a Playable Preset automatically)`)) {
-                    const kitName = window.prompt("Enter a Name for this Kit:", "My New Kit");
-                    if (!kitName) {
-                        setIsUploading(false);
-                        return;
-                    }
-                    
-                    const kitDesc = window.prompt("Enter a short description (optional):", "");
-
-                    setUploadStatus("Creating Kit Database Entry...");
-                    const kitId = await createKit(user.id, kitName, false, false, kitDesc || "");
-                    if (!kitId) throw new Error("Failed to create kit.");
-
-                    setUploadStatus("Processing audio & stitching...");
-                    const sampleIds: string[] = [];
-                    
-                    for (let i = 0; i < files.length; i++) {
-                        setUploadStatus(`Uploading file ${i+1}/${files.length}...`);
-                        const upload = await uploadSampleToCloud(files[i], files[i].name, user.id, false, kitName, false, true);
-                        if (upload) sampleIds.push(upload.id);
-                    }
-
-                    setUploadStatus("Linking samples...");
-                    await linkSamplesToKit(kitId, sampleIds);
-
-                    setUploadStatus("Stitching Kit Master...");
-                    const { blob: masterBlob, slices } = await stitchAudioFiles(files);
-                    
-                    setUploadStatus("Uploading Kit Master...");
-                    const masterUpload = await uploadSampleToCloud(masterBlob, `${kitName} (Master).wav`, user.id, false, kitName, false, true);
-
-                    if (masterUpload) {
-                        setUploadStatus("Saving Preset...");
-                        
-                        const params = {
-                            grainSize: 0.09, overlap: 0.03, detune: 0, playbackRate: 1, bpm: 120,
-                            attack: 0.001, release: 0.01, sustain: 0.5,
-                            reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
-                            delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
-                            filter: { isActive: false, frequency: 20000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
-                            distortion: { isActive: false, amount: 1.0, wet: 0.04 },
-                            compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
-                            bitCrusher: { isActive: false, bits: 8, wet: 0 },
-                            glitch: { chaos: 0, allowReverse: false, allowOctaveJump: true, allowRatchet: true, pitchShift: true, allowFormant: true },
-                            order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
-                        };
-
-                        const sequencer = {
-                            steps: Array(32).fill(0).map((_, i) => ({ active: i%2===0, sliceIndex: i % slices.length, ratchet: 1 })),
-                            stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
-                        };
-
-                        await saveCloudPreset(kitName, params as any, sequencer, slices, user.id, masterUpload.id, false, false);
-                    }
-                    alert("Kit Uploaded Successfully!");
-                } else {
-                    for (let i = 0; i < files.length; i++) {
-                        setUploadStatus(`Uploading ${i+1}/${files.length}...`);
-                        await uploadSampleToCloud(files[i], files[i].name, user.id, false, undefined, true);
-                    }
-                    alert("Files Uploaded.");
-                }
-            } else {
-                setUploadStatus("Uploading...");
-                await uploadSampleToCloud(files[0], files[0].name, user.id, false, undefined, true);
-                alert("File Uploaded.");
-            }
-            
-            await loadLibraryData();
-
-        } catch (e: any) {
-            console.error(e);
-            alert(`Upload failed: ${e.message}`);
-        } finally {
-            setIsUploading(false);
-            setUploadStatus("");
-        }
-    };
-
-    const handlePresetImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        try {
-            const text = await file.text();
-            await onImport(text);
-            onClose();
-        } catch (e) {
-            console.error(e);
-            alert("Failed to load preset");
-        } finally {
-            if (presetInputRef.current) presetInputRef.current.value = '';
-        }
-    };
-
-    const handleAdminPresetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file || !user) return;
-        
-        try {
-            const text = await file.text();
-            const preset = JSON.parse(text);
-            
-            if (!preset.params || !preset.sequencer) throw new Error("Invalid format");
-
-            const success = await saveCloudPreset(
-                preset.name || file.name.replace('.json', ''),
-                preset.params,
-                preset.sequencer,
-                preset.slices || [],
-                user.id,
-                undefined,
-                true // Is Factory
-            );
-            
-            if (success) {
-                alert("Factory Preset Uploaded");
-                await loadLibraryData();
-            }
-        } catch (err: any) {
-            alert(`Error: ${err.message}`);
-        } finally {
-            e.target.value = "";
-        }
-    };
-
-    const handleAdminSampleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files: File[] = Array.from(e.target.files || []);
-        e.target.value = "";
-        if (files.length === 0 || !user) return;
-
-        setIsUploading(true);
-        setUploadStatus("Uploading Factory Samples...");
-
-        try {
-            let successCount = 0;
-            for (let i = 0; i < files.length; i++) {
-                setUploadStatus(`Uploading ${i + 1}/${files.length}: ${files[i].name}`);
-                const result = await uploadSampleToCloud(files[i], files[i].name, user.id, true);
-                if (result) successCount++;
-            }
-            await loadLibraryData();
-            alert(`Uploaded ${successCount}/${files.length} Factory Samples.`);
-        } catch (e: any) {
-            console.error(e);
-            alert("Upload failed: " + e.message);
-        } finally {
-            setIsUploading(false);
-            setUploadStatus("");
-        }
-    };
-
-    const handleTriggerKitUpload = () => {
-        if (!adminKitName.trim()) {
-            alert("Please enter a Kit Name first.");
-            return;
-        }
-        adminKitUploadRef.current?.click();
-    };
-
-    const handleAdminKitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files: File[] = Array.from(e.target.files || []);
-        e.target.value = "";
-        
-        if (files.length === 0 || !user) return;
-        if (!adminKitName.trim()) {
-            alert("Kit Name missing.");
-            return;
-        }
-
-        setIsUploading(true);
-        const kitName = adminKitName.trim();
-        
-        try {
-            setUploadStatus(`Creating Kit Entry "${kitName}"...`);
-            
-            const kitId = await createKit(user.id, kitName, true, true);
-            if (!kitId) throw new Error("Failed to create kit entry.");
-
-            const sampleIds: string[] = [];
-
-            for (let i = 0; i < files.length; i++) {
-                setUploadStatus(`Uploading part ${i + 1}/${files.length}: ${files[i].name}`);
-                const res = await uploadSampleToCloud(files[i], files[i].name, user.id, true, kitName, true, true);
-                if (res) sampleIds.push(res.id);
-            }
-
-            setUploadStatus("Linking samples to kit...");
-            await linkSamplesToKit(kitId, sampleIds);
-
-            if (files.length > 0) {
-                setUploadStatus("Stitching Kit Master...");
-                const { blob: masterBlob, slices } = await stitchAudioFiles(files);
-
-                setUploadStatus("Uploading Kit Master...");
-                const masterUpload = await uploadSampleToCloud(
-                    masterBlob, 
-                    `${kitName} (Master).wav`, 
-                    user.id, 
-                    true, 
-                    kitName, 
-                    true,
-                    true 
-                );
-
-                if (masterUpload) {
-                    setUploadStatus("Creating Factory Preset...");
-                    
-                    const params = {
-                        grainSize: 0.09, overlap: 0.03, detune: 0, playbackRate: 1, bpm: 120,
-                        attack: 0.001, release: 0.01, sustain: 0.5,
-                        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
-                        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
-                        filter: { isActive: false, frequency: 20000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
-                        distortion: { isActive: false, amount: 1.0, wet: 0.04 },
-                        compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
-                        bitCrusher: { isActive: false, bits: 8, wet: 0 },
-                        glitch: { chaos: 0, allowReverse: false, allowOctaveJump: true, allowRatchet: true, pitchShift: true, allowFormant: true },
-                        order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
-                    };
-
-                    const sequencer = {
-                        steps: Array(32).fill(0).map((_, i) => ({ active: i%2===0, sliceIndex: i % slices.length, ratchet: 1 })),
-                        stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
-                    };
-
-                    await saveCloudPreset(
-                        kitName, 
-                        params as any, 
-                        sequencer, 
-                        slices, 
-                        user.id, 
-                        masterUpload.id, 
-                        true, 
-                        true  
-                    );
-                }
-            }
-
-            await loadLibraryData();
-            setAdminKitName(""); 
-            alert(`Factory Kit "${kitName}" Created!`);
-
-        } catch (e: any) {
-            console.error(e);
-            alert("Kit Creation Failed: " + e.message);
-        } finally {
-            setIsUploading(false);
-            setUploadStatus("");
-        }
-    };
-
-    const handleRunSupabaseMigration = async () => {
-        setIsMigrating(true);
-        setMigrationResult(null);
-        try {
-            const res = await fetch('/api/storage/migrate-from-supabase', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    supabaseUrl: supabaseUrlInput.trim() || undefined,
-                    supabaseServiceKey: supabaseKeyInput.trim() || undefined,
-                    sourceBucket: supabaseBucketInput.trim() || undefined,
-                    destinationPrefix: 'samples/',
-                    updateDatabaseUrls: true,
-                }),
-            });
-
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || 'Migration request failed');
-            }
-
-            setMigrationResult(data);
-            await loadLibraryData();
-            alert(data.message || 'Migration completed successfully!');
-        } catch (err: any) {
-            console.error('Supabase Migration failed:', err);
-            setMigrationResult({ success: false, error: err.message });
-            alert('Migration failed: ' + err.message);
-        } finally {
-            setIsMigrating(false);
-        }
     };
 
     const loadCloudItem = (item: CloudItem) => {
@@ -639,11 +316,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const handleDelete = async (item: CloudItem) => {
         if (deletingId) return; 
 
-        // Detect if the item is a Kit (either type === 'kit' or labeled with legacy '[Kit: ...]')
         const isKitItem = item.type === 'kit' || Boolean(item.data?.items) || (item.type !== 'preset' && item.label && item.label.startsWith('[Kit:'));
 
         if (item.type === 'kit' || (isKitItem && item.type !== 'preset' && item.type !== 'sample')) {
-            const confirmed = window.confirm(`⚠️ Are you sure you want to delete kit "${item.label}"? This will permanently delete the kit and all its associated audio samples and files.`);
+            const confirmed = window.confirm(`⚠️ Delete kit "${item.label}"? This will permanently delete the kit and its audio files.`);
             if (!confirmed) return;
 
             setDeletingId(item.id);
@@ -658,10 +334,10 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
 
         if (item.type === 'preset') {
-            const confirmed = window.confirm(`⚠️ Are you sure you want to delete preset "${item.label}"? This will permanently delete the preset and all associated audio files.`);
+            const confirmed = window.confirm(`⚠️ Delete preset "${item.label}"?`);
             if (!confirmed) return;
-        } else if (item.type === 'sample' && item.url && item.url.includes('/kits/')) {
-            const confirmed = window.confirm(`⚠️ Warning: "${item.label}" appears to be part of a Kit. Deleting it might break the kit's integrity. Are you sure you want to delete it?`);
+        } else if (item.type === 'sample') {
+            const confirmed = window.confirm(`⚠️ Delete sample "${item.label}"?`);
             if (!confirmed) return;
         }
 
@@ -677,700 +353,1477 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
         }
 
         if (!result.success) {
-            alert(`Delete failed: ${result.error}`);
+            alert(`Delete failed: ${result.error || 'Unknown error'}`);
         } else {
             await loadLibraryData();
         }
         setDeletingId(null);
     };
 
-    const renderItemRow = (item: CloudItem, isKitMember: boolean = false) => {
-        const isBroken = errorId === item.id;
-        const isMine = user && item._userId === user.id;
-        const isPublic = item.isPublic;
-        
-        const isMaster = item.label.includes('(Master)');
-        const label = item.label.replace(/^\[Kit: .*?\]\s*/, '');
+    // ==========================================
+    // UPLOAD HANDLERS
+    // ==========================================
 
-        let typeIcon = item.type === 'preset' ? '🎛️' : '💿';
-        let typeLabel = item.type === 'preset' ? 'Preset' : 'Sample';
+    // 1. Single Sample / Loop Upload Action
+    const handleUploadSingleSample = async () => {
+        if (singleFiles.length === 0) {
+            alert("Please select an audio file first.");
+            return;
+        }
+        const file = singleFiles[0];
+        const valErr = validateFile(file);
+        if (valErr) {
+            alert(valErr);
+            return;
+        }
 
-        return (
-            <div key={item.id} className={`flex items-center justify-between p-2 rounded-lg border transition-colors group ${deletingId === item.id ? 'opacity-50 pointer-events-none bg-red-900/10' : ''} ${isBroken ? 'bg-red-900/20 border-red-500/30' : (isKitMember ? 'bg-black/20 border-white/5 hover:bg-white/5' : 'bg-white/5 border-white/5 hover:bg-white/10')} ${isMaster ? 'border-l-4 border-l-hyper-cyan' : ''}`}>
-                <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => loadCloudItem(item)}>
-                    <div className={`w-8 h-8 rounded flex items-center justify-center text-lg shrink-0 ${item.type === 'preset' ? 'bg-hyper-cyan/10 text-hyper-cyan' : 'bg-plasma-pink/10 text-plasma-pink'}`}>
-                        {typeIcon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                            <div className={`text-sm font-bold transition-colors truncate ${isBroken ? 'text-red-400' : 'text-white group-hover:text-hyper-cyan'}`}>
-                                {label}
-                                {isBroken && <span className="ml-2 text-[10px] text-red-400 bg-red-900/40 px-1.5 rounded uppercase">Error</span>}
-                                {isMaster && <span className="ml-2 text-[8px] bg-hyper-cyan/20 text-hyper-cyan px-1 rounded uppercase">Master</span>}
-                            </div>
-                            {isMine && !item.isFactory && !isKitMember && (
-                                <span className={`text-[10px] px-1.5 rounded font-bold uppercase shrink-0 ${isPublic ? 'bg-blue-500/20 text-blue-300' : 'bg-white/10 text-star-dust'}`}>
-                                    {isPublic ? 'Public' : 'Private'}
-                                </span>
-                            )}
-                        </div>
-                        <div className="text-[10px] text-star-dust/60 truncate flex items-center gap-1">
-                            <span>{typeLabel}</span>
-                            <span className="opacity-50">•</span>
-                            <span className={isMine ? 'text-hyper-cyan font-bold' : ''}>by {item.author || 'Anon'}</span>
-                        </div>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    {item.type === 'sample' && item.url && (
-                        <button 
-                            type="button" 
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePreview(item); }} 
-                            className={`w-8 h-8 flex items-center justify-center rounded-full transition-all border border-white/10 ${previewingId === item.id ? 'bg-hyper-cyan text-deep-space animate-pulse' : (isBroken ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-white/5 text-white hover:bg-white/20')}`}
-                        >
-                            {previewingId === item.id ? '⏹' : (isBroken ? '!' : '▶')}
-                        </button>
-                    )}
-                    <button type="button" onClick={() => loadCloudItem(item)} className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded transition-colors">LOAD</button>
-                    <Tooltip text="Delete">
-                        <button 
-                            type="button" 
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(item); }} 
-                            disabled={deletingId === item.id} 
-                            className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors"
-                            title="Delete item"
-                        >
-                            {deletingId === item.id ? '⏳' : '🗑'}
-                        </button>
-                    </Tooltip>
-                </div>
-            </div>
-        );
-    }
+        const effectiveUserId = user?.id || 'admin_user';
+        const rawTitle = (singleTitle.trim() || file.name.replace(/\.[^/.]+$/, "")).trim();
+        const tagPrefix = singleTag === 'loop' ? '[Loop]' : singleTag === 'oneshot' ? '[One-Shot]' : singleTag === 'stem' ? '[Stem]' : '[FX]';
+        const finalTitle = rawTitle.startsWith('[') ? rawTitle : `${tagPrefix} ${rawTitle}`;
 
-    const renderGroupedList = (items: CloudItem[]) => {
-        const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
-        if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
+        setIsUploading(true);
+        setUploadStatus("Uploading audio to cloud storage...");
+        setUploadProgressMsg(file.name);
 
-        const explicitKits = filtered.filter(i => i.type === 'kit');
-        
-        const legacyKitGroups: Record<string, CloudItem[]> = {};
-        const looseItems: CloudItem[] = [];
+        try {
+            const res = await uploadSampleToCloud(
+                file,
+                finalTitle,
+                effectiveUserId,
+                singleIsFactory,
+                undefined,
+                singleIsPublic || singleIsFactory,
+                true
+            );
 
-        filtered.filter(i => i.type !== 'kit').forEach(item => {
-            const match = item.label.match(/^\[Kit: (.*?)\]/);
-            if (match) {
-                const kitName = match[1];
-                if (!legacyKitGroups[kitName]) legacyKitGroups[kitName] = [];
-                legacyKitGroups[kitName].push(item);
+            if (res) {
+                await loadLibraryData();
+                setSingleFiles([]);
+                setSingleTitle("");
+                setViewMode('browse');
+                alert(`"${finalTitle}" uploaded successfully!`);
             } else {
-                looseItems.push(item);
+                throw new Error("Failed to upload audio sample.");
+            }
+        } catch (err: any) {
+            console.error('Upload single sample error:', err);
+            alert(`Upload failed: ${err.message || 'Unknown error'}`);
+        } finally {
+            setIsUploading(false);
+            setUploadStatus("");
+            setUploadProgressMsg("");
+        }
+    };
+
+    // 2. Multi-Sample Kit Upload Action
+    const handleUploadKit = async () => {
+        if (kitFiles.length === 0) {
+            alert("Please select at least 2 audio files for the kit.");
+            return;
+        }
+        if (!kitTitle.trim()) {
+            alert("Please provide a name for this Kit / Pack.");
+            return;
+        }
+        if (kitFiles.length > MAX_KIT_FILES) {
+            alert(`Maximum kit size is ${MAX_KIT_FILES} audio files.`);
+            return;
+        }
+
+        const totalMB = kitFiles.reduce((sum, f) => sum + f.size, 0) / (1024 * 1024);
+        if (totalMB > MAX_KIT_TOTAL_MB) {
+            alert(`Total kit upload size exceeds ${MAX_KIT_TOTAL_MB}MB limit.`);
+            return;
+        }
+
+        for (const file of kitFiles) {
+            const err = validateFile(file);
+            if (err) {
+                alert(`File "${file.name}" error: ${err}`);
+                return;
+            }
+        }
+
+        const effectiveUserId = user?.id || 'admin_user';
+        const name = kitTitle.trim();
+        const desc = kitDescription.trim();
+
+        setIsUploading(true);
+        setUploadStatus(`Creating Kit "${name}"...`);
+
+        try {
+            // 1. Create Kit DB Record
+            const kitId = await createKit(effectiveUserId, name, kitIsPublic || kitIsFactory, kitIsFactory, desc);
+            if (!kitId) throw new Error("Failed to initialize kit in database.");
+
+            // 2. Upload Individual Samples
+            const sampleIds: string[] = [];
+            for (let i = 0; i < kitFiles.length; i++) {
+                const f = kitFiles[i];
+                setUploadStatus(`Uploading kit sample ${i + 1}/${kitFiles.length}...`);
+                setUploadProgressMsg(f.name);
+
+                const uploadRes = await uploadSampleToCloud(
+                    f,
+                    f.name,
+                    effectiveUserId,
+                    kitIsFactory,
+                    name,
+                    kitIsPublic || kitIsFactory,
+                    true
+                );
+                if (uploadRes) sampleIds.push(uploadRes.id);
+            }
+
+            // 3. Link Samples to Kit
+            setUploadStatus("Linking samples into kit pack...");
+            await linkSamplesToKit(kitId, sampleIds);
+
+            // 4. Stitched Master Preset (if auto-stitch enabled)
+            if (kitAutoStitch && kitFiles.length > 0) {
+                setUploadStatus("Stitching samples into Playable Slice Master...");
+                const { blob: masterBlob, slices } = await stitchAudioFiles(kitFiles);
+
+                setUploadStatus("Uploading stitched Master Audio...");
+                const masterUpload = await uploadSampleToCloud(
+                    masterBlob,
+                    `${name} (Master).wav`,
+                    effectiveUserId,
+                    kitIsFactory,
+                    name,
+                    kitIsPublic || kitIsFactory,
+                    true
+                );
+
+                if (masterUpload) {
+                    setUploadStatus("Saving Playable Preset...");
+                    const defaultParams = {
+                        grainSize: 0.09, overlap: 0.03, detune: 0, playbackRate: 1, bpm: 120,
+                        attack: 0.001, release: 0.01, sustain: 0.5,
+                        reverb: { isActive: false, decay: 1.5, wet: 0, isSynced: false, syncValue: '2n', lowCut: 20, highCut: 20000 },
+                        delay: { isActive: false, delayTime: 0.375, feedback: 0.2, wet: 0, isSynced: true, syncValue: '8n', lowCut: 20, highCut: 20000 },
+                        filter: { isActive: false, frequency: 20000, q: 1, type: 'lowpass', envDepth: 0, lfoDepth: 0, lfoRate: 1, isSynced: true, syncValue: '4n' },
+                        distortion: { isActive: false, amount: 1.0, wet: 0.04 },
+                        compressor: { isActive: true, threshold: -24, ratio: 4, attack: 0.01, release: 0.1 },
+                        bitCrusher: { isActive: false, bits: 8, wet: 0 },
+                        glitch: { chaos: 0, allowReverse: false, allowOctaveJump: true, allowRatchet: true, pitchShift: true, allowFormant: true },
+                        order: ['compressor', 'distortion', 'bitCrusher', 'filter', 'delay', 'reverb']
+                    };
+
+                    const defaultSequencer = {
+                        steps: Array(32).fill(0).map((_, i) => ({ active: i % 2 === 0, sliceIndex: i % slices.length, ratchet: 1 })),
+                        stepCount: 32, mode: 'forward', currentStep: -1, isPlaying: false, isLooping: true, editMode: 'trigger', playbackBehavior: 'reset'
+                    };
+
+                    await saveCloudPreset(
+                        name,
+                        defaultParams as any,
+                        defaultSequencer,
+                        slices,
+                        effectiveUserId,
+                        masterUpload.id,
+                        kitIsFactory,
+                        kitIsPublic || kitIsFactory
+                    );
+                }
+            }
+
+            await loadLibraryData();
+            setKitFiles([]);
+            setKitTitle("");
+            setKitDescription("");
+            setViewMode('browse');
+            alert(`Kit "${name}" with ${sampleIds.length} samples created successfully!`);
+
+        } catch (err: any) {
+            console.error('Kit upload error:', err);
+            alert(`Failed to create kit: ${err.message || 'Unknown error'}`);
+        } finally {
+            setIsUploading(false);
+            setUploadStatus("");
+            setUploadProgressMsg("");
+        }
+    };
+
+    // 3. Current Slicer Session Preset Save Action
+    const handleSaveCurrentPreset = async () => {
+        if (!presetTitle.trim()) {
+            alert("Please enter a name for the Preset.");
+            return;
+        }
+
+        setIsUploading(true);
+        setUploadStatus("Exporting current audio and slice layout...");
+
+        try {
+            const wavBlob = await getAudioWav();
+            const effectiveUserId = user?.id || 'admin_user';
+            let audioSampleId: string | undefined = undefined;
+
+            if (wavBlob) {
+                setUploadStatus("Uploading source audio to cloud storage...");
+                const audioTitle = `${presetTitle.trim()} (Source).wav`;
+                const uploadRes = await uploadSampleToCloud(
+                    wavBlob,
+                    audioTitle,
+                    effectiveUserId,
+                    presetIsFactory,
+                    undefined,
+                    presetIsPublic || presetIsFactory,
+                    true
+                );
+                if (uploadRes) {
+                    audioSampleId = uploadRes.id;
+                }
+            }
+
+            // Export current state
+            const exportedJson = await onExport(presetTitle.trim());
+            const parsed = JSON.parse(exportedJson);
+
+            setUploadStatus("Registering Preset in database...");
+            const saved = await saveCloudPreset(
+                presetTitle.trim(),
+                parsed.params,
+                parsed.sequencer,
+                parsed.slices || [],
+                effectiveUserId,
+                audioSampleId,
+                presetIsFactory,
+                presetIsPublic || presetIsFactory
+            );
+
+            if (saved) {
+                await loadLibraryData();
+                setViewMode('browse');
+                alert(`Preset "${presetTitle.trim()}" saved to Cloud!`);
+            } else {
+                throw new Error("Failed to save preset record.");
+            }
+        } catch (err: any) {
+            console.error('Preset save error:', err);
+            alert(`Save failed: ${err.message || 'Unknown error'}`);
+        } finally {
+            setIsUploading(false);
+            setUploadStatus("");
+        }
+    };
+
+    // ==========================================
+    // ADMIN TOOLS ACTIONS
+    // ==========================================
+    const handleDeleteStorageObject = async (keyOrUrl: string) => {
+        if (!window.confirm(`⚠️ Permanently delete "${keyOrUrl}" from S3 Object Storage?`)) return;
+        setIsDeletingStorage(true);
+        setStorageActionMsg(null);
+        try {
+            const res = await deleteStorageObject(keyOrUrl);
+            if (res.success) {
+                setStorageActionMsg({ text: `Successfully deleted: ${keyOrUrl}`, success: true });
+                await loadStorageInfo();
+                await loadLibraryData();
+            } else {
+                setStorageActionMsg({ text: `Failed to delete: ${res.error || 'Unknown error'}`, success: false });
+            }
+        } catch (err: any) {
+            setStorageActionMsg({ text: `Error: ${err.message || 'Delete failed'}`, success: false });
+        } finally {
+            setIsDeletingStorage(false);
+        }
+    };
+
+    const handleResetDatabase = async (clearFactory: boolean = false) => {
+        if (!window.confirm(clearFactory ? "⚠️ PURGE ALL library items (including factory defaults)?" : "⚠️ Clear all non-factory presets, samples, and kits?")) {
+            return;
+        }
+        setIsResettingDb(true);
+        try {
+            const ok = await resetLibraryDatabase(clearFactory);
+            if (ok) {
+                setStorageActionMsg({ text: 'Database purged successfully. Starting clean!', success: true });
+                await loadLibraryData();
+            } else {
+                setStorageActionMsg({ text: 'Failed to reset database.', success: false });
+            }
+        } catch (err: any) {
+            setStorageActionMsg({ text: `Error: ${err.message || 'Reset failed'}`, success: false });
+        } finally {
+            setIsResettingDb(false);
+        }
+    };
+
+    const handleRunSupabaseMigration = async () => {
+        setIsMigrating(true);
+        setMigrationResult(null);
+        try {
+            const res = await fetch('/api/storage/migrate-from-supabase', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    supabaseUrl: supabaseUrlInput.trim() || undefined,
+                    supabaseServiceKey: supabaseKeyInput.trim() || undefined,
+                    sourceBucket: supabaseBucketInput.trim() || undefined,
+                    destinationPrefix: 'samples/',
+                    updateDatabaseUrls: true,
+                }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Migration request failed');
+
+            setMigrationResult(data);
+            await loadLibraryData();
+            alert(data.message || 'Migration completed successfully!');
+        } catch (err: any) {
+            setMigrationResult({ success: false, error: err.message });
+            alert('Migration failed: ' + err.message);
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
+    // ==========================================
+    // FILTERED ITEMS CALCULATION
+    // ==========================================
+    const allItems = useMemo(() => {
+        const list: CloudItem[] = [];
+        const seenIds = new Set<string>();
+
+        const addUnique = (item: CloudItem) => {
+            if (!seenIds.has(item.id)) {
+                seenIds.add(item.id);
+                list.push(item);
+            }
+        };
+
+        // User items
+        userPresets.forEach(addUnique);
+        userSamples.forEach(addUnique);
+
+        // Factory items
+        factoryPresets.forEach(addUnique);
+        factorySamples.forEach(addUnique);
+
+        // Community Public items
+        publicPresets.forEach(addUnique);
+        publicSamples.forEach(addUnique);
+
+        return list;
+    }, [userPresets, userSamples, factoryPresets, factorySamples, publicPresets, publicSamples]);
+
+    const filteredItems = useMemo(() => {
+        let items = allItems;
+
+        // Apply category filter
+        if (filterCategory === 'samples') {
+            items = items.filter(i => i.type === 'sample' && !i.label.startsWith('[Kit:') && !i.label.includes('(Master)'));
+        } else if (filterCategory === 'kits') {
+            items = items.filter(i => i.type === 'kit' || i.label.startsWith('[Kit:'));
+        } else if (filterCategory === 'presets') {
+            items = items.filter(i => i.type === 'preset');
+        } else if (filterCategory === 'factory') {
+            items = items.filter(i => i.isFactory);
+        } else if (filterCategory === 'my-uploads') {
+            items = items.filter(i => user && i._userId === user.id);
+        }
+
+        // Apply search term
+        if (searchTerm.trim()) {
+            const query = searchTerm.toLowerCase().trim();
+            items = items.filter(i => 
+                i.label.toLowerCase().includes(query) || 
+                (i.author && i.author.toLowerCase().includes(query)) ||
+                (i.description && i.description.toLowerCase().includes(query))
+            );
+        }
+
+        return items;
+    }, [allItems, filterCategory, searchTerm, user]);
+
+    // Counts for tabs
+    const counts = useMemo(() => {
+        return {
+            all: allItems.length,
+            samples: allItems.filter(i => i.type === 'sample' && !i.label.startsWith('[Kit:') && !i.label.includes('(Master)')).length,
+            kits: allItems.filter(i => i.type === 'kit' || i.label.startsWith('[Kit:')).length,
+            presets: allItems.filter(i => i.type === 'preset').length,
+            factory: allItems.filter(i => i.isFactory).length,
+            myUploads: user ? allItems.filter(i => i._userId === user.id).length : 0
+        };
+    }, [allItems, user]);
+
+    // Group items for Kits vs loose items
+    const { explicitKits, legacyKitGroups, standaloneItems } = useMemo(() => {
+        const kits: CloudItem[] = [];
+        const legacy: Record<string, CloudItem[]> = {};
+        const standalone: CloudItem[] = [];
+
+        filteredItems.forEach(item => {
+            if (item.type === 'kit') {
+                kits.push(item);
+            } else if (item.label.startsWith('[Kit:')) {
+                const match = item.label.match(/^\[Kit: (.*?)\]/);
+                const kName = match ? match[1] : 'Kit';
+                if (!legacy[kName]) legacy[kName] = [];
+                legacy[kName].push(item);
+            } else {
+                standalone.push(item);
             }
         });
 
-        const sortedLegacyKits = Object.keys(legacyKitGroups).sort();
+        return { explicitKits: kits, legacyKitGroups: legacy, standaloneItems: standalone };
+    }, [filteredItems]);
+
+    // ==========================================
+    // RENDER HELPERS
+    // ==========================================
+    const renderItemCard = (item: CloudItem, isKitChild: boolean = false) => {
+        const isBroken = errorId === item.id;
+        const isMine = user && item._userId === user.id;
+        const isMaster = item.label.includes('(Master)');
+        const cleanLabel = item.label.replace(/^\[Kit: .*?\]\s*/, '');
+        const isPlaying = previewingId === item.id;
 
         return (
-            <div className="space-y-3">
-                {explicitKits.map(kit => {
-                    const isExpanded = expandedKits.has(kit.id);
-                    const children = (kit.data?.items || []) as CloudItem[];
-                    const isMine = user && kit._userId === user.id;
+            <div 
+                key={item.id} 
+                className={`group relative flex items-center justify-between p-3 rounded-xl border transition-all ${
+                    deletingId === item.id ? 'opacity-40 pointer-events-none' : ''
+                } ${
+                    isKitChild 
+                        ? 'bg-black/30 border-white/5 hover:border-white/10 hover:bg-black/40' 
+                        : 'bg-[#151a23]/70 hover:bg-[#181f2b] border-white/5 hover:border-white/15 shadow-sm'
+                } ${isBroken ? 'border-red-500/30 bg-red-950/20' : ''}`}
+            >
+                {/* Left: Icon & Meta */}
+                <div 
+                    className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                    onClick={() => loadCloudItem(item)}
+                >
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border ${
+                        item.type === 'preset'
+                            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                            : item.type === 'kit'
+                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                            : 'bg-pink-500/10 text-pink-400 border-pink-500/20'
+                    }`}>
+                        {item.type === 'preset' ? <Sliders className="w-4 h-4" /> : item.type === 'kit' ? <Package className="w-4 h-4" /> : <Music className="w-4 h-4" />}
+                    </div>
 
-                    return (
-                        <div key={kit.id} className="border border-white/10 rounded-lg overflow-hidden bg-white/5">
-                            <div 
-                                className="flex flex-col p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
-                                onClick={() => toggleKitExpansion(kit.id)}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
-                                        <div className="flex items-center gap-2">
-                                            {kit.imageUrl ? (
-                                                <img src={kit.imageUrl} className="w-8 h-8 rounded object-cover border border-white/10" alt="Kit" />
-                                            ) : (
-                                                <span className="text-xl">📦</span>
-                                            )}
-                                            <div>
-                                                <span className="text-sm font-bold text-white uppercase tracking-wide block">{kit.label}</span>
-                                                <span className="text-[10px] text-star-dust">{children.length} Files</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {isMine && (
-                                            <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit</span>
-                                        )}
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); loadCloudItem(kit); }}
-                                            className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded"
-                                        >
-                                            LOAD KIT
-                                        </button>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); handleDelete(kit); }}
-                                            disabled={deletingId === kit.id}
-                                            className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-bold rounded transition-colors"
-                                            title="Delete Kit"
-                                        >
-                                            {deletingId === kit.id ? '...' : '🗑 DELETE'}
-                                        </button>
-                                    </div>
-                                </div>
-                                {isExpanded && kit.description && (
-                                    <div className="mt-2 ml-7 text-xs text-star-dust/70 italic border-l-2 border-white/10 pl-2">
-                                        {kit.description}
-                                    </div>
-                                )}
-                            </div>
-                            
-                            {isExpanded && (
-                                <div className="border-t border-white/5 p-2 space-y-1 bg-black/20">
-                                    {children.length > 0 ? children.map(child => renderItemRow(child, true)) : <div className="text-[10px] text-white/30 italic p-2">Empty Kit</div>}
-                                </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors truncate">
+                                {cleanLabel}
+                            </span>
+
+                            {item.isFactory && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300 border border-yellow-500/30">
+                                    <Sparkles className="w-2.5 h-2.5" /> Factory Demo
+                                </span>
+                            )}
+
+                            {isMaster && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                    Master Slices
+                                </span>
+                            )}
+
+                            {isMine && !item.isFactory && (
+                                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    item.isPublic ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 'bg-white/10 text-white/60 border border-white/10'
+                                }`}>
+                                    {item.isPublic ? 'Public' : 'Private'}
+                                </span>
                             )}
                         </div>
-                    );
-                })}
 
-                {sortedLegacyKits.map(kitName => {
-                    const groupItems = legacyKitGroups[kitName];
-                    const isExpanded = expandedKits.has(kitName);
-                    const isMine = user && groupItems.length > 0 && groupItems[0]._userId === user.id;
-
-                    return (
-                        <div key={`kit-${kitName}`} className="border border-white/10 rounded-lg overflow-hidden bg-white/5">
-                            <div 
-                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
-                                onClick={() => toggleKitExpansion(kitName)}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'text-white/30'}`}>▶</span>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xl">📁</span>
-                                        <span className="text-sm font-bold text-white uppercase tracking-wide">{kitName}</span>
-                                        <span className="text-[10px] bg-white/10 px-1.5 rounded text-star-dust">{groupItems.length} Files</span>
-                                    </div>
-                                </div>
-                                {isMine && (
-                                    <span className="text-[10px] text-hyper-cyan font-bold uppercase px-2">My Kit (Legacy)</span>
-                                )}
-                            </div>
-                            
-                            {isExpanded && (
-                                <div className="border-t border-white/5 p-2 space-y-1 bg-black/20">
-                                    {groupItems.map(item => renderItemRow(item, true))}
-                                </div>
-                            )}
+                        <div className="text-[11px] text-white/40 flex items-center gap-2 mt-0.5">
+                            <span className="capitalize">{item.type}</span>
+                            <span>•</span>
+                            <span className={isMine ? 'text-cyan-400 font-medium' : ''}>
+                                by {item.author || (item.isFactory ? 'Factory' : 'Community')}
+                            </span>
                         </div>
-                    )
-                })}
+                    </div>
+                </div>
 
-                <div className="space-y-2 mt-4">
-                    {looseItems.map(item => renderItemRow(item, false))}
+                {/* Right: Actions */}
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                    {item.type === 'sample' && item.url && (
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); togglePreview(item); }}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border ${
+                                isPlaying 
+                                    ? 'bg-cyan-500 text-black border-cyan-400 shadow-md shadow-cyan-500/20 animate-pulse' 
+                                    : 'bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border-white/10'
+                            }`}
+                            title={isPlaying ? "Stop Preview" : "Preview Audio"}
+                        >
+                            {isPlaying ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                        </button>
+                    )}
+
+                    <button
+                        type="button"
+                        onClick={() => loadCloudItem(item)}
+                        className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500 text-cyan-300 hover:text-black font-bold text-xs border border-cyan-500/30 hover:border-cyan-400 transition-all shadow-sm"
+                    >
+                        LOAD
+                    </button>
+
+                    {(isMine || isAdmin) && (
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                            disabled={deletingId === item.id}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
+                            title="Delete item"
+                        >
+                            {deletingId === item.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                    )}
                 </div>
             </div>
         );
     };
 
-    const renderFlatList = (items: CloudItem[]) => {
-        const filtered = items.filter(i => i.label.toLowerCase().includes(searchTerm.toLowerCase()));
-        if (filtered.length === 0) return <div className="text-white/30 italic text-sm p-4">No items found.</div>;
-        return (
-            <div className="grid grid-cols-1 gap-2">
-                {filtered.map(item => renderItemRow(item, false))}
-            </div>
-        )
-    };
-
-    const inputs = (
-        <>
-            <input type="file" accept="audio/*" multiple ref={audioInputRef} onChange={handleAudioFileChange} className="hidden" />
-            <input type="file" accept="audio/*" multiple ref={kitInputRef} onChange={handleKitFileChange} className="hidden" />
-            <input type="file" accept=".json" ref={presetInputRef} onChange={handlePresetImport} className="hidden" />
-            <input type="file" accept="audio/*" multiple ref={adminSampleUploadRef} onChange={handleAdminSampleUpload} className="hidden" />
-            <input type="file" accept="audio/*" multiple ref={adminKitUploadRef} onChange={handleAdminKitUpload} className="hidden" />
-            <input type="file" accept=".json" ref={adminPresetRef} onChange={handleAdminPresetUpload} className="hidden" />
-            <input type="file" accept="audio/*" multiple ref={userUploadRef} onChange={handleUserUpload} className="hidden" />
-        </>
-    );
-
-    if (!isOpen) return <>{inputs}</>;
+    if (!isOpen) return null;
 
     return (
-        <>
-            {inputs}
-            <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                <div className="w-full max-w-5xl h-[85vh] bg-[#0f1319] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
-                    <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#151a23]">
-                        <div className="flex items-center gap-4">
-                            {activeTab !== 'dashboard' && (
-                                <button onClick={() => { setActiveTab('dashboard'); setSearchTerm(""); }} className="flex items-center gap-1 text-xs font-bold text-hyper-cyan hover:text-white transition-colors"><span>←</span> BACK</button>
-                            )}
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2"><span className="text-hyper-cyan">📚</span> Database Manager</h2>
+        <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+            {/* Hidden Direct File Pickers */}
+            <input 
+                type="file" 
+                accept="audio/*" 
+                ref={directLocalAudioRef} 
+                onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onFileLoad(f);
+                    onClose();
+                    e.target.value = '';
+                }} 
+                className="hidden" 
+            />
+            <input 
+                type="file" 
+                accept=".json" 
+                ref={presetImportInputRef} 
+                onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                        try {
+                            const text = await f.text();
+                            await onImport(text);
+                            onClose();
+                        } catch (err) {
+                            alert("Failed to import preset file.");
+                        }
+                    }
+                    e.target.value = '';
+                }} 
+                className="hidden" 
+            />
+
+            {/* Modal Card */}
+            <div className="w-full max-w-5xl h-[88vh] bg-[#0c1017] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
+                
+                {/* 1. TOP MAIN HEADER */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-[#121722]">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-black">
+                            <Cloud className="w-5 h-5 text-black" />
                         </div>
-                        
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => audioInputRef.current?.click()} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs font-bold text-white transition-colors flex items-center gap-2">
-                                <span>📂</span> Upload Local
-                            </button>
-                            <Auth user={user} onOpenAdmin={() => setActiveTab('admin')} />
-                            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
+                        <div>
+                            <h2 className="text-base font-bold text-white flex items-center gap-2">
+                                Cloud Audio Hub
+                                {isAdmin && (
+                                    <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-1.5 py-0.2 rounded font-mono uppercase">
+                                        Admin
+                                    </span>
+                                )}
+                            </h2>
+                            <p className="text-[11px] text-white/50">
+                                Browse, preview, and load community or factory demo sounds
+                            </p>
                         </div>
                     </div>
-                    
-                    <div className="flex-1 bg-[#0a0d14] relative p-4 overflow-y-auto custom-scrollbar">
-                        {isUploading && (
-                            <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
-                                <div className="w-10 h-10 border-4 border-hyper-cyan border-t-transparent rounded-full animate-spin mb-4"></div>
-                                <p className="font-bold">{uploadStatus}</p>
-                            </div>
+
+                    <div className="flex items-center gap-2.5">
+                        {/* Direct Local Audio Button */}
+                        <button 
+                            type="button"
+                            onClick={() => directLocalAudioRef.current?.click()}
+                            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-medium text-white/80 hover:text-white transition-colors"
+                            title="Load local WAV/MP3 straight into slicer"
+                        >
+                            <FileAudio className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Load Local</span>
+                        </button>
+
+                        {/* Top View Mode Switcher */}
+                        {viewMode === 'browse' ? (
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('upload')}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-bold text-xs rounded-lg transition-all shadow-md shadow-cyan-500/20"
+                            >
+                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                                <span>Upload / Save</span>
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('browse')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-lg transition-colors"
+                            >
+                                <ArrowLeft className="w-3.5 h-3.5" />
+                                <span>Browse Library</span>
+                            </button>
                         )}
 
-                        {activeTab === 'dashboard' && (
-                            <div className="text-center p-8">
-                                <h1 className="text-2xl font-bold text-white mb-2">Load From...</h1>
-                                <p className="text-star-dust/50 mb-8 text-sm">Select a category or upload locally.</p>
-                                
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-                                    <button onClick={() => audioInputRef.current?.click()} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">📂</span>
-                                        <div><span className="block text-sm font-bold text-white">Local File</span><span className="block text-[10px] text-white/50">Upload Audio / Kit</span></div>
+                        {/* Admin Tools Toggle */}
+                        {isAdmin && (
+                            <button
+                                type="button"
+                                onClick={() => setViewMode(viewMode === 'admin' ? 'browse' : 'admin')}
+                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-colors ${
+                                    viewMode === 'admin' 
+                                        ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' 
+                                        : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-yellow-400 border-white/10'
+                                }`}
+                                title="Admin Storage & Tools"
+                            >
+                                <HardDrive className="w-4 h-4" />
+                            </button>
+                        )}
+
+                        <div className="h-5 w-px bg-white/10 mx-1" />
+
+                        {/* User Profile / Auth */}
+                        <Auth user={user} onOpenAdmin={() => setViewMode('admin')} />
+
+                        {/* Close Modal */}
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors ml-1"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* 2. MAIN BODY */}
+                <div className="flex-1 bg-[#090d14] relative overflow-hidden flex flex-col">
+                    
+                    {/* Global Uploading Overlay */}
+                    {isUploading && (
+                        <div className="absolute inset-0 bg-black/85 z-50 flex flex-col items-center justify-center text-white p-6 backdrop-blur-sm">
+                            <div className="w-12 h-12 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4" />
+                            <h3 className="text-base font-bold text-white mb-1">{uploadStatus}</h3>
+                            {uploadProgressMsg && (
+                                <p className="text-xs text-cyan-300 font-mono max-w-md truncate">{uploadProgressMsg}</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ======================================================== */}
+                    {/* MODE 1: BROWSE & LOAD LIBRARY */}
+                    {/* ======================================================== */}
+                    {viewMode === 'browse' && (
+                        <div className="flex-1 flex flex-col min-h-0">
+                            {/* Search & Filter Toolbar */}
+                            <div className="px-5 py-3 border-b border-white/10 bg-[#0e131d] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+                                {/* Category Filter Pills */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 custom-scrollbar">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterCategory('all')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                                            filterCategory === 'all'
+                                                ? 'bg-cyan-500 text-black shadow-sm'
+                                                : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                                        }`}
+                                    >
+                                        All ({counts.all})
                                     </button>
-                                    <button onClick={() => { setActiveTab('presets'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-hyper-cyan/10 hover:border-hyper-cyan transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">🎛️</span>
-                                        <div><span className="block text-sm font-bold text-white">Factory Presets</span><span className="block text-[10px] text-white/50">Database Table</span></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterCategory('samples')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                                            filterCategory === 'samples'
+                                                ? 'bg-pink-500 text-white shadow-sm'
+                                                : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                                        }`}
+                                    >
+                                        Loops & Samples ({counts.samples})
                                     </button>
-                                    <button onClick={() => { setActiveTab('samples'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-plasma-pink/10 hover:border-plasma-pink transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">💿</span>
-                                        <div><span className="block text-sm font-bold text-white">Samples</span><span className="block text-[10px] text-white/50">Loose Files</span></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterCategory('kits')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                                            filterCategory === 'kits'
+                                                ? 'bg-purple-500 text-white shadow-sm'
+                                                : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                                        }`}
+                                    >
+                                        Sample Kits ({counts.kits})
                                     </button>
-                                    <button onClick={() => { setActiveTab('kits'); setSearchTerm(""); }} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-purple-500/10 hover:border-purple-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                        <span className="text-2xl group-hover:scale-110 transition-transform">📦</span>
-                                        <div><span className="block text-sm font-bold text-white">Kits</span><span className="block text-[10px] text-white/50">Grouped Samples</span></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterCategory('presets')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                                            filterCategory === 'presets'
+                                                ? 'bg-cyan-500 text-black shadow-sm'
+                                                : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                                        }`}
+                                    >
+                                        Presets ({counts.presets})
                                     </button>
-                                    {isAdmin && (
-                                        <button onClick={() => setActiveTab('admin')} className="p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex flex-col items-center gap-3 group h-32 justify-center">
-                                            <span className="text-2xl group-hover:scale-110 transition-transform">⚡</span>
-                                            <div><span className="block text-sm font-bold text-white">Admin</span><span className="block text-[10px] text-white/50">Tools & Feedback</span></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterCategory('factory')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                            filterCategory === 'factory'
+                                                ? 'bg-yellow-500 text-black shadow-sm'
+                                                : 'bg-white/5 hover:bg-white/10 text-yellow-400/80 hover:text-yellow-300'
+                                        }`}
+                                    >
+                                        <Sparkles className="w-3 h-3" />
+                                        <span>Factory Demo ({counts.factory})</span>
+                                    </button>
+                                    {user && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFilterCategory('my-uploads')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                                                filterCategory === 'my-uploads'
+                                                    ? 'bg-blue-600 text-white shadow-sm'
+                                                    : 'bg-white/5 hover:bg-white/10 text-blue-400/80 hover:text-blue-300'
+                                            }`}
+                                        >
+                                            My Uploads ({counts.myUploads})
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Search Bar */}
+                                <div className="relative w-full sm:w-56 shrink-0">
+                                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search library..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white placeholder-white/40 outline-none focus:border-cyan-400 transition-colors"
+                                    />
+                                    {searchTerm && (
+                                        <button
+                                            onClick={() => setSearchTerm("")}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                                        >
+                                            <X className="w-3 h-3" />
                                         </button>
                                     )}
                                 </div>
                             </div>
-                        )}
 
-                        {activeTab === 'presets' && (
-                            <div className="max-w-4xl mx-auto space-y-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-xl font-bold text-white">Factory Presets Table</h3>
-                                    <input type="text" placeholder="Search Presets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
-                                </div>
-                                
-                                {user && (
-                                    <div>
-                                        <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Presets</h4>
-                                        {renderFlatList(userPresets)}
-                                    </div>
-                                )}
-
-                                <div className={user ? "mt-6" : ""}>
-                                    <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                    {renderFlatList(publicPresets)}
-                                </div>
-
-                                <div className="mt-6">
-                                    <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                    {renderFlatList(factoryPresets)}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'samples' && (
-                            <div className="max-w-4xl mx-auto space-y-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-xl font-bold text-white">Samples Table</h3>
-                                    <div className="flex items-center gap-2">
-                                        {user && (
-                                            <Tooltip text="Upload Sample to Cloud">
-                                                <button
-                                                    onClick={() => userUploadRef.current?.click()}
-                                                    className="px-2 py-1 bg-hyper-cyan/10 text-hyper-cyan border border-hyper-cyan/50 hover:bg-hyper-cyan/20 rounded text-[10px] font-bold uppercase transition-colors"
-                                                >
-                                                    ⬆ Cloud Upload
-                                                </button>
-                                            </Tooltip>
-                                        )}
-                                        <input type="text" placeholder="Search Samples..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
-                                    </div>
-                                </div>
-
-                                {user && (
-                                    <div>
-                                        <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Samples</h4>
-                                        {renderFlatList(userSamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
-                                    </div>
-                                )}
-
-                                <div className={user ? "mt-6" : ""}>
-                                    <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                    {renderFlatList(publicSamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
-                                </div>
-
-                                <div className="mt-6">
-                                    <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                    {renderFlatList(factorySamples.filter(s => s.type === 'sample' && !s.label.match(/^\[Kit: .*?\]/) && !s.label.includes('(Master)')))}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'kits' && (
-                            <div className="max-w-4xl mx-auto space-y-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-xl font-bold text-white">Kits Table</h3>
-                                    <div className="flex items-center gap-2">
-                                        {user && (
-                                            <Tooltip text="Upload Kit to Cloud">
-                                                <button
-                                                    onClick={() => userUploadRef.current?.click()}
-                                                    className="px-2 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/50 hover:bg-purple-500/20 rounded text-[10px] font-bold uppercase transition-colors"
-                                                >
-                                                    ⬆ Cloud Upload
-                                                </button>
-                                            </Tooltip>
-                                        )}
-                                        <input type="text" placeholder="Search Kits..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:border-hyper-cyan outline-none w-48" />
-                                    </div>
-                                </div>
-
-                                {user && (
-                                    <div>
-                                        <h4 className="text-xs font-bold text-hyper-cyan uppercase tracking-widest mb-2 border-b border-white/5 pb-1">My Kits</h4>
-                                        {renderGroupedList(userSamples.filter(s => s.type === 'kit' || s.label.match(/^\[Kit: .*?\]/)))}
-                                    </div>
-                                )}
-
-                                <div className={user ? "mt-6" : ""}>
-                                    <h4 className="text-xs font-bold text-star-dust uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Community Library</h4>
-                                    {renderGroupedList(publicSamples.filter(s => s.type === 'kit' || s.label.match(/^\[Kit: .*?\]/)))}
-                                </div>
-
-                                <div className="mt-6">
-                                    <h4 className="text-xs font-bold text-yellow-500/70 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Factory</h4>
-                                    {renderGroupedList(factorySamples.filter(s => s.type === 'kit' || s.label.match(/^\[Kit: .*?\]/)))}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'admin' && (
-                            <div className="max-w-4xl mx-auto space-y-8 p-4">
-                                <h3 className="text-xl font-bold text-white flex items-center gap-2"><span className="text-yellow-500">⚡</span> Admin Tools</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
-                                        <div className="w-12 h-12 bg-hyper-cyan/20 text-hyper-cyan rounded-full flex items-center justify-center text-2xl">🎛️</div>
-                                        <div><h4 className="text-sm font-bold text-white">Upload Factory Preset</h4><p className="text-xs text-white/50 mt-1">Select JSON file</p></div>
-                                        <button onClick={() => adminPresetRef.current?.click()} className="mt-2 w-full py-2 bg-hyper-cyan text-deep-space font-bold text-xs rounded hover:bg-white transition-colors">SELECT JSON</button>
-                                    </div>
-                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 flex flex-col items-center gap-4 text-center">
-                                        <div className="w-12 h-12 bg-plasma-pink/20 text-plasma-pink rounded-full flex items-center justify-center text-2xl">💿</div>
-                                        <div><h4 className="text-sm font-bold text-white">Factory Audio Content</h4><p className="text-xs text-white/50 mt-1">WAV / MP3</p></div>
-                                        
-                                        <div className="w-full mt-2 space-y-2">
-                                            <button 
-                                                onClick={() => adminSampleUploadRef.current?.click()} 
-                                                className="w-full py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded border border-white/5 transition-colors"
-                                            >
-                                                Upload Samples (Loose)
-                                            </button>
-                                            
-                                            <div className="flex gap-2 pt-2 border-t border-white/5">
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Kit Name..." 
-                                                    value={adminKitName}
-                                                    onChange={(e) => setAdminKitName(e.target.value)}
-                                                    className="flex-1 bg-black/40 border border-white/10 rounded px-3 text-xs text-white focus:border-plasma-pink outline-none"
-                                                />
-                                                <button 
-                                                    onClick={handleTriggerKitUpload} 
-                                                    disabled={!adminKitName.trim()}
-                                                    className="px-4 py-2 bg-plasma-pink text-white font-bold text-xs rounded hover:bg-white hover:text-deep-space transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    Upload Kit
-                                                </button>
-                                            </div>
+                            {/* Content List Area */}
+                            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+                                {filteredItems.length === 0 ? (
+                                    <div className="h-64 flex flex-col items-center justify-center text-center p-6 border border-dashed border-white/10 rounded-2xl bg-white/[0.02]">
+                                        <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-white/40 mb-3">
+                                            <Disc className="w-6 h-6" />
                                         </div>
-                                    </div>
-                                </div>
-
-                                {/* Storage Admin & Object Purge Panel */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                            <span className="text-hyper-cyan">🗄️</span> S3 / Neon Object Storage Browser & Purge
-                                        </h3>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => handleResetDatabase(true)}
-                                                disabled={isResettingDb}
-                                                className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                                                title="Wipe database records to match empty bucket"
-                                            >
-                                                <span>{isResettingDb ? '⏳' : '⚠️'}</span>
-                                                <span>Purge Database (Clean Start)</span>
-                                            </button>
-                                            <button
-                                                onClick={loadStorageInfo}
-                                                disabled={isLoadingStorage}
-                                                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                                            >
-                                                <span>{isLoadingStorage ? '⏳' : '🔄'}</span>
-                                                <span>Refresh Files</span>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {storageActionMsg && (
-                                        <div className={`mb-4 text-xs px-3 py-2 rounded-lg border ${storageActionMsg.success ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}`}>
-                                            {storageActionMsg.text}
-                                        </div>
-                                    )}
-
-                                    <div className="bg-white/5 p-5 rounded-xl border border-white/10 space-y-4">
-                                        {/* Bucket Info */}
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-black/40 p-3 rounded-lg border border-white/5">
-                                            <div>
-                                                <div className="text-[10px] text-white/50 uppercase font-bold">Storage State</div>
-                                                <div className={`font-mono font-bold ${storageStatus?.configured || storageStatus?.s3Enabled ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                                                    {storageStatus?.configured || storageStatus?.s3Enabled ? '● S3 Connected' : '○ Local Disk'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[10px] text-white/50 uppercase font-bold">Bucket Name</div>
-                                                <div className="font-mono text-white truncate">{storageStatus?.bucket || 'Default / None'}</div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[10px] text-white/50 uppercase font-bold">Region</div>
-                                                <div className="font-mono text-white">{storageStatus?.region || 'auto / us-east-1'}</div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[10px] text-white/50 uppercase font-bold">Total Stored Objects</div>
-                                                <div className="font-mono text-hyper-cyan font-bold">{storageObjects.length} files</div>
-                                            </div>
-                                        </div>
-
-                                         {/* Direct Key/URL Purge Tool */}
-                                        <div className="bg-black/30 p-3 rounded-lg border border-red-500/20 space-y-2">
-                                            <div className="text-xs font-bold text-red-400 flex items-center gap-1.5">
-                                                <span>🗑</span> Direct Storage Purge by Key / URL:
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    placeholder="samples/123_kick.wav OR full URL..."
-                                                    value={manualDeleteTarget}
-                                                    onChange={(e) => setManualDeleteTarget(e.target.value)}
-                                                    className="flex-1 bg-black/50 border border-white/10 rounded px-3 py-1.5 text-xs text-white focus:border-red-500 outline-none font-mono"
-                                                />
-                                                <button
-                                                    onClick={() => {
-                                                        if (manualDeleteTarget.trim()) {
-                                                            handleDeleteStorageObject(manualDeleteTarget.trim());
-                                                            setManualDeleteTarget("");
-                                                        }
-                                                    }}
-                                                    disabled={!manualDeleteTarget.trim() || isDeletingStorage}
-                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50"
-                                                >
-                                                    {isDeletingStorage ? 'Purging...' : 'Purge Object'}
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {/* Filter & File List */}
-                                        <div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="text-xs font-bold text-star-dust uppercase tracking-wider">
-                                                    Stored Bucket Files ({storageObjects.filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase())).length})
-                                                </div>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Filter storage files..."
-                                                    value={storageSearch}
-                                                    onChange={(e) => setStorageSearch(e.target.value)}
-                                                    className="bg-black/40 border border-white/10 rounded px-2.5 py-1 text-xs text-white outline-none focus:border-hyper-cyan w-48"
-                                                />
-                                            </div>
-
-                                            <div className="max-h-64 overflow-y-auto bg-black/40 rounded-lg border border-white/5 divide-y divide-white/5">
-                                                {isLoadingStorage ? (
-                                                    <div className="p-6 text-center text-white/50 text-xs italic">Loading storage objects...</div>
-                                                ) : storageObjects.length === 0 ? (
-                                                    <div className="p-6 text-center text-white/40 text-xs italic">
-                                                        No storage files found or S3 bucket is empty.
-                                                    </div>
-                                                ) : (
-                                                    storageObjects
-                                                        .filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase()))
-                                                        .map((obj) => {
-                                                            const sizeKB = (obj.size / 1024).toFixed(1);
-                                                            const filename = obj.key.split('/').pop() || obj.key;
-                                                            return (
-                                                                <div key={obj.key} className="p-2.5 flex items-center justify-between hover:bg-white/5 transition-colors text-xs gap-3">
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="font-mono text-white truncate flex items-center gap-2">
-                                                                            <span className="text-plasma-pink">🔊</span>
-                                                                            <span className="truncate">{filename}</span>
-                                                                        </div>
-                                                                        <div className="text-[10px] text-white/40 font-mono truncate">
-                                                                            <span>{obj.key}</span> • <span>{sizeKB} KB</span> {obj.lastModified && `• ${new Date(obj.lastModified).toLocaleDateString()}`}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-2 shrink-0">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => togglePreview({ id: obj.key, label: filename, type: 'sample', url: obj.url, isPublic: true })}
-                                                                            className={`w-7 h-7 flex items-center justify-center rounded-full border border-white/10 text-xs transition-colors ${previewingId === obj.key ? 'bg-hyper-cyan text-deep-space animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                                                                            title="Preview Audio"
-                                                                        >
-                                                                            {previewingId === obj.key ? '⏹' : '▶'}
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleDeleteStorageObject(obj.key)}
-                                                                            disabled={isDeletingStorage}
-                                                                            className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded font-bold text-[11px] transition-colors"
-                                                                            title="Permanently Delete File"
-                                                                        >
-                                                                            🗑 Delete
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                        <span>📦</span> Supabase Storage Migration to Neon Bucket
-                                    </h3>
-                                    <div className="bg-white/5 p-6 rounded-xl border border-white/10 space-y-4">
-                                        <p className="text-xs text-white/70 leading-relaxed">
-                                            Transfer all audio files and kits from your existing Supabase storage bucket into your connected Neon S3 Object Storage bucket.
+                                        <h4 className="text-sm font-bold text-white mb-1">No items found</h4>
+                                        <p className="text-xs text-white/40 max-w-sm mb-4">
+                                            {searchTerm 
+                                                ? `No audio matching "${searchTerm}" in this category.` 
+                                                : "There are no sounds in this section yet."}
                                         </p>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-white/50 uppercase">Supabase URL (Optional if set in .env)</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="https://xyz.supabase.co"
-                                                    value={supabaseUrlInput}
-                                                    onChange={(e) => setSupabaseUrlInput(e.target.value)}
-                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-white/50 uppercase">Service Role / Anon Key</label>
-                                                <input
-                                                    type="password"
-                                                    placeholder="eyJhbGciOi..."
-                                                    value={supabaseKeyInput}
-                                                    onChange={(e) => setSupabaseKeyInput(e.target.value)}
-                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-white/50 uppercase">Supabase Source Bucket</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="samples"
-                                                    value={supabaseBucketInput}
-                                                    onChange={(e) => setSupabaseBucketInput(e.target.value)}
-                                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded px-3 py-2 text-xs text-white focus:border-hyper-cyan outline-none font-mono"
-                                                />
-                                            </div>
-                                        </div>
+                                        <button
+                                            onClick={() => setViewMode('upload')}
+                                            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                                        >
+                                            <Upload className="w-3.5 h-3.5" />
+                                            <span>Upload First Sound</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* 1. Explicit Kit Packs */}
+                                        {explicitKits.map((kit) => {
+                                            const isExpanded = expandedKits.has(kit.id);
+                                            const children = (kit.data?.items || []) as CloudItem[];
+                                            const isMine = user && kit._userId === user.id;
 
-                                        <div className="flex items-center justify-between pt-2">
-                                            <button
-                                                onClick={handleRunSupabaseMigration}
-                                                disabled={isMigrating}
-                                                className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs rounded-lg transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {isMigrating ? (
-                                                    <>
-                                                        <span className="animate-spin inline-block">⏳</span>
-                                                        <span>Migrating Assets to Neon...</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span>🚀</span>
-                                                        <span>Start Migration to Neon Storage</span>
-                                                    </>
-                                                )}
-                                            </button>
+                                            return (
+                                                <div key={kit.id} className="border border-white/10 rounded-xl overflow-hidden bg-[#131822]/80 shadow-md">
+                                                    <div 
+                                                        className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                                        onClick={() => toggleKitExpansion(kit.id)}
+                                                    >
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <button 
+                                                                type="button"
+                                                                className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0"
+                                                            >
+                                                                {isExpanded ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
+                                                            </button>
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-sm font-bold text-white uppercase tracking-wide truncate">
+                                                                        {kit.label}
+                                                                    </span>
+                                                                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-bold shrink-0">
+                                                                        {children.length} Samples
+                                                                    </span>
+                                                                    {kit.isFactory && (
+                                                                        <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                                                                            ⭐ Factory Kit
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {kit.description && (
+                                                                    <p className="text-[11px] text-white/50 truncate mt-0.5">
+                                                                        {kit.description}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
 
-                                            {migrationResult && (
-                                                <div className={`text-xs px-3 py-1.5 rounded ${migrationResult.success ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
-                                                    {migrationResult.message || (migrationResult.success ? 'Migration Complete!' : migrationResult.error)}
+                                                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); loadCloudItem(kit); }}
+                                                                className="px-3 py-1.5 bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs rounded-lg transition-colors shadow-sm"
+                                                            >
+                                                                LOAD KIT
+                                                            </button>
+                                                            {(isMine || isAdmin) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.stopPropagation(); handleDelete(kit); }}
+                                                                    disabled={deletingId === kit.id}
+                                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                                                    title="Delete Kit"
+                                                                >
+                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {isExpanded && (
+                                                        <div className="border-t border-white/5 p-3 space-y-2 bg-black/40">
+                                                            {children.length > 0 ? (
+                                                                children.map(child => renderItemCard(child, true))
+                                                            ) : (
+                                                                <div className="text-xs text-white/40 italic p-2 text-center">Empty kit pack</div>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
-                                        </div>
+                                            );
+                                        })}
 
-                                        {migrationResult?.result?.results && (
-                                            <div className="mt-3 max-h-40 overflow-y-auto bg-black/40 rounded p-3 text-[11px] font-mono space-y-1 text-white/70">
-                                                {migrationResult.result.results.map((r: any, idx: number) => (
-                                                    <div key={idx} className="flex justify-between items-center">
-                                                        <span className="truncate max-w-xs">{r.name}</span>
-                                                        <span className={r.status === 'migrated' ? 'text-emerald-400' : 'text-red-400'}>
-                                                            {r.status === 'migrated' ? '✓ Uploaded to Neon' : `✗ ${r.error || 'Failed'}`}
+                                        {/* 2. Legacy Grouped Kits */}
+                                        {Object.entries(legacyKitGroups).map(([kitName, groupItems]) => {
+                                            const isExpanded = expandedKits.has(kitName);
+                                            const isMine = user && groupItems.length > 0 && groupItems[0]._userId === user.id;
+
+                                            return (
+                                                <div key={`legacy-${kitName}`} className="border border-white/10 rounded-xl overflow-hidden bg-[#131822]/80">
+                                                    <div 
+                                                        className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                                        onClick={() => toggleKitExpansion(kitName)}
+                                                    >
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <div className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
+                                                                {isExpanded ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-sm font-bold text-white uppercase tracking-wide truncate">
+                                                                        {kitName}
+                                                                    </span>
+                                                                    <span className="text-[10px] bg-white/10 text-white/70 px-1.5 py-0.5 rounded font-bold">
+                                                                        {groupItems.length} Files
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-xs text-white/40 font-mono">
+                                                            {isExpanded ? 'Hide Samples ▲' : 'Show Samples ▼'}
                                                         </span>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
 
-                                <div>
-                                    <h3 className="text-lg font-bold text-white mb-4">📢 User Feedback</h3>
-                                    <div className="bg-black/30 rounded-xl border border-white/10 overflow-hidden">
-                                        {feedbackItems.length === 0 ? (
-                                            <div className="p-4 text-center text-white/30 text-sm italic">No feedback received yet.</div>
-                                        ) : (
-                                            <div className="divide-y divide-white/5">
-                                                {feedbackItems.map(fb => (
-                                                    <div key={fb.id} className="p-4 hover:bg-white/5 transition-colors">
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${fb.category === 'bug' ? 'bg-red-500/20 text-red-300' : (fb.category === 'feature' ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/50')}`}>
-                                                                    {fb.category}
-                                                                </span>
-                                                                <span className="text-xs font-bold text-hyper-cyan">
-                                                                    {fb.profiles?.username || (fb.user_id ? fb.user_id.slice(0,6) : 'Anon')}
-                                                                </span>
-                                                            </div>
-                                                            <span className="text-[10px] text-white/30">
-                                                                {new Date(fb.created_at).toLocaleDateString()}
-                                                            </span>
+                                                    {isExpanded && (
+                                                        <div className="border-t border-white/5 p-3 space-y-2 bg-black/40">
+                                                            {groupItems.map(item => renderItemCard(item, true))}
                                                         </div>
-                                                        <p className="text-sm text-star-dust whitespace-pre-wrap">{fb.message}</p>
-                                                    </div>
-                                                ))}
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+
+                                        {/* 3. Standalone Items (Samples & Presets) */}
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                            {standaloneItems.map(item => renderItemCard(item, false))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ======================================================== */}
+                    {/* MODE 2: STREAMLINED UPLOAD & SAVE CENTER */}
+                    {/* ======================================================== */}
+                    {viewMode === 'upload' && (
+                        <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full custom-scrollbar">
+                            <div className="mb-6 text-center">
+                                <h3 className="text-xl font-bold text-white mb-1">Upload & Save to Cloud</h3>
+                                <p className="text-xs text-white/50">
+                                    Upload loops, one-shots, entire sample kits, or save your active slicer layout
+                                </p>
+                            </div>
+
+                            {/* Upload Type Tabs */}
+                            <div className="grid grid-cols-3 gap-2 p-1 bg-black/40 border border-white/10 rounded-xl mb-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setUploadMode('sample')}
+                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                        uploadMode === 'sample' 
+                                            ? 'bg-pink-500 text-white shadow-md' 
+                                            : 'text-white/60 hover:text-white hover:bg-white/5'
+                                    }`}
+                                >
+                                    <Disc className="w-3.5 h-3.5" />
+                                    <span>Single Audio / Loop</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setUploadMode('kit')}
+                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                        uploadMode === 'kit' 
+                                            ? 'bg-purple-500 text-white shadow-md' 
+                                            : 'text-white/60 hover:text-white hover:bg-white/5'
+                                    }`}
+                                >
+                                    <Package className="w-3.5 h-3.5" />
+                                    <span>Sample Kit / Pack</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setUploadMode('preset')}
+                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                        uploadMode === 'preset' 
+                                            ? 'bg-cyan-500 text-black shadow-md' 
+                                            : 'text-white/60 hover:text-white hover:bg-white/5'
+                                    }`}
+                                >
+                                    <Sliders className="w-3.5 h-3.5" />
+                                    <span>Current Preset</span>
+                                </button>
+                            </div>
+
+                            {/* ---------------------------------------------------- */}
+                            {/* TAB A: SINGLE SAMPLE / LOOP */}
+                            {/* ---------------------------------------------------- */}
+                            {uploadMode === 'sample' && (
+                                <div className="bg-[#121722] border border-white/10 rounded-2xl p-6 space-y-5 shadow-xl">
+                                    {/* File Dropzone */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">
+                                            Select Audio File (WAV, MP3, FLAC, AIFF, OGG)
+                                        </label>
+                                        <input
+                                            type="file"
+                                            accept="audio/*"
+                                            onChange={(e) => {
+                                                const files = Array.from(e.target.files || []);
+                                                if (files.length > 0) {
+                                                    setSingleFiles(files);
+                                                    if (!singleTitle) {
+                                                        setSingleTitle(files[0].name.replace(/\.[^/.]+$/, ""));
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                            className="block w-full text-xs text-white/70 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-pink-500 file:text-white hover:file:bg-pink-400 file:cursor-pointer bg-black/40 border border-white/10 rounded-xl p-2 cursor-pointer"
+                                        />
+                                        {singleFiles.length > 0 && (
+                                            <div className="mt-2 text-xs text-pink-300 flex items-center gap-2">
+                                                <Check className="w-3.5 h-3.5" />
+                                                <span>Selected: <strong>{singleFiles[0].name}</strong> ({(singleFiles[0].size / 1024 / 1024).toFixed(2)} MB)</span>
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Title */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-1.5">
+                                            Sample / Loop Title
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Vintage 808 Hip Hop Break 90BPM"
+                                            value={singleTitle}
+                                            onChange={(e) => setSingleTitle(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-pink-500 transition-colors font-medium"
+                                        />
+                                    </div>
+
+                                    {/* Tag Selector */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">
+                                            Audio Category / Tag
+                                        </label>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {(['loop', 'oneshot', 'stem', 'fx'] as const).map((t) => (
+                                                <button
+                                                    key={t}
+                                                    type="button"
+                                                    onClick={() => setSingleTag(t)}
+                                                    className={`py-2 text-xs font-bold rounded-lg uppercase tracking-wider border transition-all ${
+                                                        singleTag === t 
+                                                            ? 'bg-pink-500/20 text-pink-300 border-pink-500/60 shadow-sm' 
+                                                            : 'bg-black/30 text-white/50 border-white/5 hover:border-white/20'
+                                                    }`}
+                                                >
+                                                    {t === 'loop' ? 'Loop' : t === 'oneshot' ? 'One-Shot' : t === 'stem' ? 'Stem' : 'FX'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Options & Admin Toggle */}
+                                    <div className="pt-2 border-t border-white/5 space-y-3">
+                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={singleIsPublic}
+                                                onChange={(e) => setSingleIsPublic(e.target.checked)}
+                                                className="w-4 h-4 rounded text-pink-500 bg-black/40 border-white/20 focus:ring-0"
+                                            />
+                                            <span className="text-xs text-white/80 font-medium">
+                                                Share in Community Library (Public)
+                                            </span>
+                                        </label>
+
+                                        {isAdmin && (
+                                            <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center justify-between">
+                                                <div className="flex items-center gap-2.5">
+                                                    <Sparkles className="w-4 h-4 text-yellow-400" />
+                                                    <div>
+                                                        <div className="text-xs font-bold text-yellow-300">Admin: Save as Factory Demo Content</div>
+                                                        <div className="text-[11px] text-yellow-300/70">Seeds this sample into the official Factory Library for all users.</div>
+                                                    </div>
+                                                </div>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={singleIsFactory}
+                                                    onChange={(e) => setSingleIsFactory(e.target.checked)}
+                                                    className="w-4 h-4 rounded text-yellow-500 bg-black/40 border-yellow-500/40 focus:ring-0 cursor-pointer"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <button
+                                        type="button"
+                                        onClick={handleUploadSingleSample}
+                                        disabled={singleFiles.length === 0 || isUploading}
+                                        className="w-full py-3 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 hover:to-rose-400 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-pink-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <Upload className="w-4 h-4" />
+                                        <span>Upload & Save Sample</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* ---------------------------------------------------- */}
+                            {/* TAB B: MULTI-SAMPLE KIT / PACK */}
+                            {/* ---------------------------------------------------- */}
+                            {uploadMode === 'kit' && (
+                                <div className="bg-[#121722] border border-white/10 rounded-2xl p-6 space-y-5 shadow-xl">
+                                    {/* Multi-file Dropzone */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">
+                                            Select Multiple Audio Files (Up to {MAX_KIT_FILES} samples)
+                                        </label>
+                                        <input
+                                            type="file"
+                                            accept="audio/*"
+                                            multiple
+                                            onChange={(e) => {
+                                                const files = Array.from(e.target.files || []);
+                                                if (files.length > 0) {
+                                                    setKitFiles(files);
+                                                    if (!kitTitle) {
+                                                        setKitTitle("My Sound Kit");
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                            className="block w-full text-xs text-white/70 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-500 file:text-white hover:file:bg-purple-400 file:cursor-pointer bg-black/40 border border-white/10 rounded-xl p-2 cursor-pointer"
+                                        />
+                                        {kitFiles.length > 0 && (
+                                            <div className="mt-2 text-xs text-purple-300 flex items-center justify-between">
+                                                <span>✓ Selected <strong>{kitFiles.length}</strong> audio files</span>
+                                                <span className="text-white/40">Total: {(kitFiles.reduce((acc, f) => acc + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Kit Name */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-1.5">
+                                            Kit / Pack Title
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Neo-Soul Trap Kit Vol 1"
+                                            value={kitTitle}
+                                            onChange={(e) => setKitTitle(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500 transition-colors font-medium"
+                                        />
+                                    </div>
+
+                                    {/* Description */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-1.5">
+                                            Description (Optional)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. 12 punchy acoustic kicks, snares and percussion loops"
+                                            value={kitDescription}
+                                            onChange={(e) => setKitDescription(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-purple-500 transition-colors"
+                                        />
+                                    </div>
+
+                                    {/* Kit Options */}
+                                    <div className="space-y-3 pt-2 border-t border-white/5">
+                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={kitAutoStitch}
+                                                onChange={(e) => setKitAutoStitch(e.target.checked)}
+                                                className="w-4 h-4 rounded text-purple-500 bg-black/40 border-white/20 focus:ring-0"
+                                            />
+                                            <span className="text-xs text-white/80 font-medium">
+                                                Auto-create Playable Slice Master Preset (recommended)
+                                            </span>
+                                        </label>
+
+                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={kitIsPublic}
+                                                onChange={(e) => setKitIsPublic(e.target.checked)}
+                                                className="w-4 h-4 rounded text-purple-500 bg-black/40 border-white/20 focus:ring-0"
+                                            />
+                                            <span className="text-xs text-white/80 font-medium">
+                                                Make Kit Public in Community Library
+                                            </span>
+                                        </label>
+
+                                        {isAdmin && (
+                                            <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center justify-between">
+                                                <div className="flex items-center gap-2.5">
+                                                    <Sparkles className="w-4 h-4 text-yellow-400" />
+                                                    <div>
+                                                        <div className="text-xs font-bold text-yellow-300">Admin: Save as Factory Demo Kit</div>
+                                                        <div className="text-[11px] text-yellow-300/70">Seeds this kit pack into the official Factory Library for demo purposes.</div>
+                                                    </div>
+                                                </div>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={kitIsFactory}
+                                                    onChange={(e) => setKitIsFactory(e.target.checked)}
+                                                    className="w-4 h-4 rounded text-yellow-500 bg-black/40 border-yellow-500/40 focus:ring-0 cursor-pointer"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <button
+                                        type="button"
+                                        onClick={handleUploadKit}
+                                        disabled={kitFiles.length === 0 || !kitTitle.trim() || isUploading}
+                                        className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <Package className="w-4 h-4" />
+                                        <span>Create & Upload Kit Pack</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* ---------------------------------------------------- */}
+                            {/* TAB C: SAVE CURRENT SLICER PRESET */}
+                            {/* ---------------------------------------------------- */}
+                            {uploadMode === 'preset' && (
+                                <div className="bg-[#121722] border border-white/10 rounded-2xl p-6 space-y-5 shadow-xl">
+                                    <div>
+                                        <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-1.5">
+                                            Preset Title
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Futuristic Cyber Glitch Beat"
+                                            value={presetTitle}
+                                            onChange={(e) => setPresetTitle(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-cyan-400 transition-colors font-medium"
+                                        />
+                                    </div>
+
+                                    <div className="p-4 bg-black/40 border border-white/5 rounded-xl space-y-2 text-xs text-white/60">
+                                        <div className="font-bold text-white flex items-center gap-2">
+                                            <Sliders className="w-4 h-4 text-cyan-400" />
+                                            <span>Current Session Data:</span>
+                                        </div>
+                                        <div>• Source Audio: <strong>{sampleName || 'Custom Audio'}</strong></div>
+                                        <div>• Includes full FX chain, filters, granular parameters, and 32-step sequencer pattern.</div>
+                                    </div>
+
+                                    <div className="space-y-3 pt-2 border-t border-white/5">
+                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={presetIsPublic}
+                                                onChange={(e) => setPresetIsPublic(e.target.checked)}
+                                                className="w-4 h-4 rounded text-cyan-500 bg-black/40 border-white/20 focus:ring-0"
+                                            />
+                                            <span className="text-xs text-white/80 font-medium">
+                                                Share in Community Presets (Public)
+                                            </span>
+                                        </label>
+
+                                        {isAdmin && (
+                                            <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center justify-between">
+                                                <div className="flex items-center gap-2.5">
+                                                    <Sparkles className="w-4 h-4 text-yellow-400" />
+                                                    <div>
+                                                        <div className="text-xs font-bold text-yellow-300">Admin: Save as Factory Demo Preset</div>
+                                                        <div className="text-[11px] text-yellow-300/70">Seeds this preset into the Factory Presets list for all demo users.</div>
+                                                    </div>
+                                                </div>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={presetIsFactory}
+                                                    onChange={(e) => setPresetIsFactory(e.target.checked)}
+                                                    className="w-4 h-4 rounded text-yellow-500 bg-black/40 border-yellow-500/40 focus:ring-0 cursor-pointer"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveCurrentPreset}
+                                        disabled={!presetTitle.trim() || isUploading}
+                                        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-bold text-sm rounded-xl transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <Sliders className="w-4 h-4 text-black" />
+                                        <span>Save Slicer Preset to Cloud</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ======================================================== */}
+                    {/* MODE 3: ADMIN TOOLS & STORAGE PURGE */}
+                    {/* ======================================================== */}
+                    {viewMode === 'admin' && isAdmin && (
+                        <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full space-y-6 custom-scrollbar">
+                            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                                <div>
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                        <HardDrive className="w-5 h-5 text-yellow-400" />
+                                        <span>Admin Tools & Object Storage</span>
+                                    </h3>
+                                    <p className="text-xs text-white/50">Manage S3 bucket assets, purge files, and review database status</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => handleResetDatabase(true)}
+                                        disabled={isResettingDb}
+                                        className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/60 rounded-lg text-xs font-bold transition-colors"
+                                        title="Wipe database records to match empty bucket"
+                                    >
+                                        {isResettingDb ? 'Purging...' : '⚠️ Purge Database (Clean Start)'}
+                                    </button>
+                                    <button
+                                        onClick={loadStorageInfo}
+                                        disabled={isLoadingStorage}
+                                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                                    >
+                                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStorage ? 'animate-spin' : ''}`} />
+                                        <span>Refresh</span>
+                                    </button>
                                 </div>
                             </div>
-                        )}
-                    </div>
+
+                            {storageActionMsg && (
+                                <div className={`text-xs px-3.5 py-2.5 rounded-xl border ${storageActionMsg.success ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}`}>
+                                    {storageActionMsg.text}
+                                </div>
+                            )}
+
+                            {/* Bucket Status */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-black/40 p-4 rounded-xl border border-white/5 text-xs">
+                                <div>
+                                    <div className="text-[10px] text-white/50 uppercase font-bold">Storage State</div>
+                                    <div className="font-mono font-bold text-emerald-400">● S3 Connected</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-white/50 uppercase font-bold">Bucket</div>
+                                    <div className="font-mono text-white truncate">{storageStatus?.bucket || 'Default'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-white/50 uppercase font-bold">Region</div>
+                                    <div className="font-mono text-white">{storageStatus?.region || 'auto'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-white/50 uppercase font-bold">Objects</div>
+                                    <div className="font-mono text-cyan-400 font-bold">{storageObjects.length} files</div>
+                                </div>
+                            </div>
+
+                            {/* Direct Purge Input */}
+                            <div className="bg-[#121722] p-4 rounded-xl border border-red-500/20 space-y-2">
+                                <div className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Direct Object Purge by Key / URL:</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="samples/xyz_kick.wav OR full URL..."
+                                        value={manualDeleteTarget}
+                                        onChange={(e) => setManualDeleteTarget(e.target.value)}
+                                        className="flex-1 bg-black/50 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-red-500"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (manualDeleteTarget.trim()) {
+                                                handleDeleteStorageObject(manualDeleteTarget.trim());
+                                                setManualDeleteTarget("");
+                                            }
+                                        }}
+                                        disabled={!manualDeleteTarget.trim() || isDeletingStorage}
+                                        className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition-colors disabled:opacity-50"
+                                    >
+                                        {isDeletingStorage ? 'Purging...' : 'Purge Object'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Storage Files List */}
+                            <div className="bg-[#121722] p-4 rounded-xl border border-white/10 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-white/70 uppercase tracking-wider">
+                                        Stored S3 Files ({storageObjects.filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase())).length})
+                                    </span>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter files..."
+                                        value={storageSearch}
+                                        onChange={(e) => setStorageSearch(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1 text-xs text-white outline-none focus:border-cyan-400 w-44"
+                                    />
+                                </div>
+
+                                <div className="max-h-60 overflow-y-auto bg-black/40 rounded-lg border border-white/5 divide-y divide-white/5 custom-scrollbar">
+                                    {isLoadingStorage ? (
+                                        <div className="p-4 text-center text-white/40 text-xs italic">Loading storage objects...</div>
+                                    ) : storageObjects.length === 0 ? (
+                                        <div className="p-4 text-center text-white/40 text-xs italic">No storage files in bucket.</div>
+                                    ) : (
+                                        storageObjects
+                                            .filter(o => o.key.toLowerCase().includes(storageSearch.toLowerCase()))
+                                            .map((obj) => (
+                                                <div key={obj.key} className="p-2.5 flex items-center justify-between hover:bg-white/5 text-xs gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="font-mono text-white truncate">{obj.key.split('/').pop() || obj.key}</div>
+                                                        <div className="text-[10px] text-white/40 font-mono">{(obj.size / 1024).toFixed(1)} KB</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => togglePreview({ id: obj.key, label: obj.key, type: 'sample', url: obj.url, isPublic: true })}
+                                                            className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xs"
+                                                        >
+                                                            {previewingId === obj.key ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteStorageObject(obj.key)}
+                                                            className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 font-bold text-[11px] rounded"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Supabase Migration */}
+                            <div className="bg-[#121722] p-5 rounded-xl border border-white/10 space-y-4">
+                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                    <Package className="w-4 h-4 text-cyan-400" />
+                                    <span>Supabase Storage to Neon S3 Migration Tool</span>
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Supabase URL (optional)"
+                                        value={supabaseUrlInput}
+                                        onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                    <input
+                                        type="password"
+                                        autoComplete="off"
+                                        placeholder="Service Role / Anon Key"
+                                        value={supabaseKeyInput}
+                                        onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Bucket (default: samples)"
+                                        value={supabaseBucketInput}
+                                        onChange={(e) => setSupabaseBucketInput(e.target.value)}
+                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none"
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleRunSupabaseMigration}
+                                    disabled={isMigrating}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-2"
+                                >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    <span>{isMigrating ? 'Migrating files...' : 'Start Migration to Neon'}</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
-        </>
+        </div>
     );
 });
 

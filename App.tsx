@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
-import { fetchLibrary } from './utils/db';
 import LibraryManager from './components/LibraryManager';
 import WaveformDisplay from './components/WaveformDisplay';
 import ControlPanel from './components/ControlPanel';
@@ -130,35 +129,6 @@ const App: React.FC = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [togglePlay, audioBuffer, isLoading]);
-
-    // Auto-load '60 DRUM LOOP WAV' preset upon launch
-    const hasLoadedDefaultRef = useRef(false);
-    useEffect(() => {
-        let mounted = true;
-        if (isReady && !hasLoadedDefaultRef.current) {
-            hasLoadedDefaultRef.current = true;
-            fetchLibrary().then(data => {
-                if (!mounted) return;
-                const presets = [...(data.factoryPresets || []), ...(data.publicPresets || [])];
-                const target = presets.find(p => 
-                    p.label.toLowerCase().includes('60') && 
-                    (p.label.toLowerCase().includes('drum') || p.label.toLowerCase().includes('loop') || p.label.toLowerCase().includes('wav'))
-                ) || presets[0];
-
-                if (target && target.data) {
-                    loadPreset(target.data);
-                    if (target.label) {
-                        setProjectName(target.label.replace(/\.[^/.]+$/, ""));
-                    }
-                }
-            }).catch(err => {
-                console.warn("Auto-load preset on launch notice:", err);
-            });
-        }
-        return () => {
-            mounted = false;
-        };
-    }, [isReady, loadPreset]);
 
     const handleParamChange = <K extends keyof AllParams>(key: K, value: AllParams[K]) => {
       updateParams({ [key]: value } as Partial<AllParams>);

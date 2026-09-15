@@ -356,29 +356,41 @@ export async function generatePresignedDownloadUrl(
  */
 export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   if (!isS3Configured()) return null;
-  try {
-    const key = extractS3KeyFromUrl(keyOrUrl);
-    if (!key) return null;
+  const key = extractS3KeyFromUrl(keyOrUrl);
+  if (!key) return null;
 
-    const s3 = getS3Client();
-    const config = getS3Config();
-    const command = new GetObjectCommand({
-      Bucket: config.bucket!,
-      Key: key,
-    });
+  const s3 = getS3Client();
+  const config = getS3Config();
+  const filename = path.basename(key);
 
-    const response = await s3.send(command);
-    if (!response.Body) return null;
+  const candidateKeys = Array.from(new Set([
+    key,
+    `samples/${filename}`,
+    `uploads/${filename}`,
+    filename,
+  ]));
 
-    const byteArray = await response.Body.transformToByteArray();
-    return {
-      buffer: Buffer.from(byteArray),
-      contentType: response.ContentType || 'audio/wav',
-    };
-  } catch (error) {
-    console.error(`[S3 Buffer] Failed to retrieve object "${keyOrUrl}":`, error);
-    return null;
+  for (const candidateKey of candidateKeys) {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: config.bucket!,
+        Key: candidateKey,
+      });
+
+      const response = await s3.send(command);
+      if (response.Body) {
+        const byteArray = await response.Body.transformToByteArray();
+        return {
+          buffer: Buffer.from(byteArray),
+          contentType: response.ContentType || 'audio/wav',
+        };
+      }
+    } catch (_error) {
+      // Continue to next candidate key
+    }
   }
+
+  return null;
 }
 
 /**

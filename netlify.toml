@@ -13,6 +13,16 @@
   status = 200
 
 [[redirects]]
+  from = "/uploads/*"
+  to = "/.netlify/functions/api/uploads/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/Audio/*"
+  to = "/.netlify/functions/api/Audio/:splat"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

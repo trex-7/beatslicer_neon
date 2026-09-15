@@ -560,9 +560,27 @@ export function createApp() {
   });
 
   // Storage Stream / File Proxy Endpoint (Ensures storage files stream reliably with full CORS across all deploy environments)
-  app.get(['/api/storage/stream', '/api/storage/file/*all', '/api/storage/raw/*all'], async (req: Request, res: Response) => {
+  app.get([
+    '/api/storage/stream',
+    '/api/storage/file/*all',
+    '/api/storage/raw/*all',
+    '/uploads/*all',
+    '/uploads/:file',
+    '/Audio/*all',
+    '/Audio/:file',
+    '/api/uploads/*all',
+    '/api/uploads/:file',
+  ], async (req: Request, res: Response) => {
     try {
-      const targetParam = req.params[0] || (req.query.key as string) || (req.query.url as string);
+      const rawParam =
+        req.params.file ||
+        req.params[0] ||
+        (req.query.key as string) ||
+        (req.query.url as string) ||
+        req.path;
+
+      const targetParam: string = Array.isArray(rawParam) ? rawParam.join('/') : String(rawParam || '');
+
       if (!targetParam) {
         return res.status(400).json({ error: 'Storage file key or url parameter is required' });
       }

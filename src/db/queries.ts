@@ -101,7 +101,8 @@ export async function fetchFullLibrary(userId?: string) {
           const parsed = new URL(trimmed);
           let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
           const parts = pathname.split('/');
-          if (parts.length > 1 && (parts[0] === 'beat-slicer' || parts[0].includes('bucket'))) {
+          const bucketName = process.env.STORAGE_BUCKET_NAME || 'beat-slicer';
+          if (parts.length > 1 && (parts[0] === bucketName || parts[0].includes('bucket'))) {
             pathname = parts.slice(1).join('/');
           }
           return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;

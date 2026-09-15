@@ -627,72 +627,15 @@ export function createApp() {
         return res.status(200).end();
       }
 
-      // 1. Fetch from S3 storage if configured
-      if (isS3Configured()) {
-        const s3Obj = await getObjectBufferFromS3(targetParam);
-        if (s3Obj) {
-          res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          return res.send(s3Obj.buffer);
-        }
+      // Strictly fetch from S3 storage
+      const s3Obj = await getObjectBufferFromS3(targetParam);
+      if (s3Obj) {
+        res.setHeader('Content-Type', s3Obj.contentType || 'audio/wav');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(s3Obj.buffer);
       }
 
-      // 2. Fallback to local disk paths
-      const cleanFileName = path.basename(targetParam.split('?')[0]);
-      const relativeSubpath = targetParam.split('?')[0];
-
-      const candidateDiskPaths = [
-        path.join(process.cwd(), 'public', relativeSubpath),
-        path.join(process.cwd(), 'public', 'samples', relativeSubpath),
-        path.join(process.cwd(), 'public', 'uploads', relativeSubpath),
-        path.join(process.cwd(), 'public', 'Audio', relativeSubpath),
-        path.join(process.cwd(), 'public', 'samples', cleanFileName),
-        path.join(process.cwd(), 'public', 'uploads', cleanFileName),
-        path.join(process.cwd(), 'public', 'Audio', cleanFileName),
-        path.join(process.cwd(), 'dist', relativeSubpath),
-        path.join(process.cwd(), 'dist', 'samples', relativeSubpath),
-        path.join(process.cwd(), 'dist', 'uploads', relativeSubpath),
-        path.join(process.cwd(), 'dist', 'Audio', relativeSubpath),
-        path.join(process.cwd(), 'dist', 'samples', cleanFileName),
-        path.join(process.cwd(), 'dist', 'uploads', cleanFileName),
-        path.join(process.cwd(), 'dist', 'Audio', cleanFileName),
-      ];
-
-      for (const diskPath of candidateDiskPaths) {
-        if (fs.existsSync(diskPath) && !fs.statSync(diskPath).isDirectory()) {
-          const ext = path.extname(diskPath).toLowerCase();
-          const mime = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
-          res.setHeader('Content-Type', mime);
-          return res.sendFile(diskPath);
-        }
-      }
-
-      // 3. Fallback to database samples table if audioData base64 is stored
-      try {
-        const dbSample = await db.select().from(samples).where(
-          or(
-            eq(samples.url, targetParam),
-            like(samples.url, `%${cleanFileName}%`),
-            eq(samples.title, cleanFileName)
-          )
-        ).limit(1);
-
-        if (dbSample && dbSample.length > 0 && dbSample[0].audioData) {
-          const base64Data = dbSample[0].audioData;
-          const matches = base64Data.match(/^data:([a-zA-Z0-9\/\-+.]+);base64,(.+)$/);
-          if (matches && matches[2]) {
-            const contentType = matches[1] || 'audio/wav';
-            const buffer = Buffer.from(matches[2], 'base64');
-            res.setHeader('Content-Type', contentType);
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            return res.send(buffer);
-          }
-        }
-      } catch (_dbErr) {
-        // Continue if database query fails or is empty
-      }
-
-      res.status(404).json({ error: `Storage file not found: ${targetParam}` });
+      return res.status(404).json({ error: `Storage file not found in S3 bucket: ${targetParam}` });
     } catch (err: any) {
       console.error('Storage stream error:', err);
       res.status(500).json({ error: err.message || 'Failed to stream storage file' });

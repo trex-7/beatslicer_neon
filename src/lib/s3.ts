@@ -272,13 +272,9 @@ export async function listS3Objects(prefix: string = '', maxKeys: number = 200):
 
     return response.Contents.map((obj) => {
       const key = obj.Key || '';
-      let url = '';
+      let url = `/api/storage/stream?key=${encodeURIComponent(key)}`;
       if (config.publicBaseUrl) {
         url = `${config.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
-      } else if (config.endpoint) {
-        url = `${config.endpoint.replace(/\/+$/, '')}/${config.bucket}/${key}`;
-      } else {
-        url = `https://${config.bucket}.s3.${config.region}.amazonaws.com/${key}`;
       }
 
       return {
@@ -356,19 +352,45 @@ export async function generatePresignedDownloadUrl(
  */
 export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   if (!isS3Configured()) return null;
-  const key = extractS3KeyFromUrl(keyOrUrl);
-  if (!key) return null;
+  const rawKey = extractS3KeyFromUrl(keyOrUrl);
+  if (!rawKey) return null;
 
   const s3 = getS3Client();
   const config = getS3Config();
-  const filename = path.basename(key);
+  const filename = path.basename(rawKey);
+
+  const normalizedKey = rawKey
+    .replace(/^api\//, '')
+    .replace(/^uploads\//, '')
+    .replace(/^Audio\//, '')
+    .replace(/^samples\//, '');
+
+  const withoutAudioAssets = normalizedKey.replace(/^audio-assets\//, '');
+
+  let factorySubpath = '';
+  const factoryMatch = rawKey.match(/(factory\/kits\/.+)$/);
+  if (factoryMatch) {
+    factorySubpath = factoryMatch[1];
+  } else {
+    const kitsMatch = rawKey.match(/(kits\/.+)$/);
+    if (kitsMatch) {
+      factorySubpath = `factory/${kitsMatch[1]}`;
+    }
+  }
 
   const candidateKeys = Array.from(new Set([
-    key,
+    rawKey,
+    normalizedKey,
+    factorySubpath ? `samples/${factorySubpath}` : '',
+    `samples/${withoutAudioAssets}`,
+    `samples/${normalizedKey}`,
+    `factory/${withoutAudioAssets}`,
+    `uploads/${normalizedKey}`,
+    `Audio/${normalizedKey}`,
     `samples/${filename}`,
     `uploads/${filename}`,
     filename,
-  ]));
+  ].filter(Boolean)));
 
   for (const candidateKey of candidateKeys) {
     try {
@@ -380,9 +402,11 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
       const response = await s3.send(command);
       if (response.Body) {
         const byteArray = await response.Body.transformToByteArray();
+        const ext = path.extname(candidateKey).toLowerCase();
+        const defaultType = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
         return {
           buffer: Buffer.from(byteArray),
-          contentType: response.ContentType || 'audio/wav',
+          contentType: response.ContentType || defaultType,
         };
       }
     } catch (_error) {

@@ -23,6 +23,11 @@
   status = 200
 
 [[redirects]]
+  from = "/samples/*"
+  to = "/.netlify/functions/api/samples/:splat"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

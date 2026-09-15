@@ -560,26 +560,17 @@ export function createApp() {
   });
 
   // Storage Stream / File Proxy Endpoint (Ensures storage files stream reliably with full CORS across all deploy environments)
-  app.get([
-    '/api/storage/stream',
-    '/api/storage/file/*all',
-    '/api/storage/raw/*all',
-    '/uploads/*all',
-    '/uploads/:file',
-    '/Audio/*all',
-    '/Audio/:file',
-    '/api/uploads/*all',
-    '/api/uploads/:file',
-  ], async (req: Request, res: Response) => {
+  app.get(/^\/(api\/)?(storage|uploads|Audio|samples)($|\/.*)/, async (req: Request, res: Response) => {
     try {
-      const rawParam =
-        req.params.file ||
-        req.params[0] ||
-        (req.query.key as string) ||
-        (req.query.url as string) ||
-        req.path;
-
-      const targetParam: string = Array.isArray(rawParam) ? rawParam.join('/') : String(rawParam || '');
+      const queryKey = (req.query.key as string) || (req.query.url as string);
+      
+      let targetParam = queryKey;
+      if (!targetParam) {
+        // Strip route prefixes to get full relative key like audio-assets/factory/kits/...
+        targetParam = req.path
+          .replace(/^\/(api\/)?(uploads|Audio|samples|storage\/(stream|file|raw))\/+/, '')
+          .replace(/^\/+/, '');
+      }
 
       if (!targetParam) {
         return res.status(400).json({ error: 'Storage file key or url parameter is required' });
@@ -605,15 +596,27 @@ export function createApp() {
 
       // 2. Fallback to local disk paths
       const cleanFileName = path.basename(targetParam.split('?')[0]);
+      const relativeSubpath = targetParam.split('?')[0];
+
       const candidateDiskPaths = [
-        path.join(process.cwd(), 'public', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'public', relativeSubpath),
+        path.join(process.cwd(), 'public', 'samples', relativeSubpath),
+        path.join(process.cwd(), 'public', 'uploads', relativeSubpath),
+        path.join(process.cwd(), 'public', 'Audio', relativeSubpath),
+        path.join(process.cwd(), 'public', 'samples', cleanFileName),
         path.join(process.cwd(), 'public', 'uploads', cleanFileName),
-        path.join(process.cwd(), 'dist', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'public', 'Audio', cleanFileName),
+        path.join(process.cwd(), 'dist', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'samples', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'uploads', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'Audio', relativeSubpath),
+        path.join(process.cwd(), 'dist', 'samples', cleanFileName),
         path.join(process.cwd(), 'dist', 'uploads', cleanFileName),
+        path.join(process.cwd(), 'dist', 'Audio', cleanFileName),
       ];
 
       for (const diskPath of candidateDiskPaths) {
-        if (fs.existsSync(diskPath)) {
+        if (fs.existsSync(diskPath) && !fs.statSync(diskPath).isDirectory()) {
           const ext = path.extname(diskPath).toLowerCase();
           const mime = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
           res.setHeader('Content-Type', mime);
@@ -621,7 +624,7 @@ export function createApp() {
         }
       }
 
-      res.status(404).json({ error: 'Storage file not found' });
+      res.status(404).json({ error: `Storage file not found: ${targetParam}` });
     } catch (err: any) {
       console.error('Storage stream error:', err);
       res.status(500).json({ error: err.message || 'Failed to stream storage file' });
@@ -1019,7 +1022,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (_req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

@@ -101,6 +101,12 @@ Add the following client-accessible environment variables in **Site configuratio
 | :--- | :--- |
 | `VITE_NEON_AUTH_URL` | Neon Authentication endpoint URL for user login and signup flows |
 
+#### Netlify Omit List (Excluded Backend & Storage Variables)
+The following variables must be **omitted** from Netlify environment variables and client builds (they are backend-only and should only reside on Render):
+- `ENDPOINT_URL_S3`
+- `REGION`
+- `STORAGE_BUCKET_NAME`
+
 ### Step 4: API Proxy / Redirects
 When Netlify is deployed separately from the Render backend, configure `netlify.toml` to proxy `/api/*` requests to your Render Web Service URL:
 

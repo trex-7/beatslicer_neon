@@ -1,3 +1,11 @@
+# ==============================================================================
+# NETLIFY OMIT LIST
+# Variables to omit from Netlify environment variables / client exposure:
+# - ENDPOINT_URL_S3
+# - REGION
+# - STORAGE_BUCKET_NAME
+# ==============================================================================
+
 [build]
   command = "npm run build"
   publish = "dist"

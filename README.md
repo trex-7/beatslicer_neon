@@ -248,6 +248,10 @@ For complete step-by-step instructions, see the **[Deployment Guide](docs/DEPLOY
    - Build Command: `npm run build`
    - Publish Directory: `dist`
    - Set `VITE_NEON_AUTH_URL` under Netlify environment variables.
+   - **Netlify Omit List** (Variables to omit from Netlify):
+     - `ENDPOINT_URL_S3`
+     - `REGION`
+     - `STORAGE_BUCKET_NAME`
 
 ---
 

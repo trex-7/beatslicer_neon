@@ -59,11 +59,12 @@ export function getS3Config() {
     cleanEnv(process.env.ENDPOINT_URL_S3) ||
     cleanEnv(process.env.STORAGE_ENDPOINT) ||
     cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
-    '';
+    'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech';
 
   const publicBaseUrl =
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||
-    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL);
+    cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL) ||
+    'https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech/beat-slicer';
 
   const forcePathStyle = true;
 

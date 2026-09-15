@@ -667,6 +667,31 @@ export function createApp() {
         }
       }
 
+      // 3. Fallback to database samples table if audioData base64 is stored
+      try {
+        const dbSample = await db.select().from(samples).where(
+          or(
+            eq(samples.url, targetParam),
+            like(samples.url, `%${cleanFileName}%`),
+            eq(samples.title, cleanFileName)
+          )
+        ).limit(1);
+
+        if (dbSample && dbSample.length > 0 && dbSample[0].audioData) {
+          const base64Data = dbSample[0].audioData;
+          const matches = base64Data.match(/^data:([a-zA-Z0-9\/\-+.]+);base64,(.+)$/);
+          if (matches && matches[2]) {
+            const contentType = matches[1] || 'audio/wav';
+            const buffer = Buffer.from(matches[2], 'base64');
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(buffer);
+          }
+        }
+      } catch (_dbErr) {
+        // Continue if database query fails or is empty
+      }
+
       res.status(404).json({ error: `Storage file not found: ${targetParam}` });
     } catch (err: any) {
       console.error('Storage stream error:', err);

@@ -209,3 +209,66 @@ export async function stitchAudioFiles(
 
     return { buffer: stitched, slices, blob: audioBufferToWav(stitched) };
 }
+
+/**
+ * Resolves any audio URL (S3 bucket, Neon storage, local public, relative, blob, or data URL)
+ * into a streamable, CORS-friendly URL guaranteed to work without 403 Forbidden.
+ */
+export function resolveAudioUrl(url: string | null | undefined): string {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+
+    // Direct client memory or data URLs
+    if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+        return trimmed;
+    }
+
+    // Already routed through local proxy
+    if (trimmed.startsWith('/api/storage/') || trimmed.startsWith('/api/uploads/') || trimmed.startsWith('/api/Audio/')) {
+        return trimmed;
+    }
+
+    // Neon S3 / AWS S3 private storage bucket URLs
+    // e.g. https://br-red-haze-axuhpihj.storage.c-4.us-east-2.aws.neon.tech/beat-slicer/samples/...
+    // or https://*.s3.*.amazonaws.com/...
+    if (
+        (trimmed.includes('.storage.') && trimmed.includes('.neon.tech')) ||
+        (trimmed.includes('.s3.') && trimmed.includes('.amazonaws.com')) ||
+        (trimmed.includes('.s3-') && trimmed.includes('.amazonaws.com'))
+    ) {
+        try {
+            const parsed = new URL(trimmed);
+            let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+            // Strip bucket name from prefix if present
+            const parts = pathname.split('/');
+            if (parts.length > 1 && (parts[0] === 'beat-slicer' || parts[0].includes('bucket'))) {
+                pathname = parts.slice(1).join('/');
+            }
+            return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;
+        } catch {
+            return `/api/storage/stream?url=${encodeURIComponent(trimmed)}`;
+        }
+    }
+
+    // Relative S3 or asset keys
+    if (
+        trimmed.startsWith('samples/') ||
+        trimmed.startsWith('factory/') ||
+        trimmed.startsWith('uploads/') ||
+        trimmed.startsWith('Audio/')
+    ) {
+        return `/api/storage/stream?key=${encodeURIComponent(trimmed)}`;
+    }
+
+    // Root paths
+    if (
+        trimmed.startsWith('/samples/') ||
+        trimmed.startsWith('/uploads/') ||
+        trimmed.startsWith('/Audio/')
+    ) {
+        return `/api/storage/stream?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`;
+    }
+
+    return trimmed;
+}

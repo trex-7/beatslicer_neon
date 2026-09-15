@@ -49,7 +49,7 @@ import {
     type StorageObjectItem,
 } from '../utils/db';
 import type { KitSample, Preset } from '../types';
-import { stitchAudioFiles, validateFile, MAX_KIT_FILES, MAX_KIT_TOTAL_MB } from '../utils/audioHelpers';
+import { stitchAudioFiles, validateFile, resolveAudioUrl, MAX_KIT_FILES, MAX_KIT_TOTAL_MB } from '../utils/audioHelpers';
 
 interface LibraryManagerProps {
     isOpen: boolean;
@@ -241,7 +241,8 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             setPreviewingId(item.id); 
 
             try {
-                const response = await fetch(item.url);
+                const streamUrl = resolveAudioUrl(item.url);
+                const response = await fetch(streamUrl);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const blob = await response.blob();
                 const wavBlob = new Blob([blob], { type: 'audio/wav' });
@@ -255,7 +256,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                     setPreviewingId(null);
                 };
                 audio.onerror = (e) => {
-                    console.error("Preview failed for", item.url, e);
+                    console.error("Preview failed for", streamUrl, e);
                     setPreviewingId(null);
                     setErrorId(item.id);
                 };
@@ -285,7 +286,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             const children = item.data.items as CloudItem[];
             const kitSamples: KitSample[] = children.map(c => ({
                 name: c.label,
-                url: c.url || ''
+                url: resolveAudioUrl(c.url || '')
             })).filter(c => c.url);
             
             if (kitSamples.length > 0) {
@@ -304,11 +305,11 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                  sequencer: item.data.sequencer,
                  slices: item.data.slices || [],
                  sampleName: item.data.sampleName || 'Cloud Preset',
-                 sampleUrl: item.data.sampleUrl
+                 sampleUrl: resolveAudioUrl(item.data.sampleUrl)
              };
              onLoadPreset(fullPreset);
         } else if (item.type === 'sample' && item.url) {
-             onDemoLoad(item.url, item.label);
+             onDemoLoad(resolveAudioUrl(item.url), item.label);
         }
         onClose();
     };

@@ -84,6 +84,49 @@ export async function fetchFullLibrary(userId?: string) {
       kitSampleMap.get(link.kitId)!.push(link.sample);
     }
 
+    // Helper to format any URL or S3 key into a CORS-safe streamable URL
+    const formatStreamUrl = (rawUrl?: string | null): string => {
+      if (!rawUrl) return '';
+      const trimmed = rawUrl.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('blob:') || trimmed.startsWith('data:') || trimmed.startsWith('/api/storage/')) {
+        return trimmed;
+      }
+      if (
+        (trimmed.includes('.storage.') && trimmed.includes('.neon.tech')) ||
+        (trimmed.includes('.s3.') && trimmed.includes('.amazonaws.com')) ||
+        (trimmed.includes('.s3-') && trimmed.includes('.amazonaws.com'))
+      ) {
+        try {
+          const parsed = new URL(trimmed);
+          let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+          const parts = pathname.split('/');
+          if (parts.length > 1 && (parts[0] === 'beat-slicer' || parts[0].includes('bucket'))) {
+            pathname = parts.slice(1).join('/');
+          }
+          return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;
+        } catch {
+          return `/api/storage/stream?url=${encodeURIComponent(trimmed)}`;
+        }
+      }
+      if (
+        trimmed.startsWith('samples/') ||
+        trimmed.startsWith('factory/') ||
+        trimmed.startsWith('uploads/') ||
+        trimmed.startsWith('Audio/')
+      ) {
+        return `/api/storage/stream?key=${encodeURIComponent(trimmed)}`;
+      }
+      if (
+        trimmed.startsWith('/samples/') ||
+        trimmed.startsWith('/uploads/') ||
+        trimmed.startsWith('/Audio/')
+      ) {
+        return `/api/storage/stream?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`;
+      }
+      return trimmed;
+    };
+
     // Map presets to standard format
     const sampleLookup = new Map(allSamples.map(s => [s.id, s]));
 
@@ -101,7 +144,7 @@ export async function fetchFullLibrary(userId?: string) {
           params: p.parameters || {},
           sequencer: p.sequencerData || { steps: [], stepCount: 16, mode: 'forward' },
           slices: p.slicesData || [],
-          sampleUrl: sample?.url || '',
+          sampleUrl: formatStreamUrl(sample?.url),
           sampleName: sample?.title || 'Unknown Sample',
           sampleId: p.sampleId,
         },
@@ -112,7 +155,7 @@ export async function fetchFullLibrary(userId?: string) {
       id: s.id,
       label: s.title || 'Untitled Sample',
       type: 'sample' as const,
-      url: s.url,
+      url: formatStreamUrl(s.url),
       author: s.username || s.userEmail?.split('@')[0] || (s.userId ? `User ${s.userId.slice(0, 6)}` : 'Anon'),
       _userId: s.userId || undefined,
       isFactory: s.isFactory,

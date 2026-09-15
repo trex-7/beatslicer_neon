@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { AllParams, Slice, SequencerState, SequencerMode, SequencerStep, SliceType, Preset, KitSample, MidiConfig, MidiDevice, MetronomeConfig } from '../types';
 import { detectBPM } from '../utils/bpmDetector';
 import { classifySlice } from '../utils/audioAnalysis';
-import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile } from '../utils/audioHelpers';
+import { audioBufferToWav, blobToBase64, base64ToBlob, validateFile, resolveAudioUrl } from '../utils/audioHelpers';
 import { removeLeadingSilence, generateTransientSlices } from '../utils/transientDetection';
 
 /// <reference types="vite/client" />
@@ -780,16 +780,21 @@ export const useAudioEngine = () => {
 
     // Add user gesture handler to start audio context
     const startAudioOnGesture = async () => {
-      if (Tone.context.state === 'suspended') {
-        await Tone.start();
-      }
-      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
+      try {
+        if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state === 'suspended') {
+          await Tone.start();
+        }
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+      } catch (e) {
+        // Silently ignore browser autoplay restrictions before interaction
       }
     };
-    document.addEventListener('click', startAudioOnGesture, { once: true });
-    document.addEventListener('keydown', startAudioOnGesture, { once: true });
-    document.addEventListener('touchstart', startAudioOnGesture, { once: true });
+    window.addEventListener('pointerdown', startAudioOnGesture);
+    window.addEventListener('click', startAudioOnGesture);
+    window.addEventListener('keydown', startAudioOnGesture);
+    window.addEventListener('touchstart', startAudioOnGesture);
 
     if ((navigator as any).requestMIDIAccess) {
         (navigator as any).requestMIDIAccess({ sysex: false }).then(
@@ -1132,16 +1137,33 @@ export const useAudioEngine = () => {
 
   // ... (unchanged functions)
   
+  // Helper to ensure audio context is active before playback/decode
+  const ensureAudioActive = useCallback(async () => {
+    try {
+      if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state === 'suspended') {
+        await Tone.start();
+      }
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+    } catch (e) {
+      console.warn("AudioContext resume:", e);
+    }
+  }, []);
+
   // UPDATED LOAD PRESET TO FIX MISSING VINYL
   const loadPreset = useCallback(async (preset: Preset) => {
       setIsLoading(true);
+      await ensureAudioActive();
       try {
           if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
           if (preset.sampleName) setSampleName(preset.sampleName);
           if (preset.sampleId) setCurrentSampleId(preset.sampleId);
           if (preset.id) setCurrentPresetId(preset.id);
           if (preset.sampleUrl) {
-              const buffer = new Tone.Buffer(); await buffer.load(preset.sampleUrl);
+              const streamUrl = resolveAudioUrl(preset.sampleUrl);
+              const buffer = new Tone.Buffer(); 
+              await buffer.load(streamUrl);
               let rawBuffer = buffer.get(); if (!rawBuffer) throw new Error("Decode failed");
               rawBuffer = removeLeadingSilence(rawBuffer);
               const processedBuffer = new Tone.Buffer(rawBuffer);
@@ -1186,9 +1208,11 @@ export const useAudioEngine = () => {
 
   const loadAudioFile = useCallback(async (audioFile: File | string, preserveSettings: boolean = false, nameOverride?: string, cloudId?: string) => {
     setIsLoading(true);
+    await ensureAudioActive();
     if (previewPlayer.current) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); }
     try {
-      const url = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
+      const rawUrl = typeof audioFile === 'string' ? audioFile : URL.createObjectURL(audioFile);
+      const url = resolveAudioUrl(rawUrl);
       let filename = nameOverride || (audioFile instanceof File ? audioFile.name : (typeof audioFile === 'string' ? audioFile.split('/').pop()?.split('?')[0] || 'Default' : 'Default'));
       setSampleName(filename); setCurrentSampleId(cloudId || null); setCurrentPresetId(null); 
       
@@ -1243,12 +1267,14 @@ export const useAudioEngine = () => {
 
   const loadConstructionKit = useCallback(async (files: File[] | KitSample[], kitName: string) => {
       setIsLoading(true); if (previewPlayer.current) previewPlayer.current.stop();
+      await ensureAudioActive();
       try {
           setSampleName(kitName); setCurrentSampleId(null); setCurrentPresetId(null);
           if (files.length > 32) { alert("Too many files. Limit is 32."); setIsLoading(false); return; }
           const buffers: { buffer: any, name: string, type: SliceType }[] = [];
           for (const item of files) {
-              const url = item instanceof File ? URL.createObjectURL(item) : item.url;
+              const rawUrl = item instanceof File ? URL.createObjectURL(item) : item.url;
+              const url = resolveAudioUrl(rawUrl);
               const name = item instanceof File ? item.name : item.name;
               let type: SliceType = 'perc';
               if (!(item instanceof File) && item.type) type = item.type;
@@ -1368,21 +1394,24 @@ export const useAudioEngine = () => {
       });
   }, []);
 
-  const togglePreviewOriginal = useCallback(() => {
+  const togglePreviewOriginal = useCallback(async () => {
+      await ensureAudioActive();
       if (!previewPlayer.current || !previewPlayer.current.buffer.loaded) return;
       if (isPreviewPlaying) { previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false }); } 
       else { setSliceLoopState({ index: null, isLooping: false }); previewPlayer.current.loop = true; previewPlayer.current.loopStart = 0; previewPlayer.current.loopEnd = previewPlayer.current.buffer.duration; previewPlayer.current.start(); setIsPreviewPlaying(true); }
-  }, [isPreviewPlaying]);
-  const playSliceRaw = useCallback((index: number) => {
+  }, [isPreviewPlaying, ensureAudioActive]);
+  const playSliceRaw = useCallback(async (index: number) => {
+      await ensureAudioActive();
       if (!previewPlayer.current || !slices[index]) return;
       previewPlayer.current.stop(); setIsPreviewPlaying(false); setSliceLoopState({ index: null, isLooping: false });
       const s = slices[index]; previewPlayer.current.loop = false; previewPlayer.current.start(Tone.now(), s.offset, s.duration);
-  }, [slices]);
-  const toggleSliceLoop = useCallback((index: number) => {
+  }, [slices, ensureAudioActive]);
+  const toggleSliceLoop = useCallback(async (index: number) => {
+      await ensureAudioActive();
       if (!previewPlayer.current || !slices[index]) return;
       if (sliceLoopState.index === index && sliceLoopState.isLooping) { previewPlayer.current.stop(); setSliceLoopState({ index: null, isLooping: false }); } 
       else { previewPlayer.current.stop(); setIsPreviewPlaying(false); const s = slices[index]; previewPlayer.current.loopStart = s.offset; previewPlayer.current.loopEnd = s.offset + s.duration; previewPlayer.current.loop = true; previewPlayer.current.start(Tone.now(), s.offset); setSliceLoopState({ index, isLooping: true }); }
-  }, [slices, sliceLoopState]);
+  }, [slices, sliceLoopState, ensureAudioActive]);
   const addSlice = useCallback((start: number, end: number) => {
     if (!audioBuffer) return;
     const rawBuffer = audioBuffer.get();

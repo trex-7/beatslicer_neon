@@ -130,12 +130,9 @@ export async function uploadBufferToS3(
   let publicUrl = '';
   if (config.publicBaseUrl) {
     publicUrl = `${config.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
-  } else if (config.endpoint) {
-    // Custom S3 compatible endpoint (e.g. MinIO, Cloudflare R2)
-    publicUrl = `${config.endpoint.replace(/\/+$/, '')}/${config.bucket}/${key}`;
   } else {
-    // Standard AWS S3 URL
-    publicUrl = `https://${config.bucket}.s3.${config.region}.amazonaws.com/${key}`;
+    // Default to proxy stream endpoint to guarantee CORS and prevent 403 Forbidden on private buckets
+    publicUrl = `/api/storage/stream?key=${encodeURIComponent(key)}`;
   }
 
   return { url: publicUrl, key };

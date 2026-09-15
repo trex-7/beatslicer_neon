@@ -240,7 +240,7 @@ export function resolveAudioUrl(url: string | null | undefined): string {
             let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
             // Strip bucket name from prefix if present
             const parts = pathname.split('/');
-            const bucketName = process.env.STORAGE_BUCKET_NAME || 'beat-slicer';
+            //const bucketName = process.env.STORAGE_BUCKET_NAME || 'beat-slicer';
             if (parts.length > 1 && (parts[0] === bucketName || parts[0].includes('bucket'))) {
                 pathname = parts.slice(1).join('/');
             }

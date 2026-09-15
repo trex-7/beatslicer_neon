@@ -17,7 +17,10 @@ interface SaveDialogProps {
     getAudioBlob: () => Promise<Blob | null>;
 }
 
-const ADMIN_EMAILS = ['sandromancino.sm@gmail.com'];
+const ADMIN_EMAILS = [
+    ((import.meta as any).env?.VITE_ADMIN_EMAIL || '').toLowerCase().trim(),
+    'sandromancino.sm@gmail.com',
+].filter(Boolean);
 
 const SaveDialog: React.FC<SaveDialogProps> = ({ 
     isOpen, onClose, user, sampleName, params, sequencer, slices, currentSampleId, currentPresetId, getAudioBlob 

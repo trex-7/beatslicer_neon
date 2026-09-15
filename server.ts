@@ -38,6 +38,7 @@ import {
 export const ADMIN_EMAILS = [
   (process.env.ADMIN_EMAIL || '').toLowerCase().trim(),
   (process.env.ADMIN_EMAILS || '').toLowerCase().trim(),
+  'sandromancino.sm@gmail.com',
 ].filter(Boolean);
 
 export function isUserAdmin(user?: { email?: string; uid?: string } | null): boolean {

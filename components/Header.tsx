@@ -4,15 +4,13 @@ import Auth from './Auth';
 import InfoIcon from './InfoIcon';
 
 interface HeaderProps {
-    isProMode: boolean;
-    onToggleMode: (isPro: boolean) => void;
     onShowMonitor: () => void;
     user: any;
     onOpenVideo: () => void;
     onOpenContact: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor, user, onOpenVideo, onOpenContact }) => {
+const Header: React.FC<HeaderProps> = ({ onShowMonitor, user, onOpenVideo, onOpenContact }) => {
     return (
         <header className="relative flex items-center justify-between py-4 mb-4 bg-deep-space/30 rounded-2xl px-6 border border-white/5 shadow-lg">
             {/* Left: Logo */}
@@ -20,41 +18,7 @@ const Header: React.FC<HeaderProps> = ({ isProMode, onToggleMode, onShowMonitor,
                 <h1 className="text-xl md:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-hyper-cyan to-plasma-pink tracking-tight drop-shadow-sm select-none flex items-center gap-2">
                     BEAT SLICER <span className="text-[10px] text-white/30 font-mono border border-white/10 px-1.5 rounded-full bg-black/20 tracking-normal">v0.9.0-beta</span>
                 </h1>
-                <InfoIcon text="Granular Synthesizer & Effect Processor. Switch between Play mode for performance and Pro mode for deep editing." position="right" />
-            </div>
-            
-            {/* Center: Mode Switcher (Always Visible) */}
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div className="flex items-center bg-black/40 p-1.5 rounded-full border border-white/10 shadow-xl backdrop-blur-md">
-                    <Tooltip text="Simple Mode: Macros and Game-like interface">
-                        <button
-                            onClick={() => onToggleMode(false)}
-                            className={`
-                                flex items-center gap-2 px-6 py-2 rounded-full text-sm md:text-base font-black tracking-wide transition-all duration-300
-                                ${!isProMode 
-                                    ? 'bg-hyper-cyan text-deep-space shadow-[0_0_20px_rgba(0,246,255,0.4)] scale-105' 
-                                    : 'text-star-dust hover:text-white hover:bg-white/5'
-                                }
-                            `}
-                        >
-                            <span className="text-lg">🕹️</span> PLAY
-                        </button>
-                    </Tooltip>
-                    <Tooltip text="Pro Mode: Full parameter access and deep editing">
-                        <button
-                            onClick={() => onToggleMode(true)}
-                            className={`
-                                flex items-center gap-2 px-6 py-2 rounded-full text-sm md:text-base font-black tracking-wide transition-all duration-300
-                                ${isProMode 
-                                    ? 'bg-plasma-pink text-white shadow-[0_0_20px_rgba(255,0,170,0.4)] scale-105' 
-                                    : 'text-star-dust hover:text-white hover:bg-white/5'
-                                }
-                            `}
-                        >
-                            <span className="text-lg">🎛️</span> PRO
-                        </button>
-                    </Tooltip>
-                </div>
+                <InfoIcon text="Granular Synthesizer & Effect Processor." position="right" />
             </div>
 
             {/* Right: Tools & Auth (Always Visible) */}

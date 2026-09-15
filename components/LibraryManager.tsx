@@ -1,6 +1,7 @@
 
 import React, { useRef, useEffect, useState, memo } from 'react';
 import Tooltip from './Tooltip';
+import Auth from './Auth';
 import { 
     fetchLibrary, 
     saveCloudPreset, 
@@ -40,7 +41,8 @@ interface LibraryManagerProps {
 
 const ADMIN_EMAILS = [
     ((import.meta as any).env?.VITE_ADMIN_EMAIL || '').toLowerCase().trim(),
-];
+    'sandromancino.sm@gmail.com',
+].filter(Boolean);
 
 type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';
 
@@ -916,6 +918,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                             <button onClick={() => audioInputRef.current?.click()} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs font-bold text-white transition-colors flex items-center gap-2">
                                 <span>📂</span> Upload Local
                             </button>
+                            <Auth user={user} onOpenAdmin={() => setActiveTab('admin')} />
                             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">✕</button>
                         </div>
                     </div>

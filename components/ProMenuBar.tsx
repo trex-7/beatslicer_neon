@@ -16,8 +16,10 @@ import {
     Mail, 
     Video, 
     User as UserIcon,
+    Shield,
     ChevronDown
 } from 'lucide-react';
+import Auth from './Auth';
 
 interface ProMenuBarProps {
     projectName: string;
@@ -32,7 +34,7 @@ interface ProMenuBarProps {
     onClearPattern: () => void;
     onAutoSlice: () => void;
     onGenerateBeat: (style: 'house' | 'break' | 'chaos') => void;
-    onToggleMode: () => void;
+    onToggleMode?: () => void;
     onShowMonitor: () => void;
     user?: any;
     sampleName?: string;
@@ -53,7 +55,6 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
     onClearPattern,
     onAutoSlice,
     onGenerateBeat,
-    onToggleMode,
     onShowMonitor,
     user,
     sampleName,
@@ -252,11 +253,11 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                         <div className="absolute top-full left-0 mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95 duration-150">
                             <button
                                 type="button"
-                                onClick={() => { onToggleMode(); setActiveMenu(null); }}
+                                onClick={() => { onOpenLibrary(); setActiveMenu(null); }}
                                 className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-neutral-800 text-left text-neutral-200"
                             >
-                                <Sliders className="w-4 h-4 text-cyan-400" />
-                                <span>Switch to Simple Mode</span>
+                                <Folder className="w-4 h-4 text-cyan-400" />
+                                <span>Cloud Library & Admin</span>
                             </button>
                             <button
                                 type="button"
@@ -350,14 +351,7 @@ export const ProMenuBar: React.FC<ProMenuBarProps> = ({
                     <Activity className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="hidden sm:inline">Monitor</span>
                 </button>
-                <button
-                    type="button"
-                    onClick={onToggleMode}
-                    className="flex items-center gap-1.5 px-2.5 py-1 bg-neutral-850 hover:bg-neutral-800 text-neutral-300 rounded-md border border-neutral-750 transition-colors"
-                >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>Simple Mode</span>
-                </button>
+                <Auth user={user} onOpenAdmin={onOpenLibrary} />
             </div>
         </header>
     );

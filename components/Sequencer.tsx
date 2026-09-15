@@ -14,7 +14,7 @@ interface SequencerProps {
     onPlaybackBehaviorChange?: (behavior: 'reset' | 'continue') => void;
     disabled: boolean;
     selectedSliceIndex: number | null;
-    isProMode: boolean;
+    isProMode?: boolean;
     slices?: Slice[];
 }
 
@@ -38,11 +38,6 @@ const Sequencer: React.FC<SequencerProps> = ({
     const currentBehavior = sequencer.playbackBehavior || 'reset';
 
     const handleStepClick = (index: number, currentStep: SequencerStep) => {
-        if (!isProMode) {
-             onStepChange(index, { active: !currentStep.active });
-             return;
-        }
-
         if (currentEditMode === 'trigger') {
             onStepChange(index, { active: !currentStep.active });
         } else {
@@ -104,7 +99,6 @@ const Sequencer: React.FC<SequencerProps> = ({
                         <InfoIcon text="Left-click pads to toggle. Bottom bar sets slice." className="ml-1" />
                     </h3>
                     
-                    {isProMode && (
                         <div className="flex gap-2 items-center">
                             {/* Edit Mode Toggle */}
                             <div className="flex bg-[#0a0d14] rounded-lg border border-white/10 overflow-hidden shadow-inner scale-90 sm:scale-100 p-0.5">
@@ -148,12 +142,10 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 </div>
                             )}
                         </div>
-                    )}
                 </div>
                 
                 <div className="flex gap-2 items-center flex-wrap w-full sm:w-auto justify-end">
-                     {isProMode && (
-                         <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10 scale-90 sm:scale-100 items-center">
+                    <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10 scale-90 sm:scale-100 items-center">
                             {[8, 16, 32, 64].map((count) => (
                                 <button
                                     key={count}
@@ -170,9 +162,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 </button>
                             ))}
                         </div>
-                     )}
 
-                    {isProMode && (
                         <div className="flex bg-[#0a0d14] rounded-lg p-0.5 border border-white/10 scale-90 sm:scale-100 items-center">
                             {modes.map((m) => (
                                 <button
@@ -190,7 +180,6 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 </button>
                             ))}
                         </div>
-                    )}
 
                     <Tooltip text="Randomize Pattern">
                         <button 

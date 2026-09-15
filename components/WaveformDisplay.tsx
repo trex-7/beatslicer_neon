@@ -21,7 +21,7 @@ interface WaveformDisplayProps {
     onSliceTypeChange: (index: number, type: SliceType) => void;
     onPreviewToggle: () => void;
     isPreviewing: boolean;
-    isProMode: boolean;
+    isProMode?: boolean;
     onUploadClick?: () => void;
     onOpenLibrary?: () => void;
 }
@@ -294,9 +294,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 
                 g.on('dblclick', (e: Event) => {
                     e.stopPropagation();
-                    if (isProMode) {
-                        onSliceToggle(index); 
-                    }
+                    onSliceToggle(index); 
                 });
 
                 if (w > 15) {
@@ -506,8 +504,8 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
                 />
             </div>
              
-             {/* Controls Bar - HIDDEN IN SIMPLE MODE to reduce clutter */}
-             {isProMode && audioBuffer && (
+             {/* Controls Bar */}
+             {audioBuffer && (
                  <div className="flex flex-col sm:flex-row justify-between items-center gap-2 p-1.5 bg-deep-space/30 rounded-lg border border-white/5 animate-in slide-in-from-top-2 duration-300">
                      
                      <div className="flex items-center gap-2">

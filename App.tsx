@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import type { AllParams, EffectParams } from './types';
-import Header from './components/Header';
 import LibraryManager from './components/LibraryManager';
 import WaveformDisplay from './components/WaveformDisplay';
 import ControlPanel from './components/ControlPanel';
@@ -74,7 +73,6 @@ const App: React.FC = () => {
         loadImpulseResponse
     } = useAudioEngine();
     
-    const [isProMode, setIsProMode] = useState(true);
     const [showMonitor, setShowMonitor] = useState(false);
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
@@ -154,7 +152,7 @@ const App: React.FC = () => {
     const triggerImportPreset = () => presetInputRef.current?.click();
 
     return (
-        <div className={`min-h-screen bg-deep-space font-sans flex flex-col items-center transition-colors duration-500 ${isProMode ? '' : 'p-2 sm:p-4 lg:p-6'}`}>
+        <div className="min-h-screen bg-deep-space font-sans flex flex-col items-center transition-colors duration-500">
              
             {/* Hidden Inputs for Menu Bar Triggers */}
             <input type="file" accept=".json" ref={presetInputRef} onChange={async (e) => { if(e.target.files?.[0]) { const txt = await e.target.files[0].text(); importPreset(txt); } e.target.value=''; }} className="hidden" />
@@ -206,48 +204,34 @@ const App: React.FC = () => {
                 user={user}
             />
 
-            {/* PRO MODE MENU BAR */}
-            {isProMode && (
-                <ProMenuBar 
-                    projectName={projectName}
-                    setProjectName={setProjectName}
-                    onOpenLibrary={() => setIsLibraryOpen(true)}
-                    onImportPreset={triggerImportPreset}
-                    onSavePreset={() => exportPreset(projectName)}
-                    onSaveToCloud={() => setIsSaveDialogOpen(true)}
-                    getAudioWav={getAudioWav}
-                    onExportWav={() => { /* Handled in ProMenuBar via getAudioWav */ }}
-                    onRandomize={randomizePattern}
-                    onClearPattern={() => sequencer.steps.forEach((_, i) => updateSequencerStep(i, { active: false }))}
-                    onAutoSlice={autoSlice}
-                    onGenerateBeat={(style) => generateAiBeat(style === 'house' ? 0.2 : style === 'break' ? 0.5 : 0.9)}
-                    onToggleMode={() => setIsProMode(false)}
-                    onShowMonitor={() => setShowMonitor(true)}
-                    user={user}
-                    sampleName={sampleName}
-                    onReportIssue={() => setIsFeedbackDialogOpen(true)}
-                    onOpenVideo={() => setIsVideoDialogOpen(true)}
-                    onOpenContact={() => setIsContactDialogOpen(true)}
-                />
-            )}
+            {/* PRO MENU BAR */}
+            <ProMenuBar 
+                projectName={projectName}
+                setProjectName={setProjectName}
+                onOpenLibrary={() => setIsLibraryOpen(true)}
+                onImportPreset={triggerImportPreset}
+                onSavePreset={() => exportPreset(projectName)}
+                onSaveToCloud={() => setIsSaveDialogOpen(true)}
+                getAudioWav={getAudioWav}
+                onExportWav={() => { /* Handled in ProMenuBar via getAudioWav */ }}
+                onRandomize={randomizePattern}
+                onClearPattern={() => sequencer.steps.forEach((_, i) => updateSequencerStep(i, { active: false }))}
+                onAutoSlice={autoSlice}
+                onGenerateBeat={(style) => generateAiBeat(style === 'house' ? 0.2 : style === 'break' ? 0.5 : 0.9)}
+                onShowMonitor={() => setShowMonitor(true)}
+                user={user}
+                sampleName={sampleName}
+                onReportIssue={() => setIsFeedbackDialogOpen(true)}
+                onOpenVideo={() => setIsVideoDialogOpen(true)}
+                onOpenContact={() => setIsContactDialogOpen(true)}
+            />
 
-            <div className={`w-full max-w-[1920px] mx-auto flex flex-col gap-4 ${isProMode ? 'mt-12 px-4 pb-4' : ''}`}>
-                {!isProMode && (
-                    <Header
-                        isProMode={isProMode}
-                        onToggleMode={setIsProMode}
-                        onShowMonitor={() => setShowMonitor(true)}
-                        user={user}
-                        onOpenVideo={() => setIsVideoDialogOpen(true)}
-                        onOpenContact={() => setIsContactDialogOpen(true)}
-                    />
-                )}
-                
+            <div className="w-full max-w-[1920px] mx-auto flex flex-col gap-4 mt-12 px-4 pb-4">
                 <SystemMonitor 
                     isOpen={showMonitor} 
                     onClose={() => setShowMonitor(false)}
                     stats={{
-                        session: { isPlaying, isReady, isLoading, mode: isProMode ? 'Pro' : 'Simple', sampleName, user: user ? user.email : 'Guest' },
+                        session: { isPlaying, isReady, isLoading, mode: 'Pro', sampleName, user: user ? user.email : 'Guest' },
                         audio: { bpm: params.bpm, duration: audioBuffer?.duration || 0, sliceCount: slices.length, selectedSlice: selectedSliceIndex },
                         engine: { grainSize: params.grainSize, overlap: params.overlap, playbackRate: params.playbackRate },
                         sequencer: { stepCount: sequencer.stepCount, mode: sequencer.mode, activeSteps: sequencer.steps.filter(s => s.active).length },
@@ -269,229 +253,91 @@ const App: React.FC = () => {
                         <p className="text-xl animate-pulse text-hyper-cyan">Initializing Audio Engine...</p>
                     </div>
                 ) : (
-                    <>
-                        {isProMode ? (
-                            // --- PRO MODE LAYOUT ---
-                            <div className="space-y-6">
-                                {/* Top Pro Transport Bar */}
-                                <div className="w-full">
-                                    <Transport 
-                                        isPlaying={isPlaying}
-                                        isLooping={sequencer.isLooping}
-                                        bpm={params.bpm}
-                                        currentStep={sequencer.currentStep}
-                                        onTogglePlay={togglePlay}
-                                        onToggleLoop={toggleLoop}
-                                        onStepForward={stepForward}
-                                        onStepBackward={stepBackward}
-                                        onBpmChange={setTransportBpm}
-                                        disabled={!audioBuffer || isLoading}
-                                        midiConfig={midiConfig}
-                                        midiInputs={midiInputs}
-                                        midiOutputs={midiOutputs}
-                                        onMidiConfigChange={updateMidiConfig}
-                                        metronomeConfig={metronomeConfig}
-                                        onMetronomeConfigChange={updateMetronomeConfig}
-                                    />
-                                </div>
+                    <div className="space-y-6">
+                        {/* Top Pro Transport Bar */}
+                        <div className="w-full">
+                            <Transport 
+                                isPlaying={isPlaying}
+                                isLooping={sequencer.isLooping}
+                                bpm={params.bpm}
+                                currentStep={sequencer.currentStep}
+                                onTogglePlay={togglePlay}
+                                onToggleLoop={toggleLoop}
+                                onStepForward={stepForward}
+                                onStepBackward={stepBackward}
+                                onBpmChange={setTransportBpm}
+                                disabled={!audioBuffer || isLoading}
+                                midiConfig={midiConfig}
+                                midiInputs={midiInputs}
+                                midiOutputs={midiOutputs}
+                                onMidiConfigChange={updateMidiConfig}
+                                metronomeConfig={metronomeConfig}
+                                onMetronomeConfigChange={updateMetronomeConfig}
+                            />
+                        </div>
 
-                                {/* Waveform Display & Slice Visualizer */}
-                                <div className="w-full">
-                                    <WaveformDisplay 
-                                        audioBuffer={audioBuffer} 
-                                        onScrub={scrub} 
-                                        isPlaying={isPlaying} 
-                                        playerRef={null} 
-                                        slices={slices} 
-                                        sequencer={sequencer}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        onSliceSelect={selectSlice}
-                                        onSliceToggle={toggleSliceActive}
-                                        onRegionSlice={sliceRegion}
-                                        onAutoSlice={autoSlice}
-                                        onPlaySlice={playSliceRaw}
-                                        onSliceTypeChange={(index, type) => updateSlice(index, { type })}
-                                        onPreviewToggle={togglePreviewOriginal}
-                                        isPreviewing={isPreviewPlaying}
-                                        isProMode={true}
-                                        onUploadClick={() => audioInputRef.current?.click()}
-                                        onOpenLibrary={() => setIsLibraryOpen(true)}
-                                    />
-                                </div>
+                        {/* Waveform Display & Slice Visualizer */}
+                        <div className="w-full">
+                            <WaveformDisplay 
+                                audioBuffer={audioBuffer} 
+                                onScrub={scrub} 
+                                isPlaying={isPlaying} 
+                                playerRef={null} 
+                                slices={slices} 
+                                sequencer={sequencer}
+                                selectedSliceIndex={selectedSliceIndex}
+                                onSliceSelect={selectSlice}
+                                onSliceToggle={toggleSliceActive}
+                                onRegionSlice={sliceRegion}
+                                onAutoSlice={autoSlice}
+                                onPlaySlice={playSliceRaw}
+                                onSliceTypeChange={(index, type) => updateSlice(index, { type })}
+                                onPreviewToggle={togglePreviewOriginal}
+                                isPreviewing={isPreviewPlaying}
+                                isProMode={true}
+                                onUploadClick={() => audioInputRef.current?.click()}
+                                onOpenLibrary={() => setIsLibraryOpen(true)}
+                            />
+                        </div>
 
-                                {/* Step Sequencer */}
-                                <div className="w-full">
-                                    <Sequencer 
-                                        sequencer={sequencer}
-                                        onStepChange={updateSequencerStep}
-                                        onModeChange={setSequencerMode}
-                                        onStepCountChange={setSequencerStepCount}
-                                        onRandomize={randomizePattern}
-                                        onEditModeToggle={setSequencerEditMode}
-                                        onPlaybackBehaviorChange={setSequencerPlaybackBehavior}
-                                        disabled={!audioBuffer || isLoading}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        isProMode={true}
-                                        slices={slices}
-                                    />
-                                </div>
-                                
-                                {/* AI Pattern Studio (Main Feature) & Collapsible Studio Drawers */}
-                                <div className="w-full">
-                                    <ControlPanel
-                                        params={params}
-                                        onParamChange={handleParamChange}
-                                        onEffectParamChange={handleEffectParamChange}
-                                        disabled={!audioBuffer || isLoading}
-                                        generateAiBeat={generateAiBeat}
-                                        generateAiPattern={generateAiPattern}
-                                        slices={slices}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        onSliceUpdate={updateSlice}
-                                        onPlaySlice={playSliceRaw}
-                                        onLoopSlice={toggleSliceLoop}
-                                        sliceLoopState={sliceLoopState}
-                                        audioBuffer={audioBuffer}
-                                        isProMode={true}
-                                        onLoadImpulseResponse={loadImpulseResponse}
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            // --- SIMPLE MODE LAYOUT ---
-                            <div className="w-full space-y-6">
-                                {/* Simple Transport Bar */}
-                                <div className="w-full bg-[#12161d] rounded-2xl border border-white/5 shadow-2xl flex flex-row items-center p-1.5 h-20 gap-2 relative overflow-hidden group">
-                                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-hyper-cyan via-purple-500 to-plasma-pink opacity-50"></div>
-                                     
-                                     <div className="flex-none w-1/3 sm:w-auto min-w-[150px] pl-1 sm:pl-2 h-full flex items-center">
-                                         <div className="flex items-center gap-3 h-full w-full">
-                                             <div 
-                                                onClick={() => audioInputRef.current?.click()}
-                                                className="flex items-center gap-3 min-w-0 cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors group/load"
-                                            >
-                                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-hyper-cyan to-blue-600 flex items-center justify-center text-deep-space font-bold shadow-[0_0_10px_rgba(0,246,255,0.3)] shrink-0 group-hover/load:scale-105 transition-transform">
-                                                    📂
-                                                </div>
-                                                <div className="flex flex-col min-w-0 justify-center">
-                                                    <div className="text-white font-bold text-lg outline-none w-32 md:w-48 truncate">{projectName || 'My Project'}</div>
-                                                    <div className="text-[10px] text-star-dust truncate flex items-center gap-1.5">
-                                                        <span className={`w-1.5 h-1.5 rounded-full ${audioBuffer ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                                                        <span className="opacity-70">Sample:</span>
-                                                        <span className="text-hyper-cyan truncate max-w-[100px]">{sampleName || 'None'}</span>
-                                                    </div>
-                                                </div>
-                                             </div>
-                                             <div className="h-8 w-px bg-white/10 mx-1 hidden sm:block"></div>
-                                             <Tooltip text="Open Database Manager">
-                                                 <button 
-                                                    onClick={() => setIsLibraryOpen(true)}
-                                                    className="flex items-center gap-2 px-3 h-10 bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 transition-colors group shrink-0"
-                                                 >
-                                                     <span className="group-hover:scale-110 block transition-transform text-lg">📚</span>
-                                                     <span className="text-xs font-bold tracking-wide text-star-dust group-hover:text-white hidden lg:inline">LOAD AUDIO</span>
-                                                 </button>
-                                             </Tooltip>
-                                             <Tooltip text={metronomeConfig.enabled ? "Metronome Click: ON" : "Metronome Click: OFF"}>
-                                                 <button 
-                                                    onClick={() => updateMetronomeConfig({ enabled: !metronomeConfig.enabled })}
-                                                    className={`flex items-center gap-1.5 px-3 h-10 rounded-lg border font-mono text-xs font-bold transition-all shrink-0 ${
-                                                        metronomeConfig.enabled 
-                                                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/60 shadow-[0_0_10px_rgba(234,179,8,0.2)]' 
-                                                            : 'bg-white/5 text-star-dust/70 hover:text-white border-white/5 hover:bg-white/10'
-                                                    }`}
-                                                 >
-                                                     <span>⏱</span>
-                                                     <span className="hidden sm:inline">{metronomeConfig.enabled ? 'CLICK ON' : 'CLICK'}</span>
-                                                 </button>
-                                             </Tooltip>
-                                         </div>
-                                     </div>
-
-                                     <div className="flex-1 flex items-center justify-center pr-1 sm:pr-2 h-full py-1">
-                                          <button
-                                                onClick={togglePlay}
-                                                disabled={!audioBuffer || isLoading}
-                                                className={`
-                                                    w-full h-full rounded-xl flex items-center justify-center gap-2 transition-all duration-200 shadow-lg px-6
-                                                    ${isPlaying 
-                                                        ? 'bg-plasma-pink text-white shadow-[0_0_20px_rgba(255,0,170,0.5)] hover:bg-red-500' 
-                                                        : 'bg-hyper-cyan text-deep-space shadow-[0_0_15px_rgba(0,246,255,0.3)] hover:bg-cyan-300 hover:scale-[1.01]'
-                                                    }
-                                                    disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed
-                                                `}
-                                            >
-                                                <span className="text-2xl sm:text-3xl filter drop-shadow-sm">{isPlaying ? '⏹' : '▶'}</span>
-                                                <span className="text-base sm:text-xl font-black tracking-widest uppercase hidden sm:inline">
-                                                    {isLoading ? '...' : (isPlaying ? 'STOP' : 'PLAY')}
-                                                </span>
-                                            </button>
-                                     </div>
-                                </div>
-
-                                {/* Waveform Display */}
-                                <div className="w-full">
-                                    <WaveformDisplay 
-                                        audioBuffer={audioBuffer} 
-                                        onScrub={scrub} 
-                                        isPlaying={isPlaying} 
-                                        playerRef={null} 
-                                        slices={slices} 
-                                        sequencer={sequencer}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        onSliceSelect={selectSlice}
-                                        onSliceToggle={toggleSliceActive}
-                                        onRegionSlice={sliceRegion}
-                                        onAutoSlice={autoSlice}
-                                        onPlaySlice={playSliceRaw}
-                                        onSliceTypeChange={(index, type) => updateSlice(index, { type })}
-                                        onPreviewToggle={togglePreviewOriginal}
-                                        isPreviewing={isPreviewPlaying}
-                                        isProMode={false}
-                                        onUploadClick={() => audioInputRef.current?.click()}
-                                        onOpenLibrary={() => setIsLibraryOpen(true)}
-                                    />
-                                </div>
-
-                                {/* Step Sequencer */}
-                                <div className="w-full">
-                                    <Sequencer 
-                                        sequencer={sequencer}
-                                        onStepChange={updateSequencerStep}
-                                        onModeChange={setSequencerMode}
-                                        onStepCountChange={setSequencerStepCount}
-                                        onRandomize={randomizePattern}
-                                        onEditModeToggle={setSequencerEditMode}
-                                        disabled={!audioBuffer || isLoading}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        isProMode={false}
-                                        slices={slices} 
-                                    />
-                                </div>
-
-                                {/* AI Pattern Studio (Main Feature) & Collapsible Studio Drawers */}
-                                <div className="w-full">
-                                    <ControlPanel
-                                        params={params}
-                                        onParamChange={handleParamChange}
-                                        onEffectParamChange={handleEffectParamChange}
-                                        disabled={!audioBuffer || isLoading}
-                                        generateAiBeat={generateAiBeat}
-                                        generateAiPattern={generateAiPattern}
-                                        slices={slices}
-                                        selectedSliceIndex={selectedSliceIndex}
-                                        onSliceUpdate={updateSlice}
-                                        onPlaySlice={playSliceRaw}
-                                        onLoopSlice={toggleSliceLoop}
-                                        sliceLoopState={sliceLoopState}
-                                        audioBuffer={audioBuffer}
-                                        isProMode={false}
-                                        onLoadImpulseResponse={loadImpulseResponse}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </>
+                        {/* Step Sequencer */}
+                        <div className="w-full">
+                            <Sequencer 
+                                sequencer={sequencer}
+                                onStepChange={updateSequencerStep}
+                                onModeChange={setSequencerMode}
+                                onStepCountChange={setSequencerStepCount}
+                                onRandomize={randomizePattern}
+                                onEditModeToggle={setSequencerEditMode}
+                                onPlaybackBehaviorChange={setSequencerPlaybackBehavior}
+                                disabled={!audioBuffer || isLoading}
+                                selectedSliceIndex={selectedSliceIndex}
+                                isProMode={true}
+                                slices={slices}
+                            />
+                        </div>
+                        
+                        {/* AI Pattern Studio (Main Feature) & Collapsible Studio Drawers */}
+                        <div className="w-full">
+                            <ControlPanel
+                                params={params}
+                                onParamChange={handleParamChange}
+                                onEffectParamChange={handleEffectParamChange}
+                                disabled={!audioBuffer || isLoading}
+                                generateAiBeat={generateAiBeat}
+                                generateAiPattern={generateAiPattern}
+                                slices={slices}
+                                selectedSliceIndex={selectedSliceIndex}
+                                onSliceUpdate={updateSlice}
+                                onPlaySlice={playSliceRaw}
+                                onLoopSlice={toggleSliceLoop}
+                                sliceLoopState={sliceLoopState}
+                                audioBuffer={audioBuffer}
+                                isProMode={true}
+                                onLoadImpulseResponse={loadImpulseResponse}
+                            />
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

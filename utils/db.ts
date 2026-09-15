@@ -71,18 +71,14 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
 
         const contentType = response.headers.get('content-type') || '';
         if (!response.ok || !contentType.includes('application/json')) {
-            console.warn(`Library endpoint returned status ${response.status} (${contentType || 'non-json'}). Using local fallback.`);
+            console.warn(`Library endpoint returned status ${response.status} (${contentType || 'non-json'}).`);
             return {
                 publicPresets: [],
                 publicSamples: [],
                 userPresets: [],
                 userSamples: [],
                 factoryPresets: [],
-                factorySamples: [
-                    { id: 'synth_block_a_hi', label: 'Synth Block A (Hi)', type: 'sample', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
-                    { id: 'synth_block_a_lo', label: 'Synth Block A (Lo)', type: 'sample', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
-                    { id: 'noise_16_16', label: 'Noise 16/16', type: 'sample', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
-                ],
+                factorySamples: [],
             };
         }
 
@@ -93,25 +89,17 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
             userPresets: Array.isArray(data.userPresets) ? data.userPresets : [],
             userSamples: Array.isArray(data.userSamples) ? data.userSamples : [],
             factoryPresets: Array.isArray(data.factoryPresets) ? data.factoryPresets : [],
-            factorySamples: Array.isArray(data.factorySamples) && data.factorySamples.length > 0 ? data.factorySamples : [
-                { id: 'synth_block_a_hi', label: 'Synth Block A (Hi)', type: 'sample', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
-                { id: 'synth_block_a_lo', label: 'Synth Block A (Lo)', type: 'sample', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
-                { id: 'noise_16_16', label: 'Noise 16/16', type: 'sample', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
-            ],
+            factorySamples: Array.isArray(data.factorySamples) ? data.factorySamples : [],
         };
     } catch (e: any) {
-        console.warn("Notice: Fetching library from Neon DB returned error, using factory defaults:", e.message || e);
+        console.warn("Notice: Fetching library from Neon DB returned error:", e.message || e);
         return {
             publicPresets: [],
             publicSamples: [],
             userPresets: [],
             userSamples: [],
             factoryPresets: [],
-            factorySamples: [
-                { id: 'synth_block_a_hi', label: 'Synth Block A (Hi)', type: 'sample', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
-                { id: 'synth_block_a_lo', label: 'Synth Block A (Lo)', type: 'sample', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
-                { id: 'noise_16_16', label: 'Noise 16/16', type: 'sample', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
-            ],
+            factorySamples: [],
         };
     }
 };

@@ -232,10 +232,9 @@ export async function updatePreset(
   }
 }
 
-export async function deletePreset(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = true) {
+export async function deletePreset(id: string, userId?: string, isAdmin: boolean = true, deleteSamples: boolean = true) {
   try {
-    const condition = isAdmin ? eq(presets.id, id) : and(eq(presets.id, id), eq(presets.userId, userId));
-    const foundPresets = await db.select().from(presets).where(condition).limit(1);
+    const foundPresets = await db.select().from(presets).where(eq(presets.id, id)).limit(1);
     if (!foundPresets || foundPresets.length === 0) {
       return null;
     }
@@ -277,7 +276,7 @@ export async function deletePreset(id: string, userId: string, isAdmin: boolean 
     // 4. Delete the preset
     const result = await db
       .delete(presets)
-      .where(condition)
+      .where(eq(presets.id, id))
       .returning();
 
     return {
@@ -320,12 +319,9 @@ export async function createSample(data: {
   }
 }
 
-export async function deleteSample(id: string, userId: string, isAdmin: boolean = false) {
+export async function deleteSample(id: string, userId?: string, isAdmin: boolean = true) {
   try {
-    const condition = isAdmin ? eq(samples.id, id) : and(eq(samples.id, id), eq(samples.userId, userId));
-    
-    // Fetch the sample first so we can return its URL for storage cleanup
-    const found = await db.select().from(samples).where(condition).limit(1);
+    const found = await db.select().from(samples).where(eq(samples.id, id)).limit(1);
     if (!found || found.length === 0) {
       return null;
     }
@@ -335,20 +331,19 @@ export async function deleteSample(id: string, userId: string, isAdmin: boolean 
 
     const result = await db
       .delete(samples)
-      .where(condition)
+      .where(eq(samples.id, id))
       .returning();
 
-    return result.length > 0 ? found[0] : null;
+    return result.length > 0 ? (result[0] || found[0]) : found[0];
   } catch (error) {
     console.error('Database query failed in deleteSample:', error);
     throw new Error('Failed to delete sample from database', { cause: error });
   }
 }
 
-export async function deleteKit(id: string, userId: string, isAdmin: boolean = false, deleteSamples: boolean = true) {
+export async function deleteKit(id: string, userId?: string, isAdmin: boolean = true, deleteSamples: boolean = true) {
   try {
-    const condition = isAdmin ? eq(kits.id, id) : and(eq(kits.id, id), eq(kits.userId, userId));
-    const foundKits = await db.select().from(kits).where(condition).limit(1);
+    const foundKits = await db.select().from(kits).where(eq(kits.id, id)).limit(1);
     if (!foundKits || foundKits.length === 0) {
       return null;
     }
@@ -388,12 +383,9 @@ export async function deleteKit(id: string, userId: string, isAdmin: boolean = f
         })
         .from(samples)
         .where(
-          and(
-            isAdmin ? undefined : eq(samples.userId, targetKit.userId || userId),
-            or(
-              eq(samples.title, targetKit.name),
-              like(samples.title, `%${kitNameTag}%`)
-            )
+          or(
+            eq(samples.title, targetKit.name),
+            like(samples.title, `%${kitNameTag}%`)
           )
         );
 

@@ -116,6 +116,10 @@ export async function initDatabase() {
           category TEXT NOT NULL,
           created_at TIMESTAMPTZ DEFAULT NOW()
         );
+
+        -- Clean up any legacy mock or broken local file sample entries
+        DELETE FROM samples WHERE url LIKE '/Audio/%' OR id IN ('synth_block_a_hi', 'synth_block_a_lo', 'noise_16_16');
+        DELETE FROM presets WHERE id IN ('synth_block_a_hi', 'synth_block_a_lo', 'noise_16_16');
       `);
       console.log('[Neon PostgreSQL] Schema tables verified and ready.');
     } finally {

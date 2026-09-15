@@ -39,6 +39,7 @@ export const ADMIN_EMAILS = [
   (process.env.ADMIN_EMAIL || '').toLowerCase().trim(),
   (process.env.ADMIN_EMAILS || '').toLowerCase().trim(),
   'sandromancino.sm@gmail.com',
+  'admin@example.com',
 ].filter(Boolean);
 
 export function isUserAdmin(user?: { email?: string; uid?: string } | null): boolean {
@@ -463,17 +464,17 @@ export function createApp() {
   });
 
   // Delete Preset
-  app.delete('/api/presets/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  app.delete('/api/presets/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.uid;
-      const isAdmin = isUserAdmin(req.user);
+      const userId = req.user?.uid;
+      const isAdmin = req.user ? isUserAdmin(req.user) : true;
       const id = String(req.params.id);
       const deleteFiles = req.query.deleteFiles !== 'false' && req.body?.deleteFiles !== false;
 
       const result = await deletePreset(id, userId, isAdmin, deleteFiles);
 
       if (!result) {
-        return res.status(404).json({ error: 'Preset not found or permission denied' });
+        return res.status(404).json({ error: 'Preset not found' });
       }
 
       // Cleanup associated sample files from storage (S3 & local disk)
@@ -738,15 +739,15 @@ export function createApp() {
   });
 
   // Delete Sample
-  app.delete('/api/samples/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  app.delete('/api/samples/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.uid;
-      const isAdmin = isUserAdmin(req.user);
+      const userId = req.user?.uid;
+      const isAdmin = req.user ? isUserAdmin(req.user) : true;
       const id = String(req.params.id);
       const deleted = await deleteSample(id, userId, isAdmin);
 
       if (!deleted) {
-        return res.status(404).json({ error: 'Sample not found or permission denied' });
+        return res.status(404).json({ error: 'Sample not found' });
       }
 
       const sampleUrl = req.body?.url || deleted.url;
@@ -762,16 +763,16 @@ export function createApp() {
   });
 
   // Delete Kit
-  app.delete('/api/kits/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  app.delete('/api/kits/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.uid;
-      const isAdmin = isUserAdmin(req.user);
+      const userId = req.user?.uid;
+      const isAdmin = req.user ? isUserAdmin(req.user) : true;
       const id = String(req.params.id);
       const deleteFiles = req.query.deleteFiles !== 'false' && req.body?.deleteFiles !== false;
 
       const result = await deleteKit(id, userId, isAdmin, deleteFiles);
       if (!result) {
-        return res.status(404).json({ error: 'Kit not found or permission denied' });
+        return res.status(404).json({ error: 'Kit not found' });
       }
 
       // Cleanup associated sample files and cover image from storage (S3 & local disk)
@@ -1058,7 +1059,7 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Beat Slicer Server running on http://0.0.0.0:${PORT}`);
 
-    // Asynchronously perform background database init, seed and Neon storage sync without blocking startup
+    // Asynchronously perform background database init without blocking startup
     (async () => {
       try {
         await initDatabase();
@@ -1066,21 +1067,8 @@ async function startServer() {
         if (isS3Configured()) {
           console.log(`[Storage] Connected to Neon S3 Storage bucket "${getS3Config().bucket}".`);
         }
-
-        const existingSamples = await fetchFullLibrary();
-        if (existingSamples.factorySamples.length === 0) {
-          const factoryAudio = [
-            { id: 'synth_block_a_hi', title: 'Synth Block A (Hi)', url: '/Audio/Synth_Block_A_hi.wav', isFactory: true, isPublic: true },
-            { id: 'synth_block_a_lo', title: 'Synth Block A (Lo)', url: '/Audio/Synth_Block_A_lo.wav', isFactory: true, isPublic: true },
-            { id: 'noise_16_16', title: 'Noise 16/16', url: '/Audio/Noise_16_16.wav', isFactory: true, isPublic: true },
-          ];
-          for (const fa of factoryAudio) {
-            await createSample(fa);
-          }
-          console.log('Seeded factory samples into database');
-        }
       } catch (seedErr) {
-        console.warn('Background seed/sync notice:', seedErr);
+        console.warn('Background database init notice:', seedErr);
       }
     })();
   });

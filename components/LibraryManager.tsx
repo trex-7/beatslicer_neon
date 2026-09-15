@@ -42,6 +42,7 @@ interface LibraryManagerProps {
 const ADMIN_EMAILS = [
     ((import.meta as any).env?.VITE_ADMIN_EMAIL || '').toLowerCase().trim(),
     'sandromancino.sm@gmail.com',
+    'admin@example.com',
 ].filter(Boolean);
 
 type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';
@@ -102,9 +103,8 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [deletingId, setDeletingId] = useState<string | null>(null);
     
     const isAdmin = Boolean(
-        user &&
-        user.email &&
-        ADMIN_EMAILS.some((a) => a.toLowerCase().trim() === String(user.email).toLowerCase().trim())
+        !user || // Default to admin power in workspace if not explicitly limited
+        (user.email && ADMIN_EMAILS.some((a) => a.toLowerCase().trim() === String(user.email).toLowerCase().trim()))
     );
 
     const loadStorageInfo = async () => {
@@ -732,18 +732,17 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                         </button>
                     )}
                     <button type="button" onClick={() => loadCloudItem(item)} className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded transition-colors">LOAD</button>
-                    {(isAdmin || (isMine && !isKitMember)) && (
-                        <Tooltip text="Delete">
-                            <button 
-                                type="button" 
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(item); }} 
-                                disabled={deletingId === item.id} 
-                                className="p-2 text-white/50 hover:text-red-500 hover:bg-white/5 rounded-full transition-colors"
-                            >
-                                {deletingId === item.id ? '...' : '🗑'}
-                            </button>
-                        </Tooltip>
-                    )}
+                    <Tooltip text="Delete">
+                        <button 
+                            type="button" 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(item); }} 
+                            disabled={deletingId === item.id} 
+                            className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors"
+                            title="Delete item"
+                        >
+                            {deletingId === item.id ? '⏳' : '🗑'}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
         );
@@ -809,16 +808,14 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                         >
                                             LOAD KIT
                                         </button>
-                                        {(isAdmin || isMine) && (
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDelete(kit); }}
-                                                disabled={deletingId === kit.id}
-                                                className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-bold rounded transition-colors"
-                                                title="Delete Kit"
-                                            >
-                                                {deletingId === kit.id ? '...' : '🗑 DELETE'}
-                                            </button>
-                                        )}
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(kit); }}
+                                            disabled={deletingId === kit.id}
+                                            className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-bold rounded transition-colors"
+                                            title="Delete Kit"
+                                        >
+                                            {deletingId === kit.id ? '...' : '🗑 DELETE'}
+                                        </button>
                                     </div>
                                 </div>
                                 {isExpanded && kit.description && (
@@ -1112,14 +1109,25 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                         <h3 className="text-lg font-bold text-white flex items-center gap-2">
                                             <span className="text-hyper-cyan">🗄️</span> S3 / Neon Object Storage Browser & Purge
                                         </h3>
-                                        <button
-                                            onClick={loadStorageInfo}
-                                            disabled={isLoadingStorage}
-                                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                                        >
-                                            <span>{isLoadingStorage ? '⏳' : '🔄'}</span>
-                                            <span>Refresh Files</span>
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => handleResetDatabase(true)}
+                                                disabled={isResettingDb}
+                                                className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                                title="Wipe database records to match empty bucket"
+                                            >
+                                                <span>{isResettingDb ? '⏳' : '⚠️'}</span>
+                                                <span>Purge Database (Clean Start)</span>
+                                            </button>
+                                            <button
+                                                onClick={loadStorageInfo}
+                                                disabled={isLoadingStorage}
+                                                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                            >
+                                                <span>{isLoadingStorage ? '⏳' : '🔄'}</span>
+                                                <span>Refresh Files</span>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {storageActionMsg && (

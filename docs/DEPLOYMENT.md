@@ -111,7 +111,7 @@ When Netlify is deployed separately from the Render backend, configure `netlify.
 
 [[redirects]]
   from = "/api/*"
-  to = "https://beat-slicer-api.onrender.com/api/:splat"
+  to = "https://slicer-app-api.onrender.com/api/:splat"
   status = 200
   force = true
 

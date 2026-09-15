@@ -554,3 +554,22 @@ export async function getAllFeedback() {
     throw new Error('Failed to fetch feedback list', { cause: error });
   }
 }
+
+export async function resetLibraryDatabase(clearFactory: boolean = false) {
+  try {
+    await db.delete(kitSamples);
+    if (clearFactory) {
+      await db.delete(presets);
+      await db.delete(kits);
+      await db.delete(samples);
+    } else {
+      await db.delete(presets).where(eq(presets.isFactory, false));
+      await db.delete(kits).where(eq(kits.isFactory, false));
+      await db.delete(samples).where(eq(samples.isFactory, false));
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Database query failed in resetLibraryDatabase:', error);
+    throw new Error('Failed to reset library database', { cause: error });
+  }
+}

@@ -116,6 +116,20 @@ export const fetchLibrary = async (userId?: string): Promise<LibraryData> => {
     }
 };
 
+export const resetLibraryDatabase = async (clearFactory: boolean = false): Promise<boolean> => {
+    try {
+        const response = await fetch('/api/library/reset', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ clearFactory }),
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Failed to reset library database:', e);
+        return false;
+    }
+};
+
 // --- Kit Management ---
 
 export const createKit = async (

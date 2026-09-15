@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { uploadSampleToCloud, saveCloudPreset, updateCloudPreset } from '../utils/db';
 import type { AllParams, SequencerState, Slice } from '../types';
+import Auth from './Auth';
 
 interface SaveDialogProps {
     isOpen: boolean;
@@ -58,14 +59,16 @@ const SaveDialog: React.FC<SaveDialogProps> = ({
                     <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🔒</div>
                     <h2 className="text-xl font-bold text-white mb-2">Login Required</h2>
                     <p className="text-star-dust text-sm mb-6 leading-relaxed">
-                        You must be logged in to contribute to the community database. 
-                        <br/>Please sign in using the button in the top bar.
+                        You must be logged in to save presets or samples to the community database.
                     </p>
+                    <div className="flex flex-col items-center justify-center gap-4 mb-4">
+                        <Auth user={user} />
+                    </div>
                     <button 
                         onClick={onClose} 
-                        className="w-full py-3 bg-hyper-cyan hover:bg-hyper-cyan/80 text-deep-space font-bold text-sm rounded transition-colors"
+                        className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded transition-colors"
                     >
-                        Got it
+                        Cancel
                     </button>
                 </div>
             </div>

@@ -32,6 +32,7 @@ import {
   renameItem,
   createFeedback,
   getAllFeedback,
+  resetLibraryDatabase,
 } from './src/db/queries.ts';
 
 export const ADMIN_EMAILS = [
@@ -392,6 +393,18 @@ export function createApp() {
         publicSamples: [],
         factorySamples: [],
       });
+    }
+  });
+
+  // Reset Library Database (Purge non-factory or all items to start clean)
+  app.post('/api/library/reset', optionalAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const clearFactory = req.body?.clearFactory === true;
+      await resetLibraryDatabase(clearFactory);
+      res.json({ success: true, message: 'Library database reset successfully' });
+    } catch (error: any) {
+      console.error('Reset library error:', error);
+      res.status(500).json({ error: error.message || 'Failed to reset library database' });
     }
   });
 
@@ -1035,8 +1048,8 @@ async function startServer() {
       try {
         await initDatabase();
 
-        if (isS3Configured()) {
-          console.log('[Storage] Neon storage is configured. Running background sync...');
+        if (isS3Configured() && process.env.AUTO_SYNC_STORAGE === 'true') {
+          console.log('[Storage] Neon storage is configured with AUTO_SYNC_STORAGE. Running background sync...');
           syncLocalAudioToBucket()
             .then((res) => console.log(`[Storage] Synced ${res.synced.length} files to bucket.`))
             .catch((e) => console.warn('[Storage] Sync notice:', e.message));

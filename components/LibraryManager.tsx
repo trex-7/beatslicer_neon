@@ -14,6 +14,7 @@ import {
     fetchAllFeedback,
     createKit,
     linkSamplesToKit,
+    resetLibraryDatabase,
     type CloudItem,
     type DeleteResult,
     type FeedbackItem,
@@ -84,6 +85,7 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
     const [storageStatus, setStorageStatus] = useState<any>(null);
     const [manualDeleteTarget, setManualDeleteTarget] = useState("");
     const [isDeletingStorage, setIsDeletingStorage] = useState(false);
+    const [isResettingDb, setIsResettingDb] = useState(false);
     const [storageActionMsg, setStorageActionMsg] = useState<{ text: string; success: boolean } | null>(null);
 
     // Supabase to Neon Migration State
@@ -140,6 +142,26 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
             setStorageActionMsg({ text: `Error: ${err.message || 'Delete failed'}`, success: false });
         } finally {
             setIsDeletingStorage(false);
+        }
+    };
+
+    const handleResetDatabase = async (clearFactory: boolean = false) => {
+        if (!window.confirm(clearFactory ? "⚠️ Are you sure you want to PURGE ALL library items (including factory defaults)?" : "⚠️ Are you sure you want to clear all non-factory presets, samples, and kits from the database?")) {
+            return;
+        }
+        setIsResettingDb(true);
+        try {
+            const ok = await resetLibraryDatabase(clearFactory);
+            if (ok) {
+                setStorageActionMsg({ text: 'Database purged successfully. Starting clean!', success: true });
+                await loadLibraryData();
+            } else {
+                setStorageActionMsg({ text: 'Failed to reset database.', success: false });
+            }
+        } catch (err: any) {
+            setStorageActionMsg({ text: `Error: ${err.message || 'Reset failed'}`, success: false });
+        } finally {
+            setIsResettingDb(false);
         }
     };
 
@@ -1126,12 +1148,14 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                             </div>
                                         </div>
 
-                                        {/* Direct Key/URL Purge Tool */}
+                                         {/* Direct Key/URL Purge Tool */}
                                         <div className="bg-black/30 p-3 rounded-lg border border-red-500/20 space-y-2">
-                                            <div className="text-xs font-bold text-red-400 flex items-center gap-1.5">
-                                                <span>🗑</span> Direct Storage Purge by Key / URL:
+                                            <div className="text-xs font-bold text-red-400 flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5">
+                                                    <span>🗑</span> Direct Storage & Database Clean Tools:
+                                                </span>
                                             </div>
-                                            <div className="flex gap-2">
+                                            <div className="flex flex-col sm:flex-row gap-2">
                                                 <input
                                                     type="text"
                                                     placeholder="samples/123_kick.wav OR full URL..."
@@ -1147,9 +1171,17 @@ const LibraryManager: React.FC<LibraryManagerProps> = memo(({
                                                         }
                                                     }}
                                                     disabled={!manualDeleteTarget.trim() || isDeletingStorage}
-                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50"
+                                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50 shrink-0"
                                                 >
-                                                    {isDeletingStorage ? 'Purging...' : 'Purge Object'}
+                                                    {isDeletingStorage ? 'Purging...' : 'Purge S3 File'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleResetDatabase(false)}
+                                                    disabled={isResettingDb}
+                                                    className="px-4 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs rounded transition-colors disabled:opacity-50 shrink-0"
+                                                    title="Purge all community/user database entries to match cleared storage"
+                                                >
+                                                    {isResettingDb ? 'Purging DB...' : '🧹 Start Clean (Wipe DB Records)'}
                                                 </button>
                                             </div>
                                         </div>

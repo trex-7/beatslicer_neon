@@ -92,17 +92,13 @@ export async function fetchFullLibrary(userId?: string) {
       if (trimmed.startsWith('blob:') || trimmed.startsWith('data:') || trimmed.startsWith('/api/storage/')) {
         return trimmed;
       }
-      if (
-        (trimmed.includes('.storage.') && trimmed.includes('.neon.tech')) ||
-        (trimmed.includes('.s3.') && trimmed.includes('.amazonaws.com')) ||
-        (trimmed.includes('.s3-') && trimmed.includes('.amazonaws.com'))
-      ) {
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
         try {
           const parsed = new URL(trimmed);
           let pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
           const parts = pathname.split('/');
           const bucketName = ['beat', 'slicer'].join('-');
-          if (parts.length > 1 && (parts[0] === bucketName || parts[0].includes('bucket'))) {
+          if (parts.length > 1 && parts[0] === bucketName) {
             pathname = parts.slice(1).join('/');
           }
           return `/api/storage/stream?key=${encodeURIComponent(pathname)}`;
@@ -125,7 +121,7 @@ export async function fetchFullLibrary(userId?: string) {
       ) {
         return `/api/storage/stream?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`;
       }
-      return trimmed;
+      return `/api/storage/stream?key=${encodeURIComponent(trimmed)}`;
     };
 
     // Map presets to standard format

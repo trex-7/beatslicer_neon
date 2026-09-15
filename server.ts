@@ -46,14 +46,39 @@ export function isUserAdmin(user?: { email?: string; uid?: string } | null): boo
   return ADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase().trim() === email);
 }
 
-async function startServer() {
+export function createApp() {
   const app = express();
-  const PORT = 3000;
+
+  // Handle Netlify Functions path rewriting
+  app.use((req, _res, next) => {
+    if (req.url.startsWith('/.netlify/functions/api')) {
+      req.url = req.url.replace('/.netlify/functions/api', '');
+      if (!req.url.startsWith('/api') && req.url !== '') {
+        req.url = '/api' + req.url;
+      }
+    }
+    next();
+  });
+
+  // CORS Middleware
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Ensure storage directories exist
   const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch (_e) {
+    // Read-only filesystem in serverless environments
   }
 
   // Multer disk storage for audio assets
@@ -959,6 +984,13 @@ async function startServer() {
     }
   });
 
+  return app;
+}
+
+async function startServer() {
+  const app = createApp();
+  const PORT = 3000;
+
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -1008,4 +1040,7 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.NETLIFY) {
+  startServer();
+}
+

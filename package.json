@@ -26,7 +26,8 @@
     "multer": "^2.2.0",
     "pg": "^8.23.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

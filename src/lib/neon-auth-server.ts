@@ -2,7 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 export const NEON_AUTH_BASE_URL =
   process.env.NEON_AUTH_URL ||
-  'https://ep-restless-surf-axxduerp.neonauth.c-4.us-east-2.aws.neon.tech/Career2Canvas/auth';
+  '';
 
 export const NEON_AUTH_JWKS_URL =
   process.env.NEON_AUTH_JWKS_URL ||

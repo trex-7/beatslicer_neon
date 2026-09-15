@@ -86,8 +86,8 @@
 ### 2. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/beat-slicer.git
-cd beat-slicer
+git clone https://github.com/your-username/app.git
+cd app
 
 # Install dependencies
 npm install
@@ -193,7 +193,7 @@ Beat Slicer provides seamless cloud persistence with zero orphaned storage clutt
 # ==========================================
 # Database (Neon PostgreSQL / Cloud SQL)
 # ==========================================
-SQL_HOST=ep-example-pooler.us-east-2.aws.neon.tech
+SQL_HOST=ep-example-pooler.<region>.aws.neon.tech
 SQL_DB_NAME=neondb
 SQL_USER=neondb_owner
 SQL_PASSWORD=your_db_password
@@ -210,11 +210,11 @@ VITE_NEON_AUTH_URL=https://<your-neon-auth-domain>/auth
 # ==========================================
 # Object Storage (Neon S3, AWS S3, Cloudflare R2)
 # ==========================================
-AWS_ACCESS_KEY_ID=your_access_key_id
-AWS_SECRET_ACCESS_KEY=your_secret_access_key
-AWS_REGION=us-east-2
-NEON_STORAGE_BUCKET=beat-slicer
-NEON_STORAGE_ENDPOINT=https://<storage-endpoint>.neon.tech
+ACCESS_KEY_ID=your_access_key_id
+SECRET_ACCESS_KEY=your_secret_access_key
+REGION=<region>
+STORAGE_BUCKET_NAME=<bucket-name>
+ENDPOINT_URL_S3=https://<storage-endpoint>.neon.tech
 NEON_STORAGE_PUBLIC_URL=
 NEON_STORAGE_FORCE_PATH_STYLE=true
 
@@ -267,7 +267,7 @@ For complete step-by-step instructions, see the **[Deployment Guide](docs/DEPLOY
 ## 📂 Project Directory Structure
 
 ```
-beat-slicer/
+slicer-app/
 ├── components/                 # React UI Components
 │   ├── ControlPanel.tsx        # Macro & DSP parameter controls
 │   ├── EffectSection.tsx       # Re-orderable modular FX rack

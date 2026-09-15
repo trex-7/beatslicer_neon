@@ -36,8 +36,6 @@ import {
 } from './src/db/queries.ts';
 
 export const ADMIN_EMAILS = [
-  'sandromancino.sm@gmail.com',
-  'sandromancino.SM@gmail.com',
   (process.env.ADMIN_EMAIL || '').toLowerCase().trim(),
   (process.env.ADMIN_EMAILS || '').toLowerCase().trim(),
 ].filter(Boolean);
@@ -101,7 +99,11 @@ async function startServer() {
   app.all('/api/neon-auth/*all', async (req: Request, res: Response) => {
     try {
       const targetPath = req.url.replace('/api/neon-auth', '');
-      const neonUrl = `https://ep-restless-surf-axxduerp.neonauth.c-4.us-east-2.aws.neon.tech/Career2Canvas/auth${targetPath}`;
+      const baseUrl = (process.env.NEON_AUTH_URL || '').replace(/\/+$/, '');
+      const neonUrl = baseUrl ? `${baseUrl}${targetPath}` : '';
+      if (!neonUrl) {
+        return res.status(400).json({ error: 'NEON_AUTH_URL is not configured' });
+      }
 
       const headers: Record<string, string> = {};
       if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'] as string;
@@ -157,7 +159,7 @@ async function startServer() {
           </div>
           <script>
             (async function() {
-              const NEON_AUTH_URL = "https://ep-restless-surf-axxduerp.neonauth.c-4.us-east-2.aws.neon.tech/Career2Canvas/auth";
+              const NEON_AUTH_URL = "${(process.env.NEON_AUTH_URL || '').replace(/\/+$/, '')}";
               const urlParams = new URLSearchParams(window.location.search);
               let token = urlParams.get('token') || urlParams.get('session_token') || urlParams.get('access_token') || null;
               let user = null;

@@ -38,8 +38,7 @@ interface LibraryManagerProps {
 }
 
 const ADMIN_EMAILS = [
-    'sandromancino.sm@gmail.com',
-    'sandromancino.SM@gmail.com',
+    ((import.meta as any).env?.VITE_ADMIN_EMAIL || '').toLowerCase().trim(),
 ];
 
 type TabView = 'dashboard' | 'presets' | 'samples' | 'kits' | 'admin';

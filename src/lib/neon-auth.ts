@@ -3,7 +3,7 @@ import { createAuthClient } from 'better-auth/react';
 export const NEON_AUTH_BASE_URL =
   (typeof window !== 'undefined' && (window as any).__NEON_AUTH_URL__) ||
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_NEON_AUTH_URL) ||
-  'https://ep-restless-surf-axxduerp.neonauth.c-4.us-east-2.aws.neon.tech/Career2Canvas/auth';
+  '';
 
 export const NEON_AUTH_JWKS_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_NEON_AUTH_JWKS_URL) ||

@@ -87,7 +87,7 @@ export function getS3Client(): S3Client {
   if (!s3ClientInstance) {
     const config = getS3Config();
     if (!config.accessKeyId || !config.secretAccessKey) {
-      throw new Error('S3 credentials (AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY) are not configured.');
+      throw new Error('S3 credentials (ACCESS_KEY_ID & SECRET_ACCESS_KEY) are not configured.');
     }
 
     s3ClientInstance = new S3Client({

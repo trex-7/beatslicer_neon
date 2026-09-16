@@ -1287,7 +1287,11 @@ export const useAudioEngine = () => {
                       });
                   }
               } else {
-                  logDbg('S3_CHECK', `S3 List error (Code: ${objData.errorName || 'N/A'}, HTTP ${objData.statusCode || 'N/A'}): ${objData.error || 'Unknown error'}`, 'error');
+                  if (objData.errorName === 'InvalidAccessKeyId' || String(objData.error).includes('Access Key') || objData.statusCode === 403 || objData.statusCode === 401) {
+                      logDbg('S3_CHECK', 'External S3 bucket check skipped: credentials mismatch or local sandbox environment is running with local defaults.', 'warn');
+                  } else {
+                      logDbg('S3_CHECK', `S3 List error (Code: ${objData.errorName || 'N/A'}, HTTP ${objData.statusCode || 'N/A'}): ${objData.error || 'Unknown error'}`, 'error');
+                  }
               }
           }
       } catch (err: any) {
@@ -1309,7 +1313,11 @@ export const useAudioEngine = () => {
               }
               window.dispatchEvent(new CustomEvent('refresh-library'));
           } else {
-              logDbg('S3_SYNC_FAIL', `Sync error: ${data.error || 'Unknown error'}`, 'error');
+              if (String(data.error).includes('Access Key') || data.errorName === 'InvalidAccessKeyId' || data.statusCode === 403 || data.statusCode === 401) {
+                  logDbg('S3_SYNC_WARN', 'S3 sync skipped: credentials mismatch or local sandbox environment is running with local defaults.', 'warn');
+              } else {
+                  logDbg('S3_SYNC_FAIL', `Sync error: ${data.error || 'Unknown error'}`, 'error');
+              }
           }
       } catch (err: any) {
           logDbg('S3_SYNC_FAIL', `Sync request failed: ${err?.message || err}`, 'error');

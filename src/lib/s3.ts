@@ -31,12 +31,12 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_BUCKET) ||
     ['beat', 'slicer'].join('-');
 
-  const region =
-    cleanEnv(process.env.REGION) ||
-    cleanEnv(process.env.STORAGE_REGION) ||
-    cleanEnv(process.env.NEON_STORAGE_REGION) ||
-    cleanEnv(process.env.AWS_REGION) ||
-    ['us', 'east', '2'].join('-');
+  const endpoint =
+    cleanEnv(process.env.ENDPOINT_URL_S3) ||
+    cleanEnv(process.env.STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
+    '';
 
   const accessKeyId =
     cleanEnv(process.env.ACCESS_KEY_ID) ||
@@ -54,12 +54,24 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
     '';
 
-  const endpoint =
-    cleanEnv(process.env.ENDPOINT_URL_S3) ||
-    cleanEnv(process.env.STORAGE_ENDPOINT) ||
-    cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
-    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
-    '';
+  let region =
+    cleanEnv(process.env.REGION) ||
+    cleanEnv(process.env.STORAGE_REGION) ||
+    cleanEnv(process.env.NEON_STORAGE_REGION);
+
+  // If region is not explicitly configured via custom non-prefixed variables,
+  // try to parse it from the S3 endpoint to avoid AWS Lambda's internal AWS_REGION overriding it!
+  if (!region && endpoint) {
+    const match = endpoint.match(/\.([a-z0-9-]+)\.aws\.neon\.tech/i) || endpoint.match(/\.([a-z]{2}-[a-z]+-\d)\./i);
+    if (match && match[1]) {
+      region = match[1];
+    }
+  }
+
+  // Final fallback
+  if (!region) {
+    region = cleanEnv(process.env.AWS_REGION) || ['us', 'east', '2'].join('-');
+  }
 
   const publicBaseUrl =
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||

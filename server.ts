@@ -504,6 +504,12 @@ export function createApp() {
       customEndpoint: Boolean(config.endpoint),
       publicBaseUrl: config.publicBaseUrl || null,
       storageType: s3Ready ? 's3' : 'local_disk',
+      accessKeyIdMasked: config.accessKeyId 
+        ? `${config.accessKeyId.slice(0, 8)}...${config.accessKeyId.slice(-4)} (length: ${config.accessKeyId.length})` 
+        : null,
+      secretAccessKeyMasked: config.secretAccessKey 
+        ? `${config.secretAccessKey.slice(0, 8)}...${config.secretAccessKey.slice(-4)} (length: ${config.secretAccessKey.length})` 
+        : null,
     });
   });
 

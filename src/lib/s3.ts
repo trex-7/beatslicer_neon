@@ -25,40 +25,40 @@ export function getS3Config() {
   const bucket =
     cleanEnv(process.env.STORAGE_BUCKET_NAME) ||
     cleanEnv(process.env.STORAGE_BUCKET) ||
+    cleanEnv(process.env.S3_BUCKET_NAME) ||
     cleanEnv(process.env.NEON_STORAGE_BUCKET) ||
     cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
-    cleanEnv(process.env.S3_BUCKET_NAME) ||
     cleanEnv(process.env.AWS_BUCKET) ||
     ['beat', 'slicer'].join('-');
 
   const region =
-    cleanEnv(process.env.AWS_REGION) ||
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION) ||
+    cleanEnv(process.env.AWS_REGION) ||
     ['us', 'east', '2'].join('-');
 
   const accessKeyId =
-    cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
     cleanEnv(process.env.ACCESS_KEY_ID) ||
     cleanEnv(process.env.STORAGE_ACCESS_KEY_ID) ||
     cleanEnv(process.env.STORAGE_ACCESS_KEY) ||
     cleanEnv(process.env.NEON_STORAGE_ACCESS_KEY_ID) ||
+    cleanEnv(process.env.AWS_ACCESS_KEY_ID) ||
     '';
 
   const secretAccessKey =
-    cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.STORAGE_SECRET_ACCESS_KEY) ||
     cleanEnv(process.env.STORAGE_SECRET_KEY) ||
     cleanEnv(process.env.NEON_STORAGE_SECRET_ACCESS_KEY) ||
+    cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
     '';
 
   const endpoint =
-    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
     cleanEnv(process.env.ENDPOINT_URL_S3) ||
     cleanEnv(process.env.STORAGE_ENDPOINT) ||
     cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
     '';
 
   const publicBaseUrl =

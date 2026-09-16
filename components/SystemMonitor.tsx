@@ -250,7 +250,7 @@ const SystemMonitor: React.FC<SystemMonitorProps> = ({ isOpen, onClose, stats })
                             </div>
 
                             {/* Quick Diagnostic Actions */}
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 <button
                                     onClick={() => stats.audioDebug?.playTestTone && stats.audioDebug.playTestTone()}
                                     className="bg-hyper-cyan/10 hover:bg-hyper-cyan/20 text-hyper-cyan border border-hyper-cyan/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
@@ -274,6 +274,12 @@ const SystemMonitor: React.FC<SystemMonitorProps> = ({ isOpen, onClose, stats })
                                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95"
                                 >
                                     ☁️ Check S3 Bucket Status
+                                </button>
+                                <button
+                                    onClick={() => stats.audioDebug?.syncS3BucketToDatabase && stats.audioDebug.syncS3BucketToDatabase()}
+                                    className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-semibold py-1.5 px-2 rounded transition-all active:scale-95 sm:col-span-2"
+                                >
+                                    🔄 Sync S3 Bucket Files to Library
                                 </button>
                             </div>
 

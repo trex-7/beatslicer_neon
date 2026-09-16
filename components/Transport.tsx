@@ -20,6 +20,11 @@ interface TransportProps {
     onMidiConfigChange: (config: Partial<MidiConfig>) => void;
     metronomeConfig?: MetronomeConfig;
     onMetronomeConfigChange?: (config: Partial<MetronomeConfig>) => void;
+    expandedDrawer?: 'effects' | 'slices' | 'engine' | 'macros' | null;
+    onExpandedDrawerChange?: (drawer: 'effects' | 'slices' | 'engine' | 'macros' | null) => void;
+    slicesCount?: number;
+    selectedSliceId?: number | string | null;
+    activeEffectsCount?: number;
 }
 
 const Transport: React.FC<TransportProps> = ({
@@ -38,7 +43,12 @@ const Transport: React.FC<TransportProps> = ({
     midiOutputs,
     onMidiConfigChange,
     metronomeConfig,
-    onMetronomeConfigChange
+    onMetronomeConfigChange,
+    expandedDrawer = null,
+    onExpandedDrawerChange,
+    slicesCount = 0,
+    selectedSliceId = null,
+    activeEffectsCount = 0
 }) => {
     const [showMidi, setShowMidi] = useState(false);
     const [showMetronome, setShowMetronome] = useState(false);
@@ -80,10 +90,10 @@ const Transport: React.FC<TransportProps> = ({
     };
 
     return (
-        <div className="w-full bg-[#12161d] rounded-xl border border-white/10 shadow-2xl flex flex-col md:flex-row lg:flex-col items-center p-2 gap-4 select-none relative z-20 transition-all">
+        <div className="w-full bg-[#12161d] rounded-xl border border-white/10 shadow-2xl flex flex-col md:flex-row items-center p-2 gap-4 select-none relative z-20 transition-all">
             
             {/* Playback Controls */}
-            <div className="flex items-center justify-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 w-full md:w-auto lg:w-full">
+            <div className="flex items-center justify-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 w-full md:w-auto">
                 <Tooltip text="Step Back">
                     <button 
                         onClick={onStepBackward}
@@ -132,7 +142,7 @@ const Transport: React.FC<TransportProps> = ({
             </div>
 
             {/* LCD Display Section */}
-            <div className="flex-1 flex items-center justify-center gap-4 bg-black/60 p-2 rounded-lg border border-white/10 shadow-inner min-w-[200px] w-full md:w-auto lg:w-full font-mono text-hyper-cyan">
+            <div className="flex-1 flex items-center justify-center gap-4 bg-black/60 p-2 rounded-lg border border-white/10 shadow-inner min-w-[180px] w-full md:w-auto font-mono text-hyper-cyan">
                 {/* BPM */}
                 <div className="flex flex-col items-center group cursor-ns-resize" onMouseDown={handleBpmMouseDown}>
                     <span className="text-[10px] text-hyper-cyan/50 font-bold uppercase tracking-widest group-hover:text-hyper-cyan transition-colors">BPM</span>
@@ -150,8 +160,77 @@ const Transport: React.FC<TransportProps> = ({
                 </div>
             </div>
 
+            {/* Studio Drawers Toggle Buttons */}
+            <div className="flex flex-wrap items-center justify-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 w-full md:w-auto">
+                {/* Effects Rack */}
+                <button
+                    onClick={() => onExpandedDrawerChange?.(expandedDrawer === 'effects' ? null : 'effects')}
+                    className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border select-none ${
+                        expandedDrawer === 'effects'
+                            ? 'bg-hyper-cyan text-deep-space border-hyper-cyan font-black shadow-[0_0_8px_rgba(0,246,255,0.4)]'
+                            : 'bg-white/5 text-star-dust hover:text-white hover:bg-white/10 border-white/10'
+                    }`}
+                >
+                    <span>🎛️</span>
+                    <span>FX Rack</span>
+                    {activeEffectsCount > 0 && (
+                        <span className={`px-1 rounded-full text-[9px] font-bold font-mono ${
+                            expandedDrawer === 'effects' ? 'bg-deep-space text-hyper-cyan' : 'bg-hyper-cyan/20 text-hyper-cyan'
+                        }`}>
+                            {activeEffectsCount}
+                        </span>
+                    )}
+                </button>
+
+                {/* Slices Control */}
+                <button
+                    onClick={() => onExpandedDrawerChange?.(expandedDrawer === 'slices' ? null : 'slices')}
+                    className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border select-none ${
+                        expandedDrawer === 'slices'
+                            ? 'bg-hyper-cyan text-deep-space border-hyper-cyan font-black shadow-[0_0_8px_rgba(0,246,255,0.4)]'
+                            : 'bg-white/5 text-star-dust hover:text-white hover:bg-white/10 border-white/10'
+                    }`}
+                >
+                    <span>✂️</span>
+                    <span>Slices</span>
+                    {slicesCount > 0 && (
+                        <span className={`px-1 rounded text-[9px] font-bold font-mono ${
+                            expandedDrawer === 'slices' ? 'bg-deep-space text-hyper-cyan' : 'bg-black/40 text-star-dust/80'
+                        }`}>
+                            {selectedSliceId !== null ? `#${selectedSliceId}` : slicesCount}
+                        </span>
+                    )}
+                </button>
+
+                {/* Engine Toggle */}
+                <button
+                    onClick={() => onExpandedDrawerChange?.(expandedDrawer === 'engine' ? null : 'engine')}
+                    className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border select-none ${
+                        expandedDrawer === 'engine'
+                            ? 'bg-hyper-cyan text-deep-space border-hyper-cyan font-black shadow-[0_0_8px_rgba(0,246,255,0.4)]'
+                            : 'bg-white/5 text-star-dust hover:text-white hover:bg-white/10 border-white/10'
+                    }`}
+                >
+                    <span>⚙️</span>
+                    <span>Engine</span>
+                </button>
+
+                {/* Macros Toggle */}
+                <button
+                    onClick={() => onExpandedDrawerChange?.(expandedDrawer === 'macros' ? null : 'macros')}
+                    className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border select-none ${
+                        expandedDrawer === 'macros'
+                            ? 'bg-hyper-cyan text-deep-space border-hyper-cyan font-black shadow-[0_0_8px_rgba(0,246,255,0.4)]'
+                            : 'bg-white/5 text-star-dust hover:text-white hover:bg-white/10 border-white/10'
+                    }`}
+                >
+                    <span>🎚️</span>
+                    <span>Macros</span>
+                </button>
+            </div>
+
             {/* Tools (Metronome & MIDI) */}
-            <div className="flex gap-2 w-full md:w-auto lg:w-full">
+            <div className="flex gap-2 w-full md:w-auto">
                 
                 {/* Metronome */}
                 {metronomeConfig && onMetronomeConfigChange && (

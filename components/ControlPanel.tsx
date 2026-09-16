@@ -23,7 +23,7 @@ interface ControlPanelProps {
      audioBuffer: any;
      isProMode: boolean;
      simpleView?: 'macros' | 'magic';
-     visibleSections?: ('slices' | 'pattern' | 'engine' | 'effects')[];
+     visibleSections?: ('slices' | 'pattern' | 'engine' | 'effects' | 'macros')[];
      effectsLayout?: 'grid' | 'vertical';
      onLoadImpulseResponse?: (file: File) => Promise<void>;
  }
@@ -252,6 +252,8 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
  }) => {
 
      const [expandedDrawer, setExpandedDrawer] = useState<'effects' | 'slices' | 'engine' | 'macros' | null>(null);
+     let renderEngineControls: () => React.ReactNode = () => null;
+     let renderMacrosUnit: () => React.ReactNode = () => null;
      const [aiComplexity, setAiComplexity] = useState(0.25);
      const [generationMode, setGenerationMode] = useState<'ai' | 'algorithmic'>('ai');
      const [aiModel, setAiModel] = useState('gemini-3.1-flash-lite');
@@ -977,6 +979,22 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         );
     }
 
+    if (singleSection === 'engine') {
+        return (
+            <div className="bg-deep-space/50 p-4 rounded-lg ring-1 ring-white/10 space-y-4">
+                {renderEngineControls()}
+            </div>
+        );
+    }
+
+    if (singleSection === 'macros') {
+        return (
+            <div className="bg-deep-space/50 p-4 rounded-lg ring-1 ring-white/10 space-y-4">
+                {renderMacrosUnit()}
+            </div>
+        );
+    }
+
     // Render Components for Sections
     const renderPatternStudio = () => (
         <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-plasma-pink/40 shadow-2xl shadow-plasma-pink/10 relative overflow-hidden">
@@ -1484,7 +1502,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         </div>
     );
 
-    const renderEngineControls = () => (
+    renderEngineControls = () => (
         <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-white/10 shadow-lg space-y-4">
             <div className="flex items-center gap-2 border-b border-white/10 pb-3">
                 <span className="text-xl">⚙️</span>
@@ -1527,7 +1545,7 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         </div>
     );
 
-    const renderMacrosUnit = () => (
+    renderMacrosUnit = () => (
         <div className="bg-deep-space/80 p-5 rounded-2xl ring-1 ring-white/10 shadow-lg space-y-4">
             <div className="flex items-center gap-2 border-b border-white/10 pb-3">
                 <span className="text-xl">🎚️</span>
@@ -1547,103 +1565,6 @@ const ControlPanel: React.FC<ControlPanelProps> = memo(({
         <div className="space-y-4 animate-in fade-in duration-500">
             {/* 1. MAIN FEATURE: AI PATTERN STUDIO (ALWAYS VISIBLE & PROMINENT) */}
             {renderPatternStudio()}
-
-            {/* 2. SECONDARY CONTROLS DRAWER BAR (COLLAPSED BY DEFAULT) */}
-            <div className="bg-[#0c0f16]/90 p-2 rounded-2xl border border-white/10 shadow-xl backdrop-blur-md">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-star-dust/50 pl-2 hidden sm:inline">
-                            Studio Drawers:
-                        </span>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            {/* Effects Rack Drawer Toggle */}
-                            <button
-                                onClick={() => setExpandedDrawer(expandedDrawer === 'effects' ? null : 'effects')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
-                                    expandedDrawer === 'effects'
-                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
-                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
-                                }`}
-                            >
-                                <span>🎛️</span>
-                                <span>Effects Rack</span>
-                                {activeEffectCount > 0 && (
-                                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold ${
-                                        expandedDrawer === 'effects' ? 'bg-deep-space text-hyper-cyan' : 'bg-hyper-cyan/20 text-hyper-cyan'
-                                    }`}>
-                                        {activeEffectCount}
-                                    </span>
-                                )}
-                            </button>
-
-                            {/* Slice Control Drawer Toggle */}
-                            <button
-                                onClick={() => setExpandedDrawer(expandedDrawer === 'slices' ? null : 'slices')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
-                                    expandedDrawer === 'slices'
-                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
-                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
-                                }`}
-                            >
-                                <span>✂️</span>
-                                <span>Slice Control</span>
-                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
-                                    expandedDrawer === 'slices' ? 'bg-deep-space text-hyper-cyan' : 'bg-black/40 text-star-dust/80'
-                                }`}>
-                                    {selectedSliceIndex !== null ? `#${slices[selectedSliceIndex]?.id || selectedSliceIndex + 1}` : `${slices.length}`}
-                                </span>
-                            </button>
-
-                            {/* Engine & Granular Drawer Toggle */}
-                            <button
-                                onClick={() => setExpandedDrawer(expandedDrawer === 'engine' ? null : 'engine')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
-                                    expandedDrawer === 'engine'
-                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
-                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
-                                }`}
-                            >
-                                <span>⚙️</span>
-                                <span>Engine & Global</span>
-                            </button>
-
-                            {/* Sound Macros Drawer Toggle */}
-                            <button
-                                onClick={() => setExpandedDrawer(expandedDrawer === 'macros' ? null : 'macros')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
-                                    expandedDrawer === 'macros'
-                                        ? 'bg-hyper-cyan text-deep-space border-hyper-cyan shadow-[0_0_12px_rgba(0,246,255,0.4)]'
-                                        : 'bg-white/5 text-star-dust/80 hover:text-white hover:bg-white/10 border-white/10'
-                                }`}
-                            >
-                                <span>🎚️</span>
-                                <span>Macros</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Status & Close Trigger */}
-                    {expandedDrawer && (
-                        <button
-                            onClick={() => setExpandedDrawer(null)}
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-star-dust/60 hover:text-white hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-1 self-end sm:self-auto"
-                        >
-                            <span>✕</span>
-                            <span>Collapse Drawer</span>
-                        </button>
-                    )}
-                </div>
-
-                {/* EXPANDED DRAWER CONTENT (Rendered only when user expands a tab) */}
-                {expandedDrawer && (
-                    <div className="mt-3 pt-3 border-t border-white/10 animate-in fade-in slide-in-from-top-2 duration-300">
-                        {expandedDrawer === 'effects' && renderEffectsRackUnit()}
-                        {expandedDrawer === 'slices' && renderSliceControl()}
-                        {expandedDrawer === 'engine' && renderEngineControls()}
-                        {expandedDrawer === 'macros' && renderMacrosUnit()}
-                    </div>
-                )}
-            </div>
         </div>
     );
 });

@@ -11,6 +11,7 @@ import {
   deleteFromS3,
   deleteStorageAsset,
   listS3Objects,
+  listS3ObjectsWithDetails,
   extractS3KeyFromUrl,
   generatePresignedUploadUrl,
   getS3Config,
@@ -511,11 +512,68 @@ export function createApp() {
     try {
       const prefix = String(req.query.prefix || '');
       const limit = Number(req.query.limit) || 200;
-      const objects = await listS3Objects(prefix, limit);
-      res.json({ success: true, count: objects.length, objects });
+      const result = await listS3ObjectsWithDetails(prefix, limit);
+      res.json(result);
     } catch (error: any) {
       console.error('List storage objects error:', error);
-      res.status(500).json({ error: error.message || 'Failed to list storage objects', objects: [] });
+      res.status(500).json({ success: false, error: error.message || 'Failed to list storage objects', objects: [], count: 0 });
+    }
+  });
+
+  // Scan & Sync all audio files present in S3 bucket into the Postgres Database
+  app.post('/api/storage/sync-s3-to-db', optionalAuth, async (_req: Request, res: Response) => {
+    try {
+      if (!isS3Configured()) {
+        return res.status(400).json({ error: 'S3 storage is not configured' });
+      }
+      const listResult = await listS3ObjectsWithDetails('', 500);
+      if (!listResult.success) {
+        return res.status(500).json({ error: listResult.error || 'Failed to list S3 objects', ...listResult });
+      }
+
+      const audioObjects = listResult.objects.filter((obj) => {
+        const ext = path.extname(obj.key).toLowerCase();
+        return ['.wav', '.mp3', '.ogg', '.flac', '.aif', '.aiff', '.m4a', '.aac'].includes(ext);
+      });
+
+      let insertedCount = 0;
+      const registeredSamples: any[] = [];
+
+      for (const obj of audioObjects) {
+        const rawFileName = path.basename(obj.key);
+        const withoutTimestamp = rawFileName.replace(/^\d+_[a-z0-9]+_/, '');
+        const cleanTitle = withoutTimestamp
+          .replace(/__Source_\.wav$/i, '')
+          .replace(/\.wav__Source_\.wav$/i, '')
+          .replace(/__Source_$/i, '')
+          .replace(/ \((Source|Raw Audio|Custom Audio)\)\.wav$/i, '')
+          .replace(/ \((Source|Raw Audio|Custom Audio)\)$/i, '');
+
+        try {
+          const newSample = await createSample({
+            userId: 'system',
+            title: cleanTitle || rawFileName,
+            url: obj.key,
+            isPublic: true,
+            isFactory: false,
+          });
+          insertedCount++;
+          registeredSamples.push(newSample);
+        } catch (dbErr: any) {
+          console.warn(`[Sync S3 to DB] Notice for key "${obj.key}":`, dbErr?.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        totalS3Objects: listResult.objects.length,
+        audioObjectsCount: audioObjects.length,
+        insertedCount,
+        registeredSamples,
+      });
+    } catch (err: any) {
+      console.error('Sync S3 to DB error:', err);
+      res.status(500).json({ error: err.message || 'Failed to sync S3 bucket to database' });
     }
   });
 
@@ -769,7 +827,11 @@ export function createApp() {
 
       const sampleUrl = req.body?.url || deleted.url;
       if (sampleUrl) {
-        await deleteStorageAsset(sampleUrl);
+        try {
+          await deleteStorageAsset(sampleUrl);
+        } catch (storageErr) {
+          console.warn(`[Sample Delete] Storage cleanup warning for ${sampleUrl}:`, storageErr);
+        }
       }
 
       res.json({ success: true, deletedSample: deleted });

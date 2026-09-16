@@ -82,6 +82,7 @@ const App: React.FC = () => {
     const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [projectName, setProjectName] = useState("My Groove");
+    const [expandedDrawer, setExpandedDrawer] = useState<'effects' | 'slices' | 'engine' | 'macros' | null>(null);
 
     // Hidden input for File Menu triggers
     const presetInputRef = useRef<HTMLInputElement>(null);
@@ -256,8 +257,8 @@ const App: React.FC = () => {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        {/* Top Pro Transport Bar */}
-                        <div className="w-full">
+                        {/* Top Pro Transport Bar & Active Studio Drawer */}
+                        <div className="w-full space-y-3">
                             <Transport 
                                 isPlaying={isPlaying}
                                 isLooping={sequencer.isLooping}
@@ -275,7 +276,50 @@ const App: React.FC = () => {
                                 onMidiConfigChange={updateMidiConfig}
                                 metronomeConfig={metronomeConfig}
                                 onMetronomeConfigChange={updateMetronomeConfig}
+                                expandedDrawer={expandedDrawer}
+                                onExpandedDrawerChange={setExpandedDrawer}
+                                slicesCount={slices.length}
+                                selectedSliceId={selectedSliceIndex !== null ? slices[selectedSliceIndex]?.id : null}
+                                activeEffectsCount={
+                                    (params.compressor?.isActive ? 1 : 0) +
+                                    (params.distortion?.isActive ? 1 : 0) +
+                                    (params.bitCrusher?.isActive ? 1 : 0) +
+                                    (params.filter?.isActive ? 1 : 0) +
+                                    (params.delay?.isActive ? 1 : 0) +
+                                    (params.reverb?.isActive ? 1 : 0)
+                                }
                             />
+
+                            {expandedDrawer && (
+                                <div className="bg-[#0c0f16]/95 p-4 rounded-xl border border-white/10 shadow-2xl relative animate-in fade-in slide-in-from-top-3 duration-300">
+                                    <div className="absolute top-3 right-3 z-10">
+                                        <button
+                                            onClick={() => setExpandedDrawer(null)}
+                                            className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-star-dust/60 hover:text-white hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-1"
+                                        >
+                                            <span>✕</span>
+                                            <span>Close Drawer</span>
+                                        </button>
+                                    </div>
+                                    <ControlPanel
+                                        params={params}
+                                        onParamChange={handleParamChange}
+                                        onEffectParamChange={handleEffectParamChange}
+                                        disabled={!audioBuffer || isLoading}
+                                        slices={slices}
+                                        selectedSliceIndex={selectedSliceIndex}
+                                        onSliceUpdate={updateSlice}
+                                        onPlaySlice={playSliceRaw}
+                                        onLoopSlice={toggleSliceLoop}
+                                        sliceLoopState={sliceLoopState}
+                                        audioBuffer={audioBuffer}
+                                        isProMode={true}
+                                        onLoadImpulseResponse={loadImpulseResponse}
+                                        visibleSections={[expandedDrawer]}
+                                        generateAiBeat={generateAiBeat}
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {/* Waveform Display & Slice Visualizer */}
@@ -299,46 +343,46 @@ const App: React.FC = () => {
                                 isProMode={true}
                                 onUploadClick={() => audioInputRef.current?.click()}
                                 onOpenLibrary={() => setIsLibraryOpen(true)}
-                            />
-                        </div>
-
-                        {/* Step Sequencer */}
-                        <div className="w-full">
-                            <Sequencer 
-                                sequencer={sequencer}
-                                onStepChange={updateSequencerStep}
-                                onModeChange={setSequencerMode}
-                                onStepCountChange={setSequencerStepCount}
-                                onRandomize={randomizePattern}
-                                onEditModeToggle={setSequencerEditMode}
-                                onPlaybackBehaviorChange={setSequencerPlaybackBehavior}
-                                disabled={!audioBuffer || isLoading}
-                                selectedSliceIndex={selectedSliceIndex}
-                                isProMode={true}
-                                slices={slices}
-                            />
-                        </div>
-                        
-                        {/* AI Pattern Studio (Main Feature) & Collapsible Studio Drawers */}
-                        <div className="w-full">
-                            <ControlPanel
-                                params={params}
-                                onParamChange={handleParamChange}
-                                onEffectParamChange={handleEffectParamChange}
-                                disabled={!audioBuffer || isLoading}
-                                generateAiBeat={generateAiBeat}
-                                generateAiPattern={generateAiPattern}
-                                slices={slices}
-                                selectedSliceIndex={selectedSliceIndex}
-                                onSliceUpdate={updateSlice}
-                                onPlaySlice={playSliceRaw}
-                                onLoopSlice={toggleSliceLoop}
-                                sliceLoopState={sliceLoopState}
-                                audioBuffer={audioBuffer}
-                                isProMode={true}
-                                onLoadImpulseResponse={loadImpulseResponse}
-                            />
-                        </div>
+                             />
+                         </div>
+ 
+                         {/* Step Sequencer */}
+                         <div className="w-full">
+                             <Sequencer 
+                                 sequencer={sequencer}
+                                 onStepChange={updateSequencerStep}
+                                 onModeChange={setSequencerMode}
+                                 onStepCountChange={setSequencerStepCount}
+                                 onRandomize={randomizePattern}
+                                 onEditModeToggle={setSequencerEditMode}
+                                 onPlaybackBehaviorChange={setSequencerPlaybackBehavior}
+                                 disabled={!audioBuffer || isLoading}
+                                 selectedSliceIndex={selectedSliceIndex}
+                                 isProMode={true}
+                                 slices={slices}
+                             />
+                         </div>
+                         
+                         {/* AI Pattern Studio (Main Feature) */}
+                         <div className="w-full">
+                             <ControlPanel
+                                 params={params}
+                                 onParamChange={handleParamChange}
+                                 onEffectParamChange={handleEffectParamChange}
+                                 disabled={!audioBuffer || isLoading}
+                                 generateAiBeat={generateAiBeat}
+                                 generateAiPattern={generateAiPattern}
+                                 slices={slices}
+                                 selectedSliceIndex={selectedSliceIndex}
+                                 onSliceUpdate={updateSlice}
+                                 onPlaySlice={playSliceRaw}
+                                 onLoopSlice={toggleSliceLoop}
+                                 sliceLoopState={sliceLoopState}
+                                 audioBuffer={audioBuffer}
+                                 isProMode={true}
+                                 onLoadImpulseResponse={loadImpulseResponse}
+                             />
+                         </div>
                     </div>
                 )}
             </div>

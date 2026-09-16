@@ -255,15 +255,27 @@ export interface S3ObjectItem {
   url: string;
 }
 
+export interface S3ListResult {
+  success: boolean;
+  count: number;
+  objects: S3ObjectItem[];
+  error?: string;
+  errorName?: string;
+  statusCode?: number;
+  bucket?: string;
+  region?: string;
+}
+
 /**
- * Lists all objects stored in the S3 / Neon storage bucket.
+ * Lists all objects stored in the S3 / Neon storage bucket with full error diagnostics.
  */
-export async function listS3Objects(prefix: string = '', maxKeys: number = 200): Promise<S3ObjectItem[]> {
-  if (!isS3Configured()) return [];
+export async function listS3ObjectsWithDetails(prefix: string = '', maxKeys: number = 200): Promise<S3ListResult> {
+  if (!isS3Configured()) {
+    return { success: false, count: 0, objects: [], error: 'S3 credentials not configured' };
+  }
+  const config = getS3Config();
   try {
     const s3 = getS3Client();
-    const config = getS3Config();
-
     const command = new ListObjectsV2Command({
       Bucket: config.bucket!,
       Prefix: prefix || undefined,
@@ -271,11 +283,8 @@ export async function listS3Objects(prefix: string = '', maxKeys: number = 200):
     });
 
     const response = await s3.send(command);
-    if (!response.Contents || response.Contents.length === 0) {
-      return [];
-    }
-
-    return response.Contents.map((obj) => {
+    const contents = response.Contents || [];
+    const objects = contents.map((obj) => {
       const key = obj.Key || '';
       let url = `/api/storage/stream?key=${encodeURIComponent(key)}`;
       if (config.publicBaseUrl) {
@@ -289,10 +298,38 @@ export async function listS3Objects(prefix: string = '', maxKeys: number = 200):
         url,
       };
     });
-  } catch (error) {
-    console.error('[S3] Failed to list objects:', error);
-    return [];
+
+    console.log(`[S3 List] Successfully listed ${objects.length} objects from bucket "${config.bucket}" (prefix: "${prefix}")`);
+    return {
+      success: true,
+      count: objects.length,
+      objects,
+      bucket: config.bucket,
+      region: config.region,
+    };
+  } catch (error: any) {
+    const errorName = error?.name || error?.code || 'UnknownError';
+    const statusCode = error?.$metadata?.httpStatusCode;
+    console.error(`[S3 List Error] Failed to list bucket "${config.bucket}":`, error?.message || error, `(Code: ${errorName}, HTTP ${statusCode})`);
+    return {
+      success: false,
+      count: 0,
+      objects: [],
+      error: error?.message || String(error),
+      errorName,
+      statusCode,
+      bucket: config.bucket,
+      region: config.region,
+    };
   }
+}
+
+/**
+ * Lists all objects stored in the S3 / Neon storage bucket.
+ */
+export async function listS3Objects(prefix: string = '', maxKeys: number = 200): Promise<S3ObjectItem[]> {
+  const result = await listS3ObjectsWithDetails(prefix, maxKeys);
+  return result.objects;
 }
 
 /**
@@ -364,6 +401,19 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
   const config = getS3Config();
   const filename = path.basename(rawKey);
 
+  // Clean filename removing timestamps (e.g. 1789474704436_51h6gu_) and Source suffixes
+  const withoutTimestamp = filename.replace(/^\d+_[a-z0-9]+_/, '');
+  const cleanBaseName = withoutTimestamp
+    .replace(/__Source_\.wav$/i, '')
+    .replace(/\.wav__Source_\.wav$/i, '')
+    .replace(/__Source_$/i, '')
+    .replace(/ \((Source|Raw Audio|Custom Audio)\)\.wav$/i, '')
+    .replace(/ \((Source|Raw Audio|Custom Audio)\)$/i, '');
+  
+  const cleanWithWav = cleanBaseName.endsWith('.wav') || cleanBaseName.endsWith('.mp3') || cleanBaseName.endsWith('.ogg')
+    ? cleanBaseName
+    : `${cleanBaseName}.wav`;
+
   const normalizedKey = rawKey
     .replace(/^api\//, '')
     .replace(/^uploads\//, '')
@@ -385,16 +435,21 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
 
   const candidateKeys = Array.from(new Set([
     rawKey,
+    `samples/${filename}`,
+    `samples/${withoutTimestamp}`,
+    `samples/${cleanWithWav}`,
+    `samples/${cleanBaseName}`,
     normalizedKey,
+    `samples/${normalizedKey}`,
+    cleanWithWav,
+    filename,
+    withoutTimestamp,
     factorySubpath ? `samples/${factorySubpath}` : '',
     `samples/${withoutAudioAssets}`,
-    `samples/${normalizedKey}`,
     `factory/${withoutAudioAssets}`,
     `uploads/${normalizedKey}`,
     `Audio/${normalizedKey}`,
-    `samples/${filename}`,
     `uploads/${filename}`,
-    filename,
   ].filter(Boolean)));
 
   for (const candidateKey of candidateKeys) {
@@ -409,6 +464,7 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
         const byteArray = await response.Body.transformToByteArray();
         const ext = path.extname(candidateKey).toLowerCase();
         const defaultType = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
+        console.log(`[S3 Storage] Successfully matched candidate key "${candidateKey}" (${byteArray.length} bytes)`);
         return {
           buffer: Buffer.from(byteArray),
           contentType: response.ContentType || defaultType,
@@ -419,6 +475,38 @@ export async function getObjectBufferFromS3(keyOrUrl: string): Promise<{ buffer:
         console.warn(`[S3 Storage DBG] Candidate key "${candidateKey}" error: ${error?.name || error?.code || error?.message || error} (Status: ${error?.$metadata?.httpStatusCode || 'N/A'})`);
       }
     }
+  }
+
+  // Smart S3 bucket fallback search: If candidates fail, list S3 objects to match by substring
+  try {
+    const listResult = await listS3ObjectsWithDetails('samples/', 50);
+    if (listResult.success && listResult.objects.length > 0) {
+      const searchTarget = cleanBaseName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const match = listResult.objects.find((o) => {
+        const itemClean = path.basename(o.key).toLowerCase().replace(/[^a-z0-9]/g, '');
+        return itemClean.includes(searchTarget) || searchTarget.includes(itemClean);
+      }) || (listResult.objects.length <= 2 ? listResult.objects[0] : null);
+
+      if (match) {
+        console.log(`[S3 Storage Fallback] Matched S3 file "${match.key}" for query "${keyOrUrl}"`);
+        const command = new GetObjectCommand({
+          Bucket: config.bucket!,
+          Key: match.key,
+        });
+        const response = await s3.send(command);
+        if (response.Body) {
+          const byteArray = await response.Body.transformToByteArray();
+          const ext = path.extname(match.key).toLowerCase();
+          const defaultType = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/wav';
+          return {
+            buffer: Buffer.from(byteArray),
+            contentType: response.ContentType || defaultType,
+          };
+        }
+      }
+    }
+  } catch (searchErr) {
+    console.warn('[S3 Storage Fallback] S3 search error:', searchErr);
   }
 
   return null;

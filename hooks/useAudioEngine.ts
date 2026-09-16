@@ -1263,20 +1263,56 @@ export const useAudioEngine = () => {
           logDbg('S3_CHECK', `Storage Configured: ${data.configured ? 'YES (Active)' : 'NO (Disk Fallback)'}, Bucket: "${data.bucket || 'N/A'}", Region: "${data.region || 'N/A'}"`, data.configured ? 'success' : 'warn');
           
           if (data.configured) {
-              logDbg('S3_CHECK', 'Querying /api/storage/objects...', 'info');
+              logDbg('S3_CHECK', 'Listing S3 objects with prefix ""...', 'info');
               const objRes = await fetch('/api/storage/objects?limit=50');
               const objData = await objRes.json();
               if (objData.success && Array.isArray(objData.objects)) {
-                  logDbg('S3_CHECK', `Found ${objData.count || objData.objects.length} objects stored in bucket "${data.bucket}"`, 'success');
-                  objData.objects.slice(0, 5).forEach((o: any) => {
-                      logDbg('S3_OBJECT', `Key: "${o.key}" (${(o.size / 1024).toFixed(1)} KB)`, 'info');
-                  });
+                  logDbg('S3_CHECK', `Found ${objData.count || objData.objects.length} objects in bucket "${data.bucket}"`, objData.count > 0 ? 'success' : 'warn');
+                  if (objData.objects.length === 0) {
+                      // Try querying samples/ prefix specifically as fallback
+                      logDbg('S3_CHECK', 'Testing prefix "samples/" explicitly...', 'info');
+                      const samplePrefRes = await fetch('/api/storage/objects?prefix=samples/&limit=50');
+                      const samplePrefData = await samplePrefRes.json();
+                      if (samplePrefData.success && samplePrefData.objects.length > 0) {
+                          logDbg('S3_CHECK', `Found ${samplePrefData.objects.length} objects under "samples/" prefix!`, 'success');
+                          samplePrefData.objects.forEach((o: any) => {
+                              logDbg('S3_OBJECT', `Key: "${o.key}" (${(o.size / 1024).toFixed(1)} KB)`, 'info');
+                          });
+                      } else {
+                          logDbg('S3_CHECK', 'Prefix "samples/" returned 0 objects or was restricted', 'info');
+                      }
+                  } else {
+                      objData.objects.forEach((o: any) => {
+                          logDbg('S3_OBJECT', `Key: "${o.key}" (${(o.size / 1024).toFixed(1)} KB)`, 'info');
+                      });
+                  }
               } else {
-                  logDbg('S3_CHECK', `Failed to list S3 objects: ${objData.error || 'Unknown error'}`, 'error');
+                  logDbg('S3_CHECK', `S3 List error (Code: ${objData.errorName || 'N/A'}, HTTP ${objData.statusCode || 'N/A'}): ${objData.error || 'Unknown error'}`, 'error');
               }
           }
       } catch (err: any) {
           logDbg('S3_CHECK', `Storage status check error: ${err?.message || err}`, 'error');
+      }
+  }, [logDbg]);
+
+  const syncS3BucketToDatabase = useCallback(async () => {
+      logDbg('S3_SYNC', 'Scanning and syncing S3 bucket audio files to Library database...', 'info');
+      try {
+          const res = await fetch('/api/storage/sync-s3-to-db', { method: 'POST' });
+          const data = await res.json();
+          if (data.success) {
+              logDbg('S3_SYNC', `Synced ${data.insertedCount} new samples to Library! Total audio files in S3: ${data.audioObjectsCount}`, 'success');
+              if (Array.isArray(data.registeredSamples) && data.registeredSamples.length > 0) {
+                  data.registeredSamples.forEach((s: any) => {
+                      logDbg('S3_SAMPLE', `Registered: "${s.title}" -> ${s.url}`, 'info');
+                  });
+              }
+              window.dispatchEvent(new CustomEvent('refresh-library'));
+          } else {
+              logDbg('S3_SYNC_FAIL', `Sync error: ${data.error || 'Unknown error'}`, 'error');
+          }
+      } catch (err: any) {
+          logDbg('S3_SYNC_FAIL', `Sync request failed: ${err?.message || err}`, 'error');
       }
   }, [logDbg]);
 
@@ -1898,6 +1934,7 @@ export const useAudioEngine = () => {
         reloadSyntheticSample,
         forceResumeAudio,
         checkS3Storage,
+        syncS3BucketToDatabase,
     },
     metronomeConfig,
     loadAudioFile, loadConstructionKit, togglePlay, updateParams, scrub, updateSequencerStep, setSequencerMode, setSequencerStepCount, setSequencerEditMode, setSequencerPlaybackBehavior, randomizePattern, generateAiBeat, generateAiPattern, selectSlice, toggleSliceActive, updateSlice, sliceRegion, autoSlice, exportPreset, importPreset, loadPreset, getAudioWav, getSourceAudio, togglePreviewOriginal, isPreviewPlaying, playSliceRaw, toggleSliceLoop, sliceLoopState, setTransportBpm, toggleLoop, stepForward, stepBackward, updateMidiConfig, updateMetronomeConfig,

@@ -21,6 +21,20 @@ function cleanEnv(val?: string): string {
   return str;
 }
 
+export function extractS3RegionFromError(error: any): string | null {
+  if (!error) return null;
+  const headers = error.$response?.headers || error.headers || error.$metadata?.headers;
+  if (headers && headers['x-amz-bucket-region']) {
+    return headers['x-amz-bucket-region'];
+  }
+  const message = String(error.message || '');
+  const match = message.match(/region[s]?[:\s]+['"]?([a-z0-9-]+)['"]?/i) || message.match(/should be sent to ['"]?([a-z0-9-]+)['"]?/i);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return null;
+}
+
 export function getS3Config() {
   const bucket =
     cleanEnv(process.env.STORAGE_BUCKET_NAME) ||
@@ -29,14 +43,7 @@ export function getS3Config() {
     cleanEnv(process.env.NEON_STORAGE_BUCKET) ||
     cleanEnv(process.env.AWS_S3_BUCKET_NAME) ||
     cleanEnv(process.env.AWS_BUCKET) ||
-    ['beat', 'slicer'].join('-');
-
-  const endpoint =
-    cleanEnv(process.env.ENDPOINT_URL_S3) ||
-    cleanEnv(process.env.STORAGE_ENDPOINT) ||
-    cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
-    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
-    '';
+    'beat-slicer';
 
   const accessKeyId =
     cleanEnv(process.env.ACCESS_KEY_ID) ||
@@ -54,10 +61,21 @@ export function getS3Config() {
     cleanEnv(process.env.AWS_SECRET_ACCESS_KEY) ||
     '';
 
+  let endpoint =
+    cleanEnv(process.env.ENDPOINT_URL_S3) ||
+    cleanEnv(process.env.STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.NEON_STORAGE_ENDPOINT) ||
+    cleanEnv(process.env.AWS_ENDPOINT_URL_S3) ||
+    '';
+
   let region =
     cleanEnv(process.env.REGION) ||
     cleanEnv(process.env.STORAGE_REGION) ||
     cleanEnv(process.env.NEON_STORAGE_REGION);
+
+  // AUTO-DETECTION ENGINE
+  const isNeon = accessKeyId.startsWith('nak_');
+  const isAWS = accessKeyId.startsWith('AKIA') || accessKeyId.startsWith('ASIA');
 
   // If region is not explicitly configured via custom non-prefixed variables,
   // try to parse it from the S3 endpoint to avoid AWS Lambda's internal AWS_REGION overriding it!
@@ -73,20 +91,40 @@ export function getS3Config() {
     region = cleanEnv(process.env.AWS_REGION) || ['us', 'east', '2'].join('-');
   }
 
+  // Configure endpoint & path style based on provider
+  let forcePathStyle = true;
+  if (isAWS) {
+    // Standard AWS S3 works best with virtual-hosted style (forcePathStyle = false)
+    forcePathStyle = false;
+    // Clear custom endpoints if set to non-AWS endpoints by mistake for standard S3
+    if (endpoint && !endpoint.includes('amazonaws.com')) {
+      endpoint = '';
+    }
+  } else if (isNeon) {
+    forcePathStyle = true;
+  } else {
+    // General fallback (R2, Backblaze, etc.)
+    forcePathStyle = true;
+  }
+
+  // Ensure custom endpoint contains protocol
+  if (endpoint && !endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
+    endpoint = `https://${endpoint}`;
+  }
+
   const publicBaseUrl =
     cleanEnv(process.env.STORAGE_PUBLIC_URL) ||
     cleanEnv(process.env.NEON_STORAGE_PUBLIC_URL);
-
-  const forcePathStyle = true;
 
   return {
     bucket,
     region,
     accessKeyId,
     secretAccessKey,
-    endpoint,
+    endpoint: endpoint || undefined,
     publicBaseUrl,
     forcePathStyle,
+    provider: isNeon ? 'neon' : isAWS ? 'aws' : 's3-compatible'
   };
 }
 
@@ -123,31 +161,43 @@ export async function uploadBufferToS3(
   key: string,
   contentType: string = 'audio/wav'
 ): Promise<{ url: string; key: string }> {
-  const s3 = getS3Client();
-  const config = getS3Config();
+  try {
+    const s3 = getS3Client();
+    const config = getS3Config();
 
-  if (!config.bucket) {
-    throw new Error('S3_BUCKET_NAME is not configured.');
+    if (!config.bucket) {
+      throw new Error('S3_BUCKET_NAME is not configured.');
+    }
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    });
+
+    await s3.send(command);
+
+    let publicUrl = '';
+    if (config.publicBaseUrl) {
+      publicUrl = `${config.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
+    } else {
+      // Default to proxy stream endpoint to guarantee CORS and prevent 403 Forbidden on private buckets
+      publicUrl = `/api/storage/stream?key=${encodeURIComponent(key)}`;
+    }
+
+    return { url: publicUrl, key };
+  } catch (error: any) {
+    const bucketRegion = extractS3RegionFromError(error);
+    const config = getS3Config();
+    if (bucketRegion && bucketRegion !== config.region) {
+      console.warn(`[S3 Auto-Detect] Bucket region mismatch on upload! Switched from "${config.region}" to "${bucketRegion}". Retrying upload...`);
+      process.env.STORAGE_REGION = bucketRegion;
+      s3ClientInstance = null; // force recreation of the client with the correct region
+      return uploadBufferToS3(buffer, key, contentType); // retry recursively once
+    }
+    throw error;
   }
-
-  const command = new PutObjectCommand({
-    Bucket: config.bucket,
-    Key: key,
-    Body: buffer,
-    ContentType: contentType,
-  });
-
-  await s3.send(command);
-
-  let publicUrl = '';
-  if (config.publicBaseUrl) {
-    publicUrl = `${config.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
-  } else {
-    // Default to proxy stream endpoint to guarantee CORS and prevent 403 Forbidden on private buckets
-    publicUrl = `/api/storage/stream?key=${encodeURIComponent(key)}`;
-  }
-
-  return { url: publicUrl, key };
 }
 
 /**
@@ -320,6 +370,15 @@ export async function listS3ObjectsWithDetails(prefix: string = '', maxKeys: num
       region: config.region,
     };
   } catch (error: any) {
+    const bucketRegion = extractS3RegionFromError(error);
+    const config = getS3Config();
+    if (bucketRegion && bucketRegion !== config.region) {
+      console.warn(`[S3 Auto-Detect] Bucket region mismatch on list! Switched from "${config.region}" to "${bucketRegion}". Retrying list...`);
+      process.env.STORAGE_REGION = bucketRegion;
+      s3ClientInstance = null; // force recreation of the client with the correct region
+      return listS3ObjectsWithDetails(prefix, maxKeys); // retry recursively once
+    }
+
     const errorName = error?.name || error?.code || 'UnknownError';
     const statusCode = error?.$metadata?.httpStatusCode;
     console.error(`[S3 List Error] Failed to list bucket "${config.bucket}":`, error?.message || error, `(Code: ${errorName}, HTTP ${statusCode})`);
